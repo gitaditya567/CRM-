@@ -1,0 +1,42 @@
+services:
+  # Backend Service
+  - type: web
+    name: inventory-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # This will countrol CORS. Set it to your frontend URL after deploying frontend.
+      - key: CLIENT_URL
+        sync: false 
+      # Optional: Override default admin credentials in production
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+
+  # Frontend Static Site
+  - type: static
+    name: inventory-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: dist
+    plan: free
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+    # Handle SPA routing (React Router)
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

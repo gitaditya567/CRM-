@@ -1,0 +1,46 @@
+# Nginx configuration for CRM Performance Optimization
+# Path: /etc/nginx/sites-enabled/crm
+
+server {
+    listen 80;
+    server_name your_domain.com; # Replace with your domain
+
+    location / {
+        proxy_pass http://localhost:5000; # Frontend
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # API and Socket.io configuration
+    location /api {
+        proxy_pass http://localhost:5001; # Backend
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Gzip compression for faster API responses
+        gzip on;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+        gzip_min_length 1000;
+    }
+
+    # Explicit Socket.io location for websocket transport
+    location /socket.io/ {
+        proxy_pass http://localhost:5001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        
+        # Disable buffering for real-time traffic
+        proxy_buffering off;
+        
+        # Socket.io specific headers
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules
+package-lock.json
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Build Outputs
+dist
+build
+coverage
+
+# IDE & OS Files
+.DS_Store
+.vscode
+.idea
+*.log
+
+# Temporary files
+scratch/

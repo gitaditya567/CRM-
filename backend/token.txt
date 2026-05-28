@@ -1,0 +1,16 @@
+Encoded Token:
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5NGZiYzkzZDlmMjA5ZWRjNzQ2NzE5MSIsInJvbGUiOiJzdGFmZiIsImlhdCI6MTc2NjgzMzI5OSwiZXhwIjoxNzY2OTE5Njk5fQ.mw_RW-XDBumSyGtwbuiqDjp8IcMd_YtHtDiPg2cxjt0
+
+Header:
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+
+Payload:
+{
+  "id": "694fbc93d9f209edc7467191",
+  "role": "staff",
+  "iat": 1766833299,
+  "exp": 1766919699
+}

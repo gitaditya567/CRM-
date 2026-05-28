@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250">
+  
+  <!-- ICON SECTION (Left) -->
+  <g transform="translate(110, 100) scale(2.0)">
+     <!-- 
+        The icon is a "Star of People". 
+        Center is (0,0).
+        5 points.
+        Colors: Orange, Grey, Blue, Orange, Blue.
+     -->
+
+     <!-- Figure 1 (Top / 12 o'clock) -> Orange -->
+     <g transform="rotate(0)">
+        <circle cx="0" cy="-28" r="4" fill="#e37222" />
+        <path d="M-5 -21 Q -12 -10 0 0 Q 12 -10 5 -21 Q 0 -15 -5 -21" fill="#e37222" />
+     </g>
+
+     <!-- Figure 2 (Top Right / ~72 deg) -> Grey -->
+     <g transform="rotate(72)">
+        <circle cx="0" cy="-28" r="4" fill="#8a8d8f" />
+        <path d="M-5 -21 Q -12 -10 0 0 Q 12 -10 5 -21 Q 0 -15 -5 -21" fill="#8a8d8f" />
+     </g>
+
+     <!-- Figure 3 (Bottom Right / ~144 deg) -> Blue -->
+     <g transform="rotate(144)">
+        <circle cx="0" cy="-28" r="4" fill="#0072bc" />
+        <path d="M-5 -21 Q -12 -10 0 0 Q 12 -10 5 -21 Q 0 -15 -5 -21" fill="#0072bc" />
+     </g>
+
+     <!-- Figure 4 (Bottom Left / ~216 deg) -> Orange -->
+     <g transform="rotate(216)">
+        <circle cx="0" cy="-28" r="4" fill="#e37222" />
+         <path d="M-5 -21 Q -12 -10 0 0 Q 12 -10 5 -21 Q 0 -15 -5 -21" fill="#e37222" />
+     </g>
+
+     <!-- Figure 5 (Top Left / ~288 deg) -> Blue -->
+     <g transform="rotate(288)">
+        <circle cx="0" cy="-28" r="4" fill="#0072bc" />
+        <path d="M-5 -21 Q -12 -10 0 0 Q 12 -10 5 -21 Q 0 -15 -5 -21" fill="#0072bc" />
+     </g>
+  </g>
+
+
+  <!-- TEXT SECTION (Right) -->
+  <g transform="translate(230, 60)">
+      
+      <!-- THE "T" LOGO MARK -->
+      <!-- Positioned where the 'T' in Team would be -->
+      <g transform="translate(15, 0)">
+          <!-- 1. The Head (Blue Circle) -->
+          <circle cx="28" cy="12" r="9" fill="#0072bc" />
+          
+          <!-- 2. The Shoulders/Arms (Orange Arc) -->
+          <!-- It looks like a serif T top, but curved slightly like arms -->
+          <path d="M0 45 Q 28 35 56 45 L 56 55 Q 28 45 0 55 Z" fill="#e37222" />
+          
+          <!-- 3. The Body/Legs (Two Grey Pillars) -->
+          <!-- Spaced slightly apart -->
+          <rect x="16" y="56" width="8" height="60" fill="#8a8d8f" />
+          <rect x="32" y="56" width="8" height="60" fill="#8a8d8f" />
+      </g>
+
+      <!-- The rest of the word "Team" -> "eam" -->
+      <!-- Font: Serif, bold-ish. Like Times New Roman or Constantia. Color: Blue -->
+      <text x="80" y="115" font-family="'Times New Roman', serif" font-weight="normal" font-size="100" fill="#0072bc">eam</text>
+      
+      <!-- The word "Inspire" -->
+      <!-- Font: Serif. Color: Blue -->
+      <!-- The 'I' is just a normal serif I -->
+      <text x="245" y="115" font-family="'Times New Roman', serif" font-weight="normal" font-size="100" fill="#0072bc">Inspire</text>
+  </g>
+  
+  <!-- TAGLINE SECTION -->
+  <!-- "Elevate Your Kitchen Experience with Professional Gear" -->
+  <!-- Font: Sans-Serif (Arial). Color: Light Grey/White-ish. -->
+  <text x="240" y="160" font-family="Arial, sans-serif" font-size="20" fill="#999999" letter-spacing="0.5">Elevate Your Kitchen Experience with Professional Gear</text>
+
+</svg>

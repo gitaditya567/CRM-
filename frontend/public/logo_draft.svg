@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250">
+  <defs>
+    <!-- Define the single person figure for the swirl icon -->
+    <!-- Oriented upright (Top figure) -->
+    <g id="figure">
+       <!-- Head (Circle) -->
+       <circle cx="0" cy="-35" r="7" /> 
+       <!-- Body (Crescent/Swoosh) -->
+       <!-- Starts below head, curves left and down, then sharp tip pointing to center -->
+       <path d="M-5 -25 Q 15 -15 20 0 Q 15 20 -5 35 Q 5 15 0 0 Q -5 -15 -5 -25" transform="rotate(180) translate(0, -5)" /> 
+       <!-- Use a simpler crescent path that matches the image better -->
+       <!-- Head is at the outer tip of the path? No, head is separate. -->
+       <!-- The path looks like a ' ) ' shape relative to the center -->
+    </g>
+    
+    <!-- Revised Figure Path -->
+    <path id="swirl-body" d="M0 -22 Q 10 -15 12 0 Q 8 20 -5 25 Q 2 10 0 0 Q -2 -15 0 -22 Z" />
+    <!-- Let's try drawing one curve and rotating it -->
+  </defs>
+
+  <!-- ICON SECTION (Left) -->
+  <g transform="translate(100, 100) scale(1.6)">
+     <!-- 5 Figures distributed around circle -->
+     <!-- Top (Orange) -->
+     <g transform="rotate(0) translate(0, -40)">
+        <circle cx="0" cy="0" r="6" fill="#e67e22" />
+        <path d="M-6 8 Q -15 25 0 45 Q 8 25 5 10 L 0 5 Z" fill="#e67e22" transform="rotate(15)" /> 
+        <!-- Let's do a manual path for the body that looks like the image -->
+        <!-- Image: Body is an arc. Head is dot. -->
+        <!-- Center of group is center of star. -->
+     </g>
+  </g>
+  
+  <!-- Clearing previous attempt. Building new exact paths. -->
+  
+  <!-- ICON Group -->
+  <g transform="translate(100, 90) scale(1.5)">
+      <!-- 
+         Orientation:
+         1. Top: Orange
+         2. Top-Right: Grey
+         3. Low-Right: Blue
+         4. Low-Left: Orange
+         5. Top-Left: Blue
+      -->
+      
+      <!-- Common Path for Body: A swoosh starting from near center, curving out towards the head -->
+      <defs>
+          <path id="swoosh" d="M -5 -10 Q -20 -30 0 -45 Q 15 -30 18 -10 Q 5 -20 -5 -10 Z" />
+          <!-- Start near center (0,0 is center of star) -->
+          <!-- Head is at radius R -->
+          <!-- Body connects roughly center to near head -->
+          
+          <!-- Better Path based on visual -->
+          <!-- It's like a person jumping, seen from 5 angles -->
+          <!-- Head is outward. Arms/Legs swirl inward. -->
+          <g id="person-p">
+             <circle cx="0" cy="-45" r="6" />
+             <!-- Body -->
+             <path d="M -8 -32 Q 0 -20 8 -32 C 20 -5 5 5 0 5 C -5 5 -20 -5 -8 -32" />
+          </g>
+      </defs>
+
+      <!-- 1. Top - Orange -->
+      <g transform="rotate(0)">
+         <circle cx="0" cy="-40" r="5" fill="#e67e22" />
+         <!-- Body Swirl -->
+         <path d="M0 -30 Q 15 -25 20 -5 Q 10 -15 0 -15 Q -10 -15 -20 -5 Q -15 -25 0 -30" fill="#e67e22" />
+      </g>
+      
+  </g>
+</svg>
