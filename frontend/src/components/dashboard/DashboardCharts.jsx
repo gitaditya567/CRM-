@@ -19,6 +19,7 @@ const STATUS_COLORS = {
     "rejected": "#ef4444",   // Crimson Red for Rejected
     "lost": "#ef4444",       // Crimson Red for Lost
     "expired": "#f59e0b",    // Amber/Gold for Expired
+    "quotation submitted": "#3b82f6", // Blue for Quotation Submitted
 };
 
 const getStatusColor = (name, index) => {
@@ -30,12 +31,13 @@ const getStatusColor = (name, index) => {
 const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
+        const displayValue = data.value < 1 ? 0 : Math.round(data.value);
         return (
             <div className="bg-gray-900/95 dark:bg-gray-950/95 text-white px-4 py-3 rounded-xl border border-gray-800 shadow-2xl space-y-1.5 text-xs font-semibold backdrop-blur-md">
                 <p className="text-gray-400 uppercase tracking-wider text-[9px] font-bold">{data.name}</p>
                 <div className="flex justify-between gap-6 border-b border-gray-800 pb-1.5">
                     <span className="text-gray-300">Total Count:</span>
-                    <span className="text-teal-400 font-bold">{data.value} {data.value === 1 ? "Quote" : "Quotes"}</span>
+                    <span className="text-teal-400 font-bold">{displayValue} {displayValue === 1 ? "Quote" : "Quotes"}</span>
                 </div>
                 <div className="flex justify-between gap-6 pt-0.5">
                     <span className="text-gray-300">Total Value:</span>
@@ -48,13 +50,43 @@ const CustomTooltip = ({ active, payload }) => {
 };
 
 const DashboardCharts = ({ leadData, salesData }) => {
-    // Calculate conversion rate dynamically (Won/Accepted vs Total)
-    const totalQuotes = salesData ? salesData.reduce((acc, curr) => acc + curr.value, 0) : 0;
-    const wonQuotes = salesData ? salesData.filter(item => {
-        const name = String(item.name || "").toLowerCase().trim();
-        return name === "won" || name === "accepted";
-    }).reduce((acc, curr) => acc + curr.value, 0) : 0;
-    const conversionRate = totalQuotes > 0 ? Math.round((wonQuotes / totalQuotes) * 100) : 0;
+    // Map existing salesData statuses (Draft, Sent, Accepted, Rejected) into Submitted, Won, Lost
+    const pipelineData = React.useMemo(() => {
+        if (!salesData) return [];
+        
+        let submittedCount = 0;
+        let submittedAmount = 0;
+        
+        let wonCount = 0;
+        let wonAmount = 0;
+        
+        let lostCount = 0;
+        let lostAmount = 0;
+        
+        salesData.forEach(item => {
+            const statusKey = String(item.name || "").toLowerCase().trim();
+            if (statusKey === "quotation submitted") {
+                submittedCount += item.value || 0;
+                submittedAmount += item.amount || 0;
+            } else if (statusKey === "won") {
+                wonCount += item.value || 0;
+                wonAmount += item.amount || 0;
+            } else if (statusKey === "lost") {
+                lostCount += item.value || 0;
+                lostAmount += item.amount || 0;
+            }
+        });
+        
+        return [
+            { name: "Quotation Submitted", value: submittedCount || 1e-10, amount: submittedAmount },
+            { name: "Won", value: wonCount || 1e-10, amount: wonAmount },
+            { name: "Lost", value: lostCount || 1e-10, amount: lostAmount }
+        ];
+    }, [salesData]);
+
+    const activeTotalQuotes = pipelineData.reduce((acc, curr) => acc + (curr.value >= 1 ? curr.value : 0), 0);
+    const activeWonQuotes = pipelineData.find(item => item.name === "Won")?.value || 0;
+    const conversionRate = activeTotalQuotes > 0 ? Math.round(((activeWonQuotes >= 1 ? activeWonQuotes : 0) / activeTotalQuotes) * 100) : 0;
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -96,14 +128,14 @@ const DashboardCharts = ({ leadData, salesData }) => {
             >
                 <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Quotation Pipeline</h3>
                 <div className="h-[300px] w-full flex items-center justify-center relative">
-                    {(!salesData || salesData.length === 0) ? (
+                    {activeTotalQuotes === 0 ? (
                         <div className="text-gray-400 italic text-sm">No pipeline data available</div>
                     ) : (
                         <>
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
-                                        data={salesData}
+                                        data={pipelineData}
                                         cx="50%"
                                         cy="45%"
                                         innerRadius={60}
@@ -111,7 +143,7 @@ const DashboardCharts = ({ leadData, salesData }) => {
                                         paddingAngle={5}
                                         dataKey="value"
                                     >
-                                        {salesData.map((entry, index) => (
+                                        {pipelineData.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={getStatusColor(entry.name, index)} />
                                         ))}
                                     </Pie>
@@ -121,6 +153,11 @@ const DashboardCharts = ({ leadData, salesData }) => {
                                         height={36}
                                         iconType="circle"
                                         tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                        formatter={(value, entry) => {
+                                            const rawVal = entry.payload?.value || 0;
+                                            const count = rawVal < 1 ? 0 : Math.round(rawVal);
+                                            return <span className="text-gray-700 dark:text-gray-300 font-bold ml-1">{value} ({count})</span>;
+                                        }}
                                     />
                                 </PieChart>
                             </ResponsiveContainer>

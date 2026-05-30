@@ -437,7 +437,24 @@ const QuotationTableView = React.memo(({
                                                         const blob = new Blob([response.data], { type: 'application/pdf' });
                                                         const link = document.createElement('a');
                                                         link.href = window.URL.createObjectURL(blob);
-                                                        link.download = `Quotation_${q.quotationNumber}.pdf`;
+                                                        
+                                                        // Custom filename format: ClientName(firstWord)_City_DocNumber.pdf
+                                                        const clientName = q.billTo?.name || q.lead?.name || "Client";
+                                                        const firstWord = clientName.trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9_-]/g, "");
+                                                        
+                                                        let city = "";
+                                                        if (q.billTo?.address) {
+                                                            const parts = q.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
+                                                            if (parts.length >= 3) {
+                                                                city = parts[parts.length - 3];
+                                                            } else if (parts.length > 0) {
+                                                                city = parts[0];
+                                                            }
+                                                        }
+                                                        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
+                                                        const safeDocNumber = q.quotationNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+                                                        
+                                                        link.download = `${firstWord}_${safeCity}_${safeDocNumber}.pdf`;
                                                         link.click();
                                                         window.URL.revokeObjectURL(link.href);
                                                     } catch (err) {
@@ -960,6 +977,29 @@ const TeamInspire = () => {
         searchClientAllotment: ""
     });
 
+    const prevFiltersRef = React.useRef({
+        searchLeadQuery: "",
+        searchMyLeadQuery: "",
+        searchClientQuery: "",
+        searchQuotationQuery: "",
+        searchProformaQuery: "",
+        searchGroupQuery: "",
+        leadFilterType: "all",
+        staffFilter: "all",
+        leadStatusFilter: "all",
+        leadStartDate: "",
+        leadEndDate: "",
+        myLeadsFilterType: "all",
+        myLeadsStaffFilter: "all",
+        myLeadsStatusFilter: "all",
+        myLeadsStartDate: "",
+        myLeadsEndDate: "",
+        searchClientGroup: "",
+        searchClientAllotment: "",
+        quotationStaffFilter: "all",
+        proformaStaffFilter: "all",
+    });
+
     // Update filtersRef in real-time as state variables change
     useEffect(() => {
         filtersRef.current = {
@@ -1149,103 +1189,6 @@ const TeamInspire = () => {
         }
     }, []);
 
-    useEffect(() => {
-        const urlParams = new URLSearchParams(location.search);
-        const tab = urlParams.get("tab");
-        
-        if (tab) {
-            setActiveTab(tab);
-        } else if (location.pathname === '/leads') {
-            setActiveTab('leads');
-        }
-    }, [location.search, location.pathname]);
-
-    const [fetchedTabs, setFetchedTabs] = useState(new Set());
-
-    // Data fetching on tab change - Optimized to avoid redundant fetches
-    useEffect(() => {
-        if (activeTab && !fetchedTabs.has(activeTab)) {
-            fetchData(1, activeTab);
-            setFetchedTabs(prev => new Set(prev).add(activeTab));
-        }
-    }, [activeTab, fetchedTabs, fetchData]);
-
-    // Debounced search for leads
-    useEffect(() => {
-        if (activeTab !== 'leads') return;
-        const delayDebounceFn = setTimeout(() => {
-            if (fetchedTabs.has('leads')) fetchData(1, 'leads');
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchLeadQuery, activeTab, fetchData, fetchedTabs]);
-
-    // Debounced search for my_leads
-    useEffect(() => {
-        if (activeTab !== 'my_leads') return;
-        const delayDebounceFn = setTimeout(() => {
-            if (fetchedTabs.has('my_leads')) fetchData(1, 'my_leads');
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchMyLeadQuery, activeTab, fetchData, fetchedTabs]);
-
-    // Debounced search for clients
-    useEffect(() => {
-        if (activeTab !== 'clients') return;
-        const delayDebounceFn = setTimeout(() => {
-            if (fetchedTabs.has('clients')) fetchData(1, 'clients');
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchClientQuery, activeTab, fetchData, fetchedTabs]);
-
-    // Re-fetch clients when filters change
-    useEffect(() => {
-        if (activeTab === 'clients' && fetchedTabs.has('clients')) {
-            fetchData(1, 'clients');
-        }
-    }, [searchClientGroup, searchClientAllotment, activeTab, fetchData, fetchedTabs]);
-
-    // Debounced search for quotations
-    useEffect(() => {
-        if (activeTab !== 'quotations') return;
-        const delayDebounceFn = setTimeout(() => {
-            if (fetchedTabs.has('quotations')) fetchData(1, 'quotations');
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchQuotationQuery, activeTab, fetchData, fetchedTabs]);
-
-    // Re-fetch quotations when staff filter changes
-    useEffect(() => {
-        if (activeTab === 'quotations' && fetchedTabs.has('quotations')) {
-            fetchData(1, 'quotations');
-        }
-    }, [quotationStaffFilter, activeTab, fetchData, fetchedTabs]);
-
-    // Debounced search for proformas
-    useEffect(() => {
-        if (activeTab !== 'proformas') return;
-        const delayDebounceFn = setTimeout(() => {
-            if (fetchedTabs.has('proformas')) fetchData(1, 'proformas');
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchProformaQuery, activeTab, fetchData, fetchedTabs]);
-
-    // Re-fetch proformas when staff filter changes
-    useEffect(() => {
-        if (activeTab === 'proformas' && fetchedTabs.has('proformas')) {
-            fetchData(1, 'proformas');
-        }
-    }, [proformaStaffFilter, activeTab, fetchData, fetchedTabs]);
-
-    // Debounced search for groups
-    useEffect(() => {
-        if (activeTab !== 'groups') return;
-        const delayDebounceFn = setTimeout(() => {
-            // Re-fetch metadata with search
-            fetchMetadata(searchGroupQuery);
-        }, 500);
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchGroupQuery, activeTab]);
-
     const fetchMetadata = useCallback(async (search = "") => {
         metadataRequestCounterRef.current = (metadataRequestCounterRef.current || 0) + 1;
         const currentMetadataId = metadataRequestCounterRef.current;
@@ -1270,19 +1213,170 @@ const TeamInspire = () => {
         }
     }, []);
 
+    useEffect(() => {
+        const urlParams = new URLSearchParams(location.search);
+        const tab = urlParams.get("tab");
+        
+        if (tab) {
+            setActiveTab(tab);
+        } else if (location.pathname === '/leads') {
+            setActiveTab('leads');
+        }
+    }, [location.search, location.pathname]);
+
+    const [fetchedTabs, setFetchedTabs] = useState(new Set());
+
+    // Data fetching on tab change - Optimized to avoid redundant fetches
+    useEffect(() => {
+        if (activeTab && !fetchedTabs.has(activeTab)) {
+            fetchData(1, activeTab);
+            setFetchedTabs(prev => new Set(prev).add(activeTab));
+        }
+    }, [activeTab, fetchedTabs, fetchData]);
+
+    // Debounced search for leads
+    useEffect(() => {
+        if (activeTab !== 'leads') return;
+        if (prevFiltersRef.current.searchLeadQuery === searchLeadQuery) return;
+        prevFiltersRef.current.searchLeadQuery = searchLeadQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            fetchData(1, 'leads');
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchLeadQuery, activeTab, fetchData]);
+
+    // Debounced search for my_leads
+    useEffect(() => {
+        if (activeTab !== 'my_leads') return;
+        if (prevFiltersRef.current.searchMyLeadQuery === searchMyLeadQuery) return;
+        prevFiltersRef.current.searchMyLeadQuery = searchMyLeadQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            fetchData(1, 'my_leads');
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchMyLeadQuery, activeTab, fetchData]);
+
+    // Debounced search for clients
+    useEffect(() => {
+        if (activeTab !== 'clients') return;
+        if (prevFiltersRef.current.searchClientQuery === searchClientQuery) return;
+        prevFiltersRef.current.searchClientQuery = searchClientQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            fetchData(1, 'clients');
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchClientQuery, activeTab, fetchData]);
+
+    // Re-fetch clients when filters change
+    useEffect(() => {
+        if (activeTab !== 'clients') return;
+        const groupChanged = prevFiltersRef.current.searchClientGroup !== searchClientGroup;
+        const allotmentChanged = prevFiltersRef.current.searchClientAllotment !== searchClientAllotment;
+        if (!groupChanged && !allotmentChanged) return;
+
+        prevFiltersRef.current.searchClientGroup = searchClientGroup;
+        prevFiltersRef.current.searchClientAllotment = searchClientAllotment;
+
+        fetchData(1, 'clients');
+    }, [searchClientGroup, searchClientAllotment, activeTab, fetchData]);
+
+    // Debounced search for quotations
+    useEffect(() => {
+        if (activeTab !== 'quotations') return;
+        if (prevFiltersRef.current.searchQuotationQuery === searchQuotationQuery) return;
+        prevFiltersRef.current.searchQuotationQuery = searchQuotationQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            fetchData(1, 'quotations');
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchQuotationQuery, activeTab, fetchData]);
+
+    // Re-fetch quotations when staff filter changes
+    useEffect(() => {
+        if (activeTab !== 'quotations') return;
+        if (prevFiltersRef.current.quotationStaffFilter === quotationStaffFilter) return;
+        prevFiltersRef.current.quotationStaffFilter = quotationStaffFilter;
+
+        fetchData(1, 'quotations');
+    }, [quotationStaffFilter, activeTab, fetchData]);
+
+    // Debounced search for proformas
+    useEffect(() => {
+        if (activeTab !== 'proformas') return;
+        if (prevFiltersRef.current.searchProformaQuery === searchProformaQuery) return;
+        prevFiltersRef.current.searchProformaQuery = searchProformaQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            fetchData(1, 'proformas');
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchProformaQuery, activeTab, fetchData]);
+
+    // Re-fetch proformas when staff filter changes
+    useEffect(() => {
+        if (activeTab !== 'proformas') return;
+        if (prevFiltersRef.current.proformaStaffFilter === proformaStaffFilter) return;
+        prevFiltersRef.current.proformaStaffFilter = proformaStaffFilter;
+
+        fetchData(1, 'proformas');
+    }, [proformaStaffFilter, activeTab, fetchData]);
+
+    // Debounced search for groups
+    useEffect(() => {
+        if (activeTab !== 'groups') return;
+        if (prevFiltersRef.current.searchGroupQuery === searchGroupQuery) return;
+        prevFiltersRef.current.searchGroupQuery = searchGroupQuery;
+
+        const delayDebounceFn = setTimeout(() => {
+            // Re-fetch metadata with search
+            fetchMetadata(searchGroupQuery);
+        }, 500);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchGroupQuery, activeTab, fetchMetadata]);
+
     // Re-fetch leads when leads filter changes
     useEffect(() => {
-        if (activeTab === 'leads' && fetchedTabs.has('leads')) {
-            fetchData(1, 'leads');
-        }
-    }, [leadFilterType, staffFilter, leadStatusFilter, leadStartDate, leadEndDate, activeTab, fetchData, fetchedTabs]);
+        if (activeTab !== 'leads') return;
+        const filterTypeChanged = prevFiltersRef.current.leadFilterType !== leadFilterType;
+        const staffChanged = prevFiltersRef.current.staffFilter !== staffFilter;
+        const statusChanged = prevFiltersRef.current.leadStatusFilter !== leadStatusFilter;
+        const startDateChanged = prevFiltersRef.current.leadStartDate !== leadStartDate;
+        const endDateChanged = prevFiltersRef.current.leadEndDate !== leadEndDate;
+
+        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged) return;
+
+        prevFiltersRef.current.leadFilterType = leadFilterType;
+        prevFiltersRef.current.staffFilter = staffFilter;
+        prevFiltersRef.current.leadStatusFilter = leadStatusFilter;
+        prevFiltersRef.current.leadStartDate = leadStartDate;
+        prevFiltersRef.current.leadEndDate = leadEndDate;
+
+        fetchData(1, 'leads');
+    }, [leadFilterType, staffFilter, leadStatusFilter, leadStartDate, leadEndDate, activeTab, fetchData]);
 
     // Re-fetch my_leads when my_leads filter changes
     useEffect(() => {
-        if (activeTab === 'my_leads' && fetchedTabs.has('my_leads')) {
-            fetchData(1, 'my_leads');
-        }
-    }, [myLeadsFilterType, myLeadsStaffFilter, myLeadsStatusFilter, myLeadsStartDate, myLeadsEndDate, activeTab, fetchData, fetchedTabs]);
+        if (activeTab !== 'my_leads') return;
+        const filterTypeChanged = prevFiltersRef.current.myLeadsFilterType !== myLeadsFilterType;
+        const staffChanged = prevFiltersRef.current.myLeadsStaffFilter !== myLeadsStaffFilter;
+        const statusChanged = prevFiltersRef.current.myLeadsStatusFilter !== myLeadsStatusFilter;
+        const startDateChanged = prevFiltersRef.current.myLeadsStartDate !== myLeadsStartDate;
+        const endDateChanged = prevFiltersRef.current.myLeadsEndDate !== myLeadsEndDate;
+
+        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged) return;
+
+        prevFiltersRef.current.myLeadsFilterType = myLeadsFilterType;
+        prevFiltersRef.current.myLeadsStaffFilter = myLeadsStaffFilter;
+        prevFiltersRef.current.myLeadsStatusFilter = myLeadsStatusFilter;
+        prevFiltersRef.current.myLeadsStartDate = myLeadsStartDate;
+        prevFiltersRef.current.myLeadsEndDate = myLeadsEndDate;
+
+        fetchData(1, 'my_leads');
+    }, [myLeadsFilterType, myLeadsStaffFilter, myLeadsStatusFilter, myLeadsStartDate, myLeadsEndDate, activeTab, fetchData]);
 
     useEffect(() => {
         console.log("DEBUG: Mount useEffect running in Leads.jsx");
@@ -2839,12 +2933,17 @@ const TeamInspire = () => {
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab)}
-                                    className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all ${activeTab === tab
+                                    className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all flex items-center gap-2 ${activeTab === tab
                                         ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-white shadow-sm"
                                         : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
                                         }`}
                                 >
-                                    {tab === "my_leads" ? "My Leads" : tab === "leads" ? "View All Leads" : tab === "clients" ? "View All Clients" : tab === "groups" ? "Manage Groups" : tab === "quotations" ? "Quotation Management" : tab === "proformas" ? "PI Management" : ""}
+                                    <span>
+                                        {tab === "my_leads" ? "My Leads" : tab === "leads" ? "View All Leads" : tab === "clients" ? "View All Clients" : tab === "groups" ? "Manage Groups" : tab === "quotations" ? "Quotation Management" : tab === "proformas" ? "PI Management" : ""}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${activeTab === tab ? "bg-blue-100 text-blue-600" : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"}`}>
+                                        {tab === "leads" ? totalLeads : tab === "clients" ? totalClients : tab === "groups" ? groups.length : tab === "quotations" ? totalQuotations : tab === "proformas" ? totalProformas : 0}
+                                    </span>
                                 </button>
                             ))}
                         </div>
@@ -2963,7 +3062,12 @@ const TeamInspire = () => {
                         <div className="animate-fade-in">
                             <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                                 <div className="space-y-1">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Client Portfolio</h3>
+                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                                        Client Portfolio
+                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                            {totalClients}
+                                        </span>
+                                    </h3>
                                     <p className="text-gray-500 dark:text-gray-400 font-medium">Manage and monitor all active business relationships.</p>
                                 </div>
                                 <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
@@ -3032,7 +3136,12 @@ const TeamInspire = () => {
                         <div className="animate-fade-in">
                             <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                                 <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Market Segmentation</h3>
+                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                                        Market Segmentation
+                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                            {groups.length}
+                                        </span>
+                                    </h3>
                                     <div className="flex items-center gap-2 text-gray-500 font-medium">
                                         <span className="w-2 h-2 bg-indigo-500 rounded-full"></span>
                                         Organize and categorize your leads by industry or region.
@@ -3072,7 +3181,12 @@ const TeamInspire = () => {
                         <div className="animate-fade-in">
                             <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                                 <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Proposal Management</h3>
+                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                                        Proposal Management
+                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                            {totalQuotations}
+                                        </span>
+                                    </h3>
                                     <div className="flex items-center gap-2 text-gray-500 font-medium">
                                         <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                                         Track and manage all issued commercial offers.
@@ -3138,7 +3252,12 @@ const TeamInspire = () => {
                         <div className="animate-fade-in">
                             <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
                                 <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">PI Management</h3>
+                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                                        PI Management
+                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                            {totalProformas}
+                                        </span>
+                                    </h3>
                                     <div className="flex items-center gap-2 text-gray-500 font-medium">
                                         <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></span>
                                         Track and manage all converted Proforma Invoices.
@@ -3299,8 +3418,8 @@ const TeamInspire = () => {
                                                 <option value="Contacted" disabled={isStatusDisabled(1)}>Contacted</option>
                                                 <option value="Qualified" disabled={isStatusDisabled(2)}>Qualified</option>
                                                 <option value="Quotation Submitted" disabled={isStatusDisabled(3)}>Quotation Submitted</option>
-                                                <option value="Won" disabled={true}>Won (Client)</option>
-                                                <option value="Lost" disabled={true}>Lost</option>
+                                                <option value="Won" disabled={!(userRole === "admin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Won (Client)</option>
+                                                <option value="Lost" disabled={!(userRole === "admin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Lost</option>
                                             </>
                                         );
                                     })()}

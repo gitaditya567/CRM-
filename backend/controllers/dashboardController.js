@@ -239,15 +239,35 @@ const getDashboardCharts = async (req, res) => {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-        const [leadsOverTime, quotationStats] = await Promise.all([
+        const [leadsOverTime, leadPipelineStats] = await Promise.all([
             Lead.aggregate([
                 { $match: { createdAt: { $gte: sixMonthsAgo }, ...leadFilter } },
                 { $group: { _id: { $month: "$createdAt" }, count: { $sum: 1 } } },
                 { $sort: { "_id": 1 } }
             ]),
-            Quotation.aggregate([
-                { $match: quotationFilter },
-                { $group: { _id: "$status", value: { $sum: 1 }, totalAmount: { $sum: "$grandTotal" } } }
+            Lead.aggregate([
+                { $match: leadFilter },
+                {
+                    $lookup: {
+                        from: "quotations",
+                        localField: "_id",
+                        foreignField: "lead",
+                        as: "quotations"
+                    }
+                },
+                {
+                    $project: {
+                        status: 1,
+                        quotationTotal: { $sum: "$quotations.grandTotal" }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$status",
+                        value: { $sum: 1 },
+                        totalAmount: { $sum: "$quotationTotal" }
+                    }
+                }
             ])
         ]);
 
@@ -257,8 +277,8 @@ const getDashboardCharts = async (req, res) => {
             leads: item.count
         }));
 
-        const formattedSalesChart = quotationStats.map(item => ({
-            name: item._id || "Draft",
+        const formattedSalesChart = leadPipelineStats.map(item => ({
+            name: item._id || "New",
             value: item.value,
             amount: item.totalAmount
         }));
@@ -368,7 +388,7 @@ const getDashboardStats = async (req, res) => {
             quoteStats,
             recentActivity,
             leadsOverTime,
-            quotationCharts
+            leadPipelineStats
         ] = await Promise.all([
             Promise.all([
                 Product.countDocuments(),
@@ -399,9 +419,29 @@ const getDashboardStats = async (req, res) => {
                 { $group: { _id: { $month: "$createdAt" }, count: { $sum: 1 } } },
                 { $sort: { "_id": 1 } }
             ]),
-            Quotation.aggregate([
-                { $match: quotationFilter },
-                { $group: { _id: "$status", value: { $sum: 1 }, totalAmount: { $sum: "$grandTotal" } } }
+            Lead.aggregate([
+                { $match: leadFilter },
+                {
+                    $lookup: {
+                        from: "quotations",
+                        localField: "_id",
+                        foreignField: "lead",
+                        as: "quotations"
+                    }
+                },
+                {
+                    $project: {
+                        status: 1,
+                        quotationTotal: { $sum: "$quotations.grandTotal" }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$status",
+                        value: { $sum: 1 },
+                        totalAmount: { $sum: "$quotationTotal" }
+                    }
+                }
             ])
         ]);
 
@@ -429,7 +469,7 @@ const getDashboardStats = async (req, res) => {
             },
             charts: {
                 leadsOverTime: leadsOverTime.map(item => ({ name: months[item._id - 1], leads: item.count })),
-                salesData: quotationCharts.map(item => ({ name: item._id || "Draft", value: item.value, amount: item.totalAmount }))
+                salesData: leadPipelineStats.map(item => ({ name: item._id || "New", value: item.value, amount: item.totalAmount }))
             }
         };
         setCache(cacheKey, responseData, 60000); // Cache for 60 seconds

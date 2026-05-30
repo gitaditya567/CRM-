@@ -304,9 +304,13 @@ exports.createQuotation = async (req, res) => {
             .populate("products.product", "name productNo")
             .lean();
 
-        const updatedLead = await Lead.findByIdAndUpdate(lead, { status: "Quotation Submitted" }, { new: true }).populate("group");
+        let leadStatusUpdate = "Quotation Submitted";
+        if (quotationNumber && /^PI/i.test(quotationNumber)) {
+            leadStatusUpdate = "Won";
+        }
+        const updatedLead = await Lead.findByIdAndUpdate(lead, { status: leadStatusUpdate }, { new: true }).populate("group");
 
-                const io = req.app.get("io");
+        const io = req.app.get("io");
         if (io) {
             io.emit("leadUpdated", updatedLead);
             io.emit("quotationAdded", populatedQuotation);
@@ -376,6 +380,21 @@ exports.updateQuotation = async (req, res) => {
             .lean();
 
         const io = req.app.get("io");
+        if (updates.quotationNumber && /^PI/i.test(updates.quotationNumber)) {
+            if (quotation && quotation.lead) {
+                const leadId = quotation.lead._id || quotation.lead;
+                const updatedLead = await Lead.findByIdAndUpdate(
+                    leadId,
+                    { status: "Won" },
+                    { new: true }
+                ).populate("group");
+                if (io && updatedLead) {
+                    io.emit("leadUpdated", updatedLead);
+                }
+                quotation.lead = updatedLead;
+            }
+        }
+
         if (io) {
             io.emit("quotationUpdated", quotation);
         }
@@ -428,7 +447,25 @@ exports.generatePDF = async (req, res) => {
 
         // Stream the PDF to the response
         res.setHeader("Content-Type", "application/pdf");
-        res.setHeader("Content-Disposition", `inline; filename=Quotation_${quotation.quotationNumber}.pdf`);
+        
+        // Custom filename format: ClientName(firstWord)_City_DocNumber.pdf
+        const clientName = quotation.billTo?.name || quotation.lead?.name || "Client";
+        const firstWord = clientName.trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9_-]/g, "");
+        
+        let city = "";
+        if (quotation.billTo?.address) {
+            const parts = quotation.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
+            if (parts.length >= 3) {
+                city = parts[parts.length - 3];
+            } else if (parts.length > 0) {
+                city = parts[0];
+            }
+        }
+        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeDocNumber = quotation.quotationNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const filename = `${firstWord}_${safeCity}_${safeDocNumber}.pdf`;
+
+        res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
         doc.pipe(res);
 
         // Helper to draw page border

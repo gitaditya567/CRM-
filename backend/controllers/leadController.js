@@ -149,8 +149,17 @@ exports.getLeads = async (req, res) => {
             .populate("assignedBy", "name role")
             .lean();
 
+        const Quotation = require("../models/Quotation");
+        const piLeads = await Quotation.find({ quotationNumber: /^PI/i }).distinct("lead");
+        const piLeadIdsSet = new Set(piLeads.map(id => id.toString()));
+
+        const leadsWithPI = leads.map(lead => ({
+            ...lead,
+            hasPI: piLeadIdsSet.has(lead._id.toString())
+        }));
+
         res.json({
-            leads,
+            leads: leadsWithPI,
             pagination: {
                 totalLeads,
                 totalPages: Math.ceil(totalLeads / limit),
@@ -356,14 +365,22 @@ exports.updateLead = async (req, res) => {
 
         const lead = await Lead.findByIdAndUpdate(id, updateOps, { new: true }).populate("group").populate("createdBy", "name");
 
+        let leadObj = lead;
+        if (lead) {
+            const Quotation = require("../models/Quotation");
+            const hasPI = await Quotation.exists({ lead: lead._id, quotationNumber: /^PI/i });
+            leadObj = lead.toObject ? lead.toObject() : lead;
+            leadObj.hasPI = !!hasPI;
+        }
+
         // Emit socket event
         const io = req.app.get("io");
         if (io) {
-            io.emit("leadUpdated", lead);
+            io.emit("leadUpdated", leadObj);
         }
 
         clearCachePrefix("dashboard_");
-        res.json(lead);
+        res.json(leadObj);
     } catch (err) {
         console.error("Update Lead Error:", err);
         res.status(500).json({ message: "Failed to update lead" });
@@ -467,6 +484,9 @@ exports.getLeadById = async (req, res) => {
         if (!lead) {
             return res.status(404).json({ message: "Lead not found" });
         }
+        const Quotation = require("../models/Quotation");
+        const hasPI = await Quotation.exists({ lead: lead._id, quotationNumber: /^PI/i });
+        lead.hasPI = !!hasPI;
         res.json(lead);
     } catch (err) {
         console.error("Get Lead By ID Error:", err);
