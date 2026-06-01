@@ -103,14 +103,14 @@ exports.getLeads = async (req, res) => {
         }
 
         if (req.query.search) {
-            const searchRegex = new RegExp(req.query.search, "i");
+            const escapedSearch = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const searchFilter = {
                 $or: [
-                    { name: searchRegex },
-                    { email: searchRegex },
-                    { phone: searchRegex },
-                    { leadNumber: searchRegex },
-                    { source: searchRegex }
+                    { name: { $regex: escapedSearch, $options: "i" } },
+                    { email: { $regex: escapedSearch, $options: "i" } },
+                    { phone: { $regex: escapedSearch, $options: "i" } },
+                    { leadNumber: { $regex: escapedSearch, $options: "i" } },
+                    { source: { $regex: escapedSearch, $options: "i" } }
                 ]
             };
             // Merge with existing filters
@@ -275,7 +275,7 @@ exports.createLead = async (req, res) => {
         let seq = 1;
         if (lastLead && lastLead.leadNumber) {
             const parts = lastLead.leadNumber.split('-');
-            const lastSeq = parseInt(parts[parts.length - 1]); // Expecting L-DATE-USER-SEQ
+            const lastSeq = parseInt(parts.at(-1)); // Expecting L-DATE-USER-SEQ
             if (!isNaN(lastSeq)) seq = lastSeq + 1;
         }
 

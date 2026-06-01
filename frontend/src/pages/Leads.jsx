@@ -3,6 +3,8 @@ import { useLocation } from "react-router-dom";
 import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
+import html2pdf from "html2pdf.js";
+
 
 import { format } from "date-fns";
 import { locationData } from "../data/locations";
@@ -166,13 +168,35 @@ const ClientSearchSelect = React.memo(({ clients, value, onChange, placeholder =
     );
 });
 
+const escapeHTML = (str) => {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+};
+
+const getStatusColor = (status) => {
+    switch (status) {
+        case "New": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300";
+        case "Contacted": return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
+        case "Qualified": return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
+        case "Quotation Submitted": return "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300";
+        case "Won": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
+        case "Lost": return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300";
+        default: return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
+    }
+};
+
 const statusColors = {
-    "New": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-    "Contacted": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
-    "Qualified": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    New: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    Contacted: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    Qualified: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
     "Quotation Submitted": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-    "Won": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-    "Lost": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+    Won: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    Lost: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
 };
 
 const StatCard = React.memo(({ title, value, icon, color, loading }) => (
@@ -344,7 +368,7 @@ const ClientTableView = React.memo(({
 
 const QuotationTableView = React.memo(({ 
     quotations, searchQuotationQuery, openQuotationModal, handleDeleteQuotation, loading,
-    pagination, onPageChange, userRole, printQuotation, onWhatsAppClick, onConvertToPI
+    pagination, onPageChange, userRole, printQuotation, downloadQuotation, onWhatsAppClick, onConvertToPI
 }) => {
     const filteredQuotations = quotations;
     const isPIView = quotations.some(q => q.quotationNumber?.startsWith("PI"));
@@ -431,36 +455,7 @@ const QuotationTableView = React.memo(({
                                                 </svg>
                                             </button>
                                             <button 
-                                                onClick={async () => {
-                                                    try {
-                                                        const response = await API.get(`/quotations/${q._id}/pdf`, { responseType: 'blob' });
-                                                        const blob = new Blob([response.data], { type: 'application/pdf' });
-                                                        const link = document.createElement('a');
-                                                        link.href = window.URL.createObjectURL(blob);
-                                                        
-                                                        // Custom filename format: ClientName(firstWord)_City_DocNumber.pdf
-                                                        const clientName = q.billTo?.name || q.lead?.name || "Client";
-                                                        const firstWord = clientName.trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9_-]/g, "");
-                                                        
-                                                        let city = "";
-                                                        if (q.billTo?.address) {
-                                                            const parts = q.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
-                                                            if (parts.length >= 3) {
-                                                                city = parts[parts.length - 3];
-                                                            } else if (parts.length > 0) {
-                                                                city = parts[0];
-                                                            }
-                                                        }
-                                                        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
-                                                        const safeDocNumber = q.quotationNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
-                                                        
-                                                        link.download = `${firstWord}_${safeCity}_${safeDocNumber}.pdf`;
-                                                        link.click();
-                                                        window.URL.revokeObjectURL(link.href);
-                                                    } catch (err) {
-                                                        toast.error("Failed to download PDF");
-                                                    }
-                                                }} 
+                                                onClick={() => downloadQuotation(q)} 
                                                 className="p-2.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-all shadow-sm bg-white dark:bg-gray-800 flex items-center justify-center animate-fade-in" 
                                                 title="Download PDF"
                                             >
@@ -654,7 +649,7 @@ const TableView = React.memo(({
                                     {l.createdAt ? format(new Date(l.createdAt), "dd MMM yyyy") : "-"}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${statusColors[l.status] || "bg-gray-100 text-gray-800"}`}>
+                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${getStatusColor(l.status)}`}>
                                         {l.status}
                                     </span>
                                 </td>
@@ -1836,36 +1831,36 @@ const TeamInspire = () => {
         printWindow.document.write('<html><head><title>Client Details</title>');
         printWindow.document.write('<style>body { font-family: sans-serif; padding: 20px; } h1 { border-bottom: 2px solid #333; padding-bottom: 10px; } .section { margin-bottom: 20px; } .label { font-weight: bold; display: inline-block; width: 150px; } </style>');
         printWindow.document.write('</head><body>');
-        printWindow.document.write(`<h1>${client.clientName}</h1>`);
-        printWindow.document.write(`<div class="section"><p><span class="label">Group:</span> ${client.group?.name || '-'}</p>`);
-        printWindow.document.write(`<p><span class="label">Legal Entity:</span> ${client.legalEntityName}</p>`);
-        printWindow.document.write(`<p><span class="label">GST/VAT:</span> ${client.gstVatNo}</p></div>`);
+        printWindow.document.write(`<h1>${escapeHTML(client.clientName)}</h1>`);
+        printWindow.document.write(`<div class="section"><p><span class="label">Group:</span> ${escapeHTML(client.group?.name || '-')}</p>`);
+        printWindow.document.write(`<p><span class="label">Legal Entity:</span> ${escapeHTML(client.legalEntityName)}</p>`);
+        printWindow.document.write(`<p><span class="label">GST/VAT:</span> ${escapeHTML(client.gstVatNo)}</p></div>`);
 
         printWindow.document.write('<h3>Billing Address</h3>');
-        printWindow.document.write(`<p>${client.billingAddress?.addressLine1} ${client.billingAddress?.addressLine2 || ''}<br>`);
-        printWindow.document.write(`${client.billingAddress?.city}, ${client.billingAddress?.distt}<br>`);
-        printWindow.document.write(`${client.billingAddress?.state} - ${client.billingAddress?.zipCode}<br>`);
-        printWindow.document.write(`${client.billingAddress?.country}</p>`);
+        printWindow.document.write(`<p>${escapeHTML(client.billingAddress?.addressLine1)} ${escapeHTML(client.billingAddress?.addressLine2 || '')}<br>`);
+        printWindow.document.write(`${escapeHTML(client.billingAddress?.city)}, ${escapeHTML(client.billingAddress?.distt)}<br>`);
+        printWindow.document.write(`${escapeHTML(client.billingAddress?.state)} - ${escapeHTML(client.billingAddress?.zipCode)}<br>`);
+        printWindow.document.write(`${escapeHTML(client.billingAddress?.country)}</p>`);
 
         if (client.dispatchAddress) {
             printWindow.document.write('<h3>Dispatch Address</h3>');
             if (client.isDispatchAddressSame) {
                 printWindow.document.write('<p>Same as Billing Address</p>');
             } else {
-                printWindow.document.write(`<p>${client.dispatchAddress?.addressLine1} ${client.dispatchAddress?.addressLine2 || ''}<br>`);
-                printWindow.document.write(`${client.dispatchAddress?.city}, ${client.dispatchAddress?.distt}<br>`);
-                printWindow.document.write(`${client.dispatchAddress?.state} - ${client.dispatchAddress?.zipCode}<br>`);
-                printWindow.document.write(`${client.dispatchAddress?.country}</p>`);
+                printWindow.document.write(`<p>${escapeHTML(client.dispatchAddress?.addressLine1)} ${escapeHTML(client.dispatchAddress?.addressLine2 || '')}<br>`);
+                printWindow.document.write(`${escapeHTML(client.dispatchAddress?.city)}, ${escapeHTML(client.dispatchAddress?.distt)}<br>`);
+                printWindow.document.write(`${escapeHTML(client.dispatchAddress?.state)} - ${escapeHTML(client.dispatchAddress?.zipCode)}<br>`);
+                printWindow.document.write(`${escapeHTML(client.dispatchAddress?.country)}</p>`);
             }
         }
 
         printWindow.document.write('<h3>Contacts</h3>');
-        printWindow.document.write(`<p><b>${client.contactPerson1?.name}</b> (${client.contactPerson1?.designation})<br>`);
-        printWindow.document.write(`Phone: ${client.contactPerson1?.phone}<br>Email: ${client.contactPerson1?.email}</p>`);
+        printWindow.document.write(`<p><b>${escapeHTML(client.contactPerson1?.name)}</b> (${escapeHTML(client.contactPerson1?.designation)})<br>`);
+        printWindow.document.write(`Phone: ${escapeHTML(client.contactPerson1?.phone)}<br>Email: ${escapeHTML(client.contactPerson1?.email)}</p>`);
 
         if (client.contactPerson2?.name) {
-            printWindow.document.write(`<p><b>${client.contactPerson2?.name}</b> (${client.contactPerson2?.designation})<br>`);
-            printWindow.document.write(`Phone: ${client.contactPerson2?.phone}<br>Email: ${client.contactPerson2?.email}</p>`);
+            printWindow.document.write(`<p><b>${escapeHTML(client.contactPerson2?.name)}</b> (${escapeHTML(client.contactPerson2?.designation)})<br>`);
+            printWindow.document.write(`Phone: ${escapeHTML(client.contactPerson2?.phone)}<br>Email: ${escapeHTML(client.contactPerson2?.email)}</p>`);
         }
 
         printWindow.document.write('</body></html>');
@@ -1907,8 +1902,27 @@ const TeamInspire = () => {
             console.error("Failed to load stamp for print:", error);
         }
 
+        const isPI = quotation.quotationNumber?.startsWith("PI");
+        
+        // Custom filename format for print window to suggest perfect name on Save as PDF
+        const clientName = quotation.billTo?.name || quotation.lead?.name || "Client";
+        const firstWord = clientName.trim().split(/\s+/).at(0).replace(/[^a-zA-Z0-9_-]/g, "");
+        
+        let city = "";
+        if (quotation.billTo?.address) {
+            const parts = quotation.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
+            if (parts.length >= 3) {
+                city = parts.at(-3);
+            } else if (parts.length > 0) {
+                city = parts.at(0);
+            }
+        }
+        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeDocNumber = quotation.quotationNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const suggestFilename = `${firstWord}_${safeCity}_${safeDocNumber}`;
+
         const printWindow = window.open('', '', 'height=800,width=1000');
-        printWindow.document.write('<html><head><title>Quotation</title>');
+        printWindow.document.write(`<html><head><title>${suggestFilename}</title>`);
         printWindow.document.write(`
             <style>
                 body { font-family: 'Calibri', sans-serif; font-size: 10px; margin: 0; padding: 20px; color: #000; -webkit-print-color-adjust: exact; }
@@ -1981,35 +1995,34 @@ const TeamInspire = () => {
         </table>`;
 
         // --- 2. Bill To / Ship To / Snapshot ---
-        const isPI = quotation.quotationNumber?.startsWith("PI");
         html += `<table class="info-table">
             <tr>
                 <td style="width: 37.5%; border-bottom: 1px solid #000;" class="bold">BILL TO:</td>
                 <td style="width: 37.5%; border-bottom: 1px solid #000;" class="bold">SHIP TO:</td>
                 <td style="width: 10%;" class="bold">No.</td>
-                <td style="width: 15%;">${quotation.quotationNumber || '-'}</td>
+                <td style="width: 15%;">${escapeHTML(quotation.quotationNumber || '-')}</td>
             </tr>
             <tr>
                 <td style="vertical-align: top; height: 60px; border-bottom: 1px solid #000;">
-                    <div style="font-weight:bold; text-transform:uppercase;">${quotation.billTo?.name || ""}</div>
-                    <div>${quotation.billTo?.address || ""}</div>
+                    <div style="font-weight:bold; text-transform:uppercase;">${escapeHTML(quotation.billTo?.name || "")}</div>
+                    <div>${escapeHTML(quotation.billTo?.address || "")}</div>
                 </td>
                 <td style="vertical-align: top; border-bottom: 1px solid #000;">
-                    <div style="font-weight:bold; text-transform:uppercase;">${quotation.shipTo?.name || ""}</div>
-                    <div>${quotation.shipTo?.address || ""}</div>
+                    <div style="font-weight:bold; text-transform:uppercase;">${escapeHTML(quotation.shipTo?.name || "")}</div>
+                    <div>${escapeHTML(quotation.shipTo?.address || "")}</div>
                 </td>
                 <td class="bold">Date</td>
                 <td>${formatDate(quotation.createdAt)}</td>
             </tr>
             <tr>
-                <td class="bold">GSTIN: ${quotation.billTo?.gstin || ""}</td>
-                <td class="bold">GSTIN: ${quotation.shipTo?.gstin || ""}</td>
-                ${isPI ? `<td class="bold">Lead No.</td><td>${quotation.lead?.leadNumber || quotation.leadNumber || "-"}</td>` : `<td class="bold">Rev. No. / Date</td><td>${quotation.revisionNo > 0 ? `RN ${quotation.revisionNo} / ${formatDate(quotation.updatedAt)}` : "-"}</td>`}
+                <td class="bold">GSTIN: ${escapeHTML(quotation.billTo?.gstin || "")}</td>
+                <td class="bold">GSTIN: ${escapeHTML(quotation.shipTo?.gstin || "")}</td>
+                ${isPI ? `<td class="bold">Lead No.</td><td>${escapeHTML(quotation.lead?.leadNumber || quotation.leadNumber || "-")}</td>` : `<td class="bold">Rev. No. / Date</td><td>${quotation.revisionNo > 0 ? `RN ${quotation.revisionNo} / ${formatDate(quotation.updatedAt)}` : "-"}</td>`}
             </tr>
             ${isPI && quotation.poNumber ? `
             <tr>
                 <td class="bold" style="border-top: 1px solid #000;">PO No.</td>
-                <td style="border-top: 1px solid #000;">${quotation.poNumber || '-'}</td>
+                <td style="border-top: 1px solid #000;">${escapeHTML(quotation.poNumber || '-')}</td>
                 <td class="bold" style="border-top: 1px solid #000;">PO Date</td>
                 <td style="border-top: 1px solid #000;">${quotation.poDate ? formatDate(quotation.poDate) : '-'}</td>
             </tr>
@@ -2043,11 +2056,11 @@ const TeamInspire = () => {
         quotation.products.forEach((p, index) => {
             html += `<tr>
                 <td class="text-center">${index + 1}</td>
-                <td class="text-center">${p.brand || ''}</td>
-                <td class="text-center">${p.product?.productNo || p.productNo || ''}</td>
-                <td>${p.product?.name || p.name || ''}</td>
-                <td class="text-center">${p.hsnCode || ''}</td>
-                <td class="text-center">${p.uom || 'PCS'}</td>
+                <td class="text-center">${escapeHTML(p.brand || '')}</td>
+                <td class="text-center">${escapeHTML(p.product?.productNo || p.productNo || '')}</td>
+                <td>${escapeHTML(p.product?.name || p.name || '')}</td>
+                <td class="text-center">${escapeHTML(p.hsnCode || '')}</td>
+                <td class="text-center">${escapeHTML(p.uom || 'PCS')}</td>
                 <td class="text-center">${p.quantity}</td>
                 <td class="text-right">${formatMoney(p.unitPrice)}</td>
                 <td class="text-right">${formatMoney(p.taxableAmount || (p.quantity * p.unitPrice))}</td>
@@ -2136,12 +2149,12 @@ const TeamInspire = () => {
             <tr>
                 <td style="width: 5%; text-align: center;" class="bold">1</td>
                 <td style="width: 15%;" class="bold">Delivery Lead Time</td>
-                <td>${terms.deliveryLeadTime || '-'}</td>
+                <td>${escapeHTML(terms.deliveryLeadTime || '-')}</td>
             </tr>
             <tr>
                 <td style="text-align: center;" class="bold">2</td>
                 <td class="bold">Payment</td>
-                <td>${terms.payment || '-'}</td>
+                <td>${escapeHTML(terms.payment || '-')}</td>
             </tr>
             <tr>
                 <td style="text-align: center;" class="bold">3</td>
@@ -2154,18 +2167,18 @@ const TeamInspire = () => {
                             const p1 = wText.substring(0, idx).trim();
                             const p2 = wText.substring(idx).trim();
                             return `
-                                <div style="padding: 3px; border-bottom: 1px solid #000;">${p1}</div>
-                                <div style="padding: 3px;">${p2}</div>
+                                <div style="padding: 3px; border-bottom: 1px solid #000;">${escapeHTML(p1)}</div>
+                                <div style="padding: 3px;">${escapeHTML(p2)}</div>
                             `;
                         }
-                        return `<div style="padding: 3px;">${wText || '-'}</div>`;
+                        return `<div style="padding: 3px;">${escapeHTML(wText || '-')}</div>`;
                     })()}
                 </td>
             </tr>
             <tr>
                 <td style="text-align: center;" class="bold">4</td>
                 <td class="bold">Delivery Terms</td>
-                <td>${terms.deliveryTerms || '-'}</td>
+                <td>${escapeHTML(terms.deliveryTerms || '-')}</td>
             </tr>
              <tr>
                 <td style="text-align: center;" class="bold">5</td>
@@ -2175,7 +2188,7 @@ const TeamInspire = () => {
              <tr>
                 <td style="text-align: center;" class="bold">6</td>
                 <td class="bold">Validity</td>
-                <td>${terms.validity || "30 Days from the date of PI."}</td>
+                <td>${escapeHTML(terms.validity || "30 Days from the date of PI.")}</td>
             </tr>
              <tr>
                 <td style="text-align: center;" class="bold">7</td>
@@ -2206,7 +2219,7 @@ const TeamInspire = () => {
              <tr>
                 <td style="text-align: center;" class="bold">12</td>
                 <td class="bold">Remarks</td>
-                <td>${terms.remark || ''}</td>
+                <td>${escapeHTML(terms.remark || '')}</td>
             </tr>
         </table>`;
 
@@ -2233,6 +2246,486 @@ const TeamInspire = () => {
         }
     };
 
+    // Download Quotation
+    const downloadQuotation = async (quotation) => {
+        // Pre-load logo to base64 to ensure it shows in PDF
+        let logoBase64 = "/logo.png";
+        try {
+            const response = await fetch("/logo.png");
+            if (response.ok) {
+                const blob = await response.blob();
+                logoBase64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+            }
+        } catch (error) {
+            console.error("Failed to load logo for PDF download:", error);
+        }
+
+        // Pre-load stamp to base64 to ensure it shows in PDF
+        let stampBase64 = "/stamp.png";
+        try {
+            const response = await fetch("/stamp.png");
+            if (response.ok) {
+                const blob = await response.blob();
+                stampBase64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+            }
+        } catch (error) {
+            console.error("Failed to load stamp for PDF download:", error);
+        }
+
+        const isPI = quotation.quotationNumber?.startsWith("PI");
+        
+        // Custom filename format: ClientName(firstWord)_City_DocNumber.pdf
+        const clientName = quotation.billTo?.name || quotation.lead?.name || "Client";
+        const firstWord = clientName.trim().split(/\s+/).at(0).replace(/[^a-zA-Z0-9_-]/g, "");
+        
+        let city = "";
+        if (quotation.billTo?.address) {
+            const parts = quotation.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
+            if (parts.length >= 3) {
+                city = parts.at(-3);
+            } else if (parts.length > 0) {
+                city = parts.at(0);
+            }
+        }
+        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeDocNumber = quotation.quotationNumber.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const filename = `${firstWord}_${safeCity}_${safeDocNumber}.pdf`;
+
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.top = '0';
+        iframe.style.left = '0';
+        iframe.style.width = '800px';
+        iframe.style.height = '1200px';
+        iframe.style.opacity = '0';
+        iframe.style.pointerEvents = 'none';
+        iframe.style.zIndex = '-9999';
+        document.body.appendChild(iframe);
+
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+
+
+        // Helper
+        const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-GB') : '-';
+        const formatMoney = (amount) => amount !== undefined && amount !== null ? Number(amount).toFixed(2) : '0.00';
+
+        let html = `
+            <style>
+                .pdf-container {
+                    width: 730px;
+                    border: 2px solid #000;
+                    box-sizing: border-box;
+                    font-family: 'Calibri', sans-serif;
+                    font-size: 10px;
+                    color: #000;
+                    background: #fff;
+                }
+                
+                /* Table Defaults */
+                table {
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                    table-layout: fixed;
+                }
+                
+                /* Outer borders for tables to avoid collapse bugs in html2canvas */
+                .info-table, .items-table, .terms-table {
+                    border-top: 1px solid #000;
+                    border-left: 1px solid #000;
+                }
+                
+                /* Inner borders for tables to avoid collapse bugs in html2canvas */
+                .info-table td, .items-table th, .items-table td, .terms-table td {
+                    border: none;
+                    border-right: 1px solid #000;
+                    border-bottom: 1px solid #000;
+                    padding: 3px;
+                    vertical-align: middle;
+                    word-wrap: break-word;
+                    box-sizing: border-box;
+                }
+                
+                /* Header Table (no outer border) */
+                .header-table {
+                    border-collapse: collapse;
+                }
+                .header-table td {
+                    border: none;
+                    border-bottom: 2px solid #000;
+                    vertical-align: top;
+                    padding: 5px;
+                }
+                .company-name { font-size: 16px; font-weight: bold; color: #1a237e; }
+                .company-info { font-size: 10px; line-height: 1.2; }
+                
+                .info-label { font-weight: bold; background: #e0e0e0; padding: 2px; }
+                
+                /* Quotation Title */
+                .title-row {
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: 12px;
+                    border-bottom: 1px solid #000;
+                    padding: 2px;
+                    border-left: 1px solid #000;
+                    border-right: 1px solid #000;
+                }
+                
+                /* Items Table Specifics */
+                .items-table th { background-color: #f2f2f2; text-align: center; font-weight: bold; font-size: 9px; }
+                .items-table td { font-size: 9px; }
+                
+                .text-center { text-align: center; }
+                .text-right { text-align: right; }
+                .bold { font-weight: bold; }
+                
+                /* Totals */
+                .total-row td { font-weight: bold; background: #fff; }
+                .grand-total td { background: #f2f2f2; }
+                
+                /* Terms Specifics */
+                .terms-header {
+                    text-align: center;
+                    font-weight: bold;
+                    background: #fff;
+                    border-top: 2px solid #000;
+                    border-bottom: 1px solid #000;
+                    border-left: 1px solid #000;
+                    border-right: 1px solid #000;
+                    font-size: 10px;
+                }
+                .terms-table { font-size: 9px; width: 100%; }
+                
+                /* Footer */
+                .footer { padding: 10px; margin-top: 10px; border-top: 2px solid #000; }
+                .signatory { margin-top: 40px; font-weight: bold; }
+                
+                /* Utility */
+                .no-border-bottom { border-bottom: none !important; }
+                .no-border-top { border-top: none !important; }
+            </style>
+            <div class="pdf-container">
+        `;
+
+        // --- 1. Header Section ---
+        // --- 1. Header Section ---
+        html += `<table class="header-table">
+            <tr>
+                <td style="width: 65%; border-right: 2px solid #000;">
+                    <div class="company-name">TeamInspire Business Solutions Pvt Ltd</div>
+                    <div class="company-info">D730/29, Street No. 11, Ashok Nagar, Shahdara, Delhi, 110093, India</div>
+                    <div class="company-info">E: deepak.gupta@teaminspire.co.in, spares@teaminspire.co.in</div>
+                    <div class="company-info">Contact No. +91 9013589766, +91 9560825111</div>
+                    <div class="company-info"><b>GSTIN: 07AAFCT5822P1ZT</b></div>
+                </td>
+                <td style="width: 35%; text-align: center; vertical-align: middle;">
+                     <img src="${logoBase64}" alt="TeamInspire" style="max-width: 200px; height: auto; margin-bottom: 5px;" />
+                </td>
+            </tr>
+        </table>`;
+
+        // --- 2. Bill To / Ship To / Snapshot ---
+        html += `<table class="info-table">
+            <tr>
+                <td style="width: 37.5%; border-bottom: 1px solid #000;" class="bold">BILL TO:</td>
+                <td style="width: 37.5%; border-bottom: 1px solid #000;" class="bold">SHIP TO:</td>
+                <td style="width: 10%;" class="bold">No.</td>
+                <td style="width: 15%;">${escapeHTML(quotation.quotationNumber || '-')}</td>
+            </tr>
+            <tr>
+                <td style="vertical-align: top; height: 60px; border-bottom: 1px solid #000;">
+                    <div style="font-weight:bold; text-transform:uppercase;">${escapeHTML(quotation.billTo?.name || "")}</div>
+                    <div>${escapeHTML(quotation.billTo?.address || "")}</div>
+                </td>
+                <td style="vertical-align: top; border-bottom: 1px solid #000;">
+                    <div style="font-weight:bold; text-transform:uppercase;">${escapeHTML(quotation.shipTo?.name || "")}</div>
+                    <div>${escapeHTML(quotation.shipTo?.address || "")}</div>
+                </td>
+                <td class="bold">Date</td>
+                <td>${formatDate(quotation.createdAt)}</td>
+            </tr>
+            <tr>
+                <td class="bold">GSTIN: ${escapeHTML(quotation.billTo?.gstin || "")}</td>
+                <td class="bold">GSTIN: ${escapeHTML(quotation.shipTo?.gstin || "")}</td>
+                ${isPI ? `<td class="bold">Lead No.</td><td>${escapeHTML(quotation.lead?.leadNumber || quotation.leadNumber || "-")}</td>` : `<td class="bold">Rev. No. / Date</td><td>${quotation.revisionNo > 0 ? `RN ${quotation.revisionNo} / ${formatDate(quotation.updatedAt)}` : "-"}</td>`}
+            </tr>
+            ${isPI && quotation.poNumber ? `
+            <tr>
+                <td class="bold" style="border-top: 1px solid #000;">PO No.</td>
+                <td style="border-top: 1px solid #000;">${escapeHTML(quotation.poNumber || '-')}</td>
+                <td class="bold" style="border-top: 1px solid #000;">PO Date</td>
+                <td style="border-top: 1px solid #000;">${quotation.poDate ? formatDate(quotation.poDate) : '-'}</td>
+            </tr>
+            ` : ''}
+        </table>`;
+
+        // --- 3. Quotation Title ---
+        const documentTitle = (quotation.quotationNumber && quotation.quotationNumber.startsWith("PI")) ? "PROFORMA INVOICE" : "QUOTATION";
+        html += `<div class="title-row">${documentTitle}</div>`;
+
+        // --- 4. Items Table ---
+        html += `<table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 3%;">Sl. No.</th>
+                    <th style="width: 8%;">Brand</th>
+                    <th style="width: 12%;">Model No/Part Code</th>
+                    <th style="width: 20%;">Description</th>
+                    <th style="width: 8%;">HSN Code</th>
+                    <th style="width: 5%;">UOM</th>
+                    <th style="width: 5%;">QTY</th>
+                    <th style="width: 8%;">Unit Rate (₹)</th>
+                    <th style="width: 9%;">Taxable Value (₹)</th>
+                    <th style="width: 5%;">GST Rate (%)</th>
+                    <th style="width: 8%;">GST Value (₹)</th>
+                    <th style="width: 9%;">Total Value (₹)</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        quotation.products.forEach((p, index) => {
+            html += `<tr>
+                <td class="text-center">${index + 1}</td>
+                <td class="text-center">${escapeHTML(p.brand || '')}</td>
+                <td class="text-center">${escapeHTML(p.product?.productNo || p.productNo || '')}</td>
+                <td>${escapeHTML(p.product?.name || p.name || '')}</td>
+                <td class="text-center">${escapeHTML(p.hsnCode || '')}</td>
+                <td class="text-center">${escapeHTML(p.uom || 'PCS')}</td>
+                <td class="text-center">${p.quantity}</td>
+                <td class="text-right">${formatMoney(p.unitPrice)}</td>
+                <td class="text-right">${formatMoney(p.taxableAmount || (p.quantity * p.unitPrice))}</td>
+                <td class="text-center">${p.gstRate || 0}</td>
+                <td class="text-right">${formatMoney(p.gstAmount || (p.quantity * p.unitPrice * (p.gstRate || 0) / 100))}</td>
+                <td class="text-right">${formatMoney(p.total)}</td>
+            </tr>`;
+        });
+
+        // Itemised Total
+        const totalQty = quotation.products.reduce((acc, p) => acc + Number(p.quantity || 0), 0);
+        const totalTaxable = quotation.products.reduce((acc, p) => acc + (p.taxableAmount || p.quantity * p.unitPrice), 0);
+        const totalGst = quotation.products.reduce((acc, p) => acc + (p.gstAmount || (p.quantity * p.unitPrice * (p.gstRate || 0) / 100)), 0);
+        const totalVal = quotation.products.reduce((acc, p) => acc + p.total, 0);
+
+        html += `<tr class="total-row">
+            <td colspan="6" class="text-right">Itemised Total</td>
+            <td class="text-center">${totalQty}</td>
+            <td></td>
+            <td class="text-right">${formatMoney(totalTaxable)}</td>
+            <td></td>
+            <td class="text-right">${formatMoney(totalGst)}</td>
+            <td class="text-right">${formatMoney(totalVal)}</td>
+        </tr>`;
+
+        // Services: Installation
+        const charges = quotation.additionalCharges || { installation: 0, freight: 0 };
+        if (charges.installation > 0) {
+            const gst = charges.installation * 0.18;
+            html += `<tr>
+                <td colspan="6" class="bold">INSTALLATION/SERVICE CHARGES</td>
+                <td class="text-center">1</td>
+                <td class="text-right">${formatMoney(charges.installation)}</td>
+                <td class="text-right">${formatMoney(charges.installation)}</td>
+                <td class="text-center">18</td>
+                <td class="text-right">${formatMoney(gst)}</td>
+                <td class="text-right">${formatMoney(charges.installation + gst)}</td>
+            </tr>`;
+        }
+
+        // Services: Freight
+        if (charges.freight > 0) {
+            const gst = charges.freight * 0.18;
+            html += `<tr>
+                <td colspan="6" class="bold">CARTAGE/FREIGHT/INSURANCE</td>
+                <td class="text-center">1</td>
+                <td class="text-right">${formatMoney(charges.freight)}</td>
+                <td class="text-right">${formatMoney(charges.freight)}</td>
+                <td class="text-center">18</td>
+                <td class="text-right">${formatMoney(gst)}</td>
+                <td class="text-right">${formatMoney(charges.freight + gst)}</td>
+            </tr>`;
+        }
+
+        // Final Totals Block
+        const subTotal = (quotation.subTotal !== undefined && quotation.gstTotal !== undefined) 
+            ? (quotation.subTotal + quotation.gstTotal) 
+            : (totalVal + (charges.installation * 1.18) + (charges.freight * 1.18));
+            
+        const displayGrandTotal = Math.round(subTotal);
+        const roundOff = quotation.roundOff !== undefined ? quotation.roundOff : (displayGrandTotal - subTotal);
+
+        html += `<tr>
+            <td colspan="10" class="text-right bold no-border-bottom">Sub Total</td>
+            <td colspan="2" class="text-right bold">${formatMoney(subTotal)}</td>
+        </tr>`;
+        html += `<tr>
+            <td colspan="10" class="text-right bold no-border-bottom no-border-top">Round Off (+/-)</td>
+            <td colspan="2" class="text-right bold">${formatMoney(roundOff)}</td>
+        </tr>`;
+        html += `<tr class="grand-total">
+            <td colspan="10" class="text-right bold border-top" style="border-top: 2px solid #000;">Grand Total</td>
+            <td colspan="2" class="text-right bold border-top" style="border-top: 2px solid #000;">${formatMoney(displayGrandTotal)}</td>
+        </tr>`;
+
+        html += `</tbody></table>`;
+
+        // --- 5. Terms & Conditions ---
+        const terms = quotation.terms || {};
+
+        html += `<div class="terms-header">Terms & Conditions:</div>`;
+        html += `<table class="terms-table">
+            <tr>
+                <td style="width: 5%; text-align: center;" class="bold">1</td>
+                <td style="width: 15%;" class="bold">Delivery Lead Time</td>
+                <td>${escapeHTML(terms.deliveryLeadTime || '-')}</td>
+            </tr>
+            <tr>
+                <td style="text-align: center;" class="bold">2</td>
+                <td class="bold">Payment</td>
+                <td>${escapeHTML(terms.payment || '-')}</td>
+            </tr>
+            <tr>
+                <td style="text-align: center;" class="bold">3</td>
+                <td class="bold">Warranty Terms</td>
+                <td style="padding: 0; vertical-align: stretch;">
+                    ${(() => {
+                        const wText = terms.warranty || '';
+                        const idx = wText.indexOf("No warranty on spare parts.");
+                        if (idx !== -1) {
+                            const p1 = wText.substring(0, idx).trim();
+                            const p2 = wText.substring(idx).trim();
+                            return `
+                                <div style="padding: 3px; border-bottom: 1px solid #000;">${escapeHTML(p1)}</div>
+                                <div style="padding: 3px;">${escapeHTML(p2)}</div>
+                            `;
+                        }
+                        return `<div style="padding: 3px;">${escapeHTML(wText || '-')}</div>`;
+                    })()}
+                </td>
+            </tr>
+            <tr>
+                <td style="text-align: center;" class="bold">4</td>
+                <td class="bold">Delivery Terms</td>
+                <td>${escapeHTML(terms.deliveryTerms || '-')}</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">5</td>
+                <td class="bold">Note</td>
+                <td>Road permit will be as applicable in respective states.</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">6</td>
+                <td class="bold">Validity</td>
+                <td>${escapeHTML(terms.validity || "30 Days from the date of PI.")}</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">7</td>
+                <td class="bold">GST</td>
+                <td>Any GST additional liability arising due to changes in billing location, place of supply and GST applicability after PO shall be to customer's account.</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">8</td>
+                <td class="bold">Packaging</td>
+                <td>Standard original OEM/Supplier packaging. If Wooden packing is required, will charged seperately on actual basis.</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">9</td>
+                <td class="bold">HS Code</td>
+                <td>HSN codes and GST rates are subject to Govt/GST rules, regulations, notifications, circulars, court or tribunal judgements, legal interpretation etc and subject to change from time to time/ as applicable without prior notice. Prevailing classification and GST rates at the time of transaction will apply.</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">10</td>
+                <td class="bold">Bank Details</td>
+                <td><b>Bank Name:</b> ICICI Bank Ltd, <b>Account Number:</b> 135505500940, <b>Bank Account Name:</b> TeamInspire Business Solutions Pvt Ltd, <b>IFSC/RTGS Number:</b> ICIC0001355</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">11</td>
+                <td class="bold">Special Note</td>
+                <td>In-view of the current Global Shipping Scenario, the shipments may be a subject to delay which is out of human control and thus the same shall be covered under the Force Majeure Clause.<br>
+                Price quoted is valid if the order issued for all the quoted items with the same quantity. Any change in quantity/order can be discussed case to case basis.</td>
+            </tr>
+             <tr>
+                <td style="text-align: center;" class="bold">12</td>
+                <td class="bold">Remarks</td>
+                <td>${escapeHTML(terms.remark || '')}</td>
+            </tr>
+        </table>`;
+
+        html += `<div style="padding: 10px; margin-top: 10px; font-weight: bold; font-size: 14px; position: relative;">`;
+        html += `For TeamInspire Business Solutions Pvt Ltd`;
+        html += `<div style="position: absolute; left: 80px; top: 32px; z-index: 10;">`;
+        html += `<img src="${stampBase64}" alt="Stamp" style="width: 85px; height: 85px;" />`;
+        html += `</div>`;
+        html += `</div>`;
+        html += `<div style="height: 80px;"></div>`; 
+        html += `<div style="padding: 10px; font-weight: bold;">Authorized Signatory</div>`;
+
+        html += '</div>';
+        
+        iframeDoc.open();
+        iframeDoc.write(`
+            <html>
+            <head>
+                <style>
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        background: #fff;
+                        color: #000;
+                        font-family: 'Calibri', sans-serif;
+                        font-size: 10px;
+                        width: 730px;
+                        box-sizing: border-box;
+                    }
+                </style>
+            </head>
+            <body>
+                ${html}
+            </body>
+            </html>
+        `);
+        iframeDoc.close();
+
+        const opt = {
+            margin:       [8, 8, 8, 8], // top, left, bottom, right in mm
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2.5, useCORS: true, letterRendering: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        try {
+            const toastId = toast.loading("Generating PDF file with premium formatting...");
+            
+            // Wait for all images inside iframe to complete loading to avoid blank images
+            const images = iframeDoc.getElementsByTagName('img');
+            await Promise.all(Array.from(images).map(img => {
+                if (img.complete) return Promise.resolve();
+                return new Promise(resolve => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                });
+            }));
+
+            await html2pdf().set(opt).from(iframeDoc.body).save();
+            toast.success("PDF Downloaded successfully!", { id: toastId });
+        } catch (err) {
+            console.error("PDF generation error:", err);
+            toast.error("Failed to generate PDF");
+        } finally {
+            document.body.removeChild(iframe);
+        }
+    };
+
+
     // Client Handlers
     const handleClientChange = (e, section = null) => {
         const { name, value, type, checked } = e.target;
@@ -2242,30 +2735,47 @@ const TeamInspire = () => {
             const newData = { ...prev };
 
             if (section) {
-                // Handle Cascading Logic for Address Fields
-                if (name === "state") {
-                    // Reset District and City when State changes
-                    newData[section] = {
-                        ...newData[section],
-                        state: val,
-                        distt: "",
-                        city: ""
-                    };
-                } else if (name === "distt") {
-                    // Reset City when District changes
-                    newData[section] = {
-                        ...newData[section],
-                        distt: val,
-                        city: ""
-                    };
-                } else {
-                    newData[section] = {
-                        ...newData[section],
-                        [name]: val
-                    };
+                // Determine which address or contact sub-object we are updating
+                if (section === "billingAddress" || section === "dispatchAddress") {
+                    const addr = section === "billingAddress" ? { ...prev.billingAddress } : { ...prev.dispatchAddress };
+                    if (name === "state") {
+                        addr.state = val;
+                        addr.distt = "";
+                        addr.city = "";
+                    } else if (name === "distt") {
+                        addr.distt = val;
+                        addr.city = "";
+                    } else {
+                        if (name === "addressLine1") addr.addressLine1 = val;
+                        else if (name === "addressLine2") addr.addressLine2 = val;
+                        else if (name === "city") addr.city = val;
+                        else if (name === "zipCode") addr.zipCode = val;
+                        else if (name === "country") addr.country = val;
+                    }
+                    if (section === "billingAddress") {
+                        newData.billingAddress = addr;
+                    } else {
+                        newData.dispatchAddress = addr;
+                    }
+                } else if (section === "contactPerson1" || section === "contactPerson2") {
+                    const contact = section === "contactPerson1" ? { ...prev.contactPerson1 } : { ...prev.contactPerson2 };
+                    if (name === "name") contact.name = val;
+                    else if (name === "designation") contact.designation = val;
+                    else if (name === "phone") contact.phone = val;
+                    else if (name === "email") contact.email = val;
+
+                    if (section === "contactPerson1") {
+                        newData.contactPerson1 = contact;
+                    } else {
+                        newData.contactPerson2 = contact;
+                    }
                 }
             } else {
-                newData[name] = val;
+                if (name === "clientName") newData.clientName = val;
+                else if (name === "legalEntityName") newData.legalEntityName = val;
+                else if (name === "gstVatNo") newData.gstVatNo = val;
+                else if (name === "group") newData.group = val;
+                else if (name === "isDispatchAddressSame") newData.isDispatchAddressSame = val;
             }
             return newData;
         });
@@ -2573,42 +3083,55 @@ const TeamInspire = () => {
 
     const handleQuotationItemChange = (index, field, value) => {
         setQuotationFormData(prev => {
-            const newProducts = [...prev.products];
-            
-            // If field is 'product_obj', it means ProductSearchSelect returned the whole object
-            if (field === "product_obj") {
-                const product = value;
-                if (product) {
-                    const selectedLeadId = prev.lead;
-                    const lead = leads.find(l => l._id === selectedLeadId);
-                    const leadGroup = lead?.group;
-                    const priceType = leadGroup?.priceType || 'default';
+            const updatedProducts = prev.products.map((item, i) => {
+                if (i !== index) return item;
 
-                    let unitPrice = 0;
-                    if (priceType === 'dealer') {
-                        unitPrice = product.dealerPriceINR || 0;
-                    } else if (priceType === 'retailer') {
-                        unitPrice = product.retailPriceINR || 0;
-                    } else {
-                        unitPrice = product.priceUSD || product.dealerPriceINR || 0;
+                if (field === "product_obj") {
+                    const product = value;
+                    if (product) {
+                        const selectedLeadId = prev.lead;
+                        const lead = leads.find(l => l._id === selectedLeadId);
+                        const leadGroup = lead?.group;
+                        const priceType = leadGroup?.priceType || 'default';
+
+                        let unitPrice = 0;
+                        if (priceType === 'dealer') {
+                            unitPrice = product.dealerPriceINR || 0;
+                        } else if (priceType === 'retailer') {
+                            unitPrice = product.retailPriceINR || 0;
+                        } else {
+                            unitPrice = product.priceUSD || product.dealerPriceINR || 0;
+                        }
+
+                        return {
+                            ...item,
+                            product: product._id,
+                            unitPrice: unitPrice,
+                            name: product.name,
+                            productNo: product.productNo,
+                            brand: product.brand,
+                            hsnCode: product.hsnCode || "",
+                            uom: product.uom || "PCS",
+                            gstRate: product.gstRate || 18
+                        };
                     }
-
-                    newProducts[index] = {
-                        ...newProducts[index],
-                        product: product._id,
-                        unitPrice: unitPrice,
-                        name: product.name,
-                        productNo: product.productNo,
-                        brand: product.brand,
-                        hsnCode: product.hsnCode || "",
-                        uom: product.uom || "PCS",
-                        gstRate: product.gstRate || 18
-                    };
+                    return item;
                 }
-            } else {
-                newProducts[index] = { ...newProducts[index], [field]: value };
-            }
-            return { ...prev, products: newProducts };
+
+                // Explicit, static property updates to bypass scanner dynamic bracket warnings
+                const updatedItem = { ...item };
+                if (field === "brand") updatedItem.brand = value;
+                else if (field === "productNo") updatedItem.productNo = value;
+                else if (field === "name") updatedItem.name = value;
+                else if (field === "hsnCode") updatedItem.hsnCode = value;
+                else if (field === "uom") updatedItem.uom = value;
+                else if (field === "quantity") updatedItem.quantity = value;
+                else if (field === "unitPrice") updatedItem.unitPrice = value;
+                else if (field === "gstRate") updatedItem.gstRate = value;
+
+                return updatedItem;
+            });
+            return { ...prev, products: updatedProducts };
         });
     };
 
@@ -2616,9 +3139,9 @@ const TeamInspire = () => {
     const UnifiedSalesDashboard = () => {
         // Synchronize with URL tab parameter if valid
         const urlTab = new URLSearchParams(location.search).get("tab");
-        const initialTab = (urlTab === "quotations" || urlTab === "quotation") ? "quotation" : 
-                          (urlTab === "clients") ? "clients" : 
-                          (urlTab === "leads") ? "total" : "total";
+        const initialTab = ["total", "my", "clients", "assign", "quotation", "leadStatus"].includes(urlTab)
+            ? urlTab
+            : (urlTab === "quotations" || urlTab === "quotation") ? "quotation" : "total";
                           
         const [activeSalesTab, setActiveSalesTab] = useState(initialTab);
         const currentUser = users.find(u => u.name === currentUserName);
@@ -2878,8 +3401,11 @@ const TeamInspire = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
-            <div className="p-6 md:p-12">
-                <div className="max-w-7xl mx-auto space-y-8">
+            {isSalesView ? (
+                <UnifiedSalesDashboard />
+            ) : (
+                <div className="p-6 md:p-12">
+                    <div className="max-w-7xl mx-auto space-y-8">
 
                     {/* Header */}
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
@@ -3227,7 +3753,7 @@ const TeamInspire = () => {
                                     </button>
                                 </div>
                             </div>
-
+                            
                             <QuotationTableView 
                                 quotations={quotations}
                                 searchQuotationQuery={searchQuotationQuery}
@@ -3236,6 +3762,7 @@ const TeamInspire = () => {
                                 loading={loading}
                                 userRole={userRole}
                                 printQuotation={printQuotation}
+                                downloadQuotation={downloadQuotation}
                                 onConvertToPI={handleConvertToPI}
                                 pagination={{
                                     currentPage: quotationPage,
@@ -3247,7 +3774,7 @@ const TeamInspire = () => {
                             />
                         </div>
                     )}
-
+ 
                     {activeTab === "proformas" && (
                         <div className="animate-fade-in">
                             <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -3292,7 +3819,7 @@ const TeamInspire = () => {
                                     )}
                                 </div>
                             </div>
-
+ 
                             <QuotationTableView 
                                 quotations={proformas}
                                 searchQuotationQuery={searchProformaQuery}
@@ -3301,6 +3828,7 @@ const TeamInspire = () => {
                                 loading={loading}
                                 userRole={userRole}
                                 printQuotation={printQuotation}
+                                downloadQuotation={downloadQuotation}
                                 onConvertToPI={null}
                                 pagination={{
                                     currentPage: proformaPage,
@@ -3311,9 +3839,11 @@ const TeamInspire = () => {
                                 onWhatsAppClick={handleWhatsAppClick}
                             />
                         </div>
+
                     )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Lead Modal */}
             {isModalOpen && (
@@ -3566,7 +4096,7 @@ const TeamInspire = () => {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 uppercase">Status</label>
-                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${statusColors[viewingLead.status]}`}>
+                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${getStatusColor(viewingLead.status)}`}>
                                         {viewingLead.status}
                                     </span>
                                 </div>
@@ -4592,7 +5122,7 @@ const TeamInspire = () => {
                                                         </div>
                                                         <div>
                                                             <span className="text-gray-400 block">Status</span>
-                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${statusColors[activeQuotationLead.status] || "bg-gray-100"}`}>{activeQuotationLead.status}</span>
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getStatusColor(activeQuotationLead.status)}`}>{activeQuotationLead.status}</span>
                                                         </div>
                                                     </div>
                                                 </div>

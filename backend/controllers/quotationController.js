@@ -131,14 +131,14 @@ const calculateQuotationTotals = async (products, additionalCharges) => {
     // Fetch full product details to ensure accuracy
     const productIds = products.map(p => p.product);
     const dbProducts = await require("../models/Product").find({ _id: { $in: productIds } });
-    const productMap = {};
-    dbProducts.forEach(p => productMap[p._id.toString()] = p);
+    const productMap = new Map();
+    dbProducts.forEach(p => productMap.set(p._id.toString(), p));
 
     let subTotalTaxable = 0;
     let subTotalGst = 0;
 
     const processedProducts = products.map(p => {
-        const dbProd = productMap[p.product] || {};
+        const dbProd = productMap.get(p.product) || {};
 
         const quantity = Number(p.quantity) || 1;
         const unitPrice = Number(p.unitPrice) || 0;
@@ -235,7 +235,7 @@ exports.createQuotation = async (req, res) => {
 
             const parts = uName.split(' ').filter(p => p.length > 0);
             if (parts.length >= 2) {
-                initials = (parts[0][0] + parts[1][0]).toUpperCase();
+                initials = (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
             } else if (parts.length === 1) {
                 initials = parts[0].substring(0, 2).toUpperCase();
             }
@@ -251,20 +251,19 @@ exports.createQuotation = async (req, res) => {
         let seq = 1;
         if (lastQuote && lastQuote.quotationNumber) {
             const parts = lastQuote.quotationNumber.split('-');
-            const lastSeq = parseInt(parts[parts.length - 1]);
+            const lastSeq = parseInt(parts.at(-1));
             if (!isNaN(lastSeq)) seq = lastSeq + 1;
         }
 
         const quotationNumber = `Q-${fyStr}-${initials}-${String(seq).padStart(3, '0')}`;
 
         // Try to find a matching client for the snapshot fallback
-        const escapedName = leadDoc.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const clientDoc = await Client.findOne({ 
             $or: [
-                { clientName: { $regex: new RegExp(`^${escapedName}$`, 'i') } },
-                { legalEntityName: { $regex: new RegExp(`^${escapedName}$`, 'i') } }
+                { clientName: leadDoc.name },
+                { legalEntityName: leadDoc.name }
             ]
-        });
+        }).collation({ locale: "en", strength: 2 });
         
         const clientSnapshot = {
             name: clientDoc ? (clientDoc.legalEntityName || clientDoc.clientName) : leadDoc.name,
@@ -443,7 +442,15 @@ exports.generatePDF = async (req, res) => {
             return res.status(404).json({ message: "Quotation not found" });
         }
 
-        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+        const isPI = quotation.quotationNumber?.startsWith("PI");
+        const doc = new PDFDocument({
+            margin: 30,
+            size: 'A4',
+            info: {
+                Title: isPI ? "Proforma Invoice" : "Quotation",
+                Author: "TeamInspire Business Solutions Pvt Ltd"
+            }
+        });
 
         // Stream the PDF to the response
         res.setHeader("Content-Type", "application/pdf");
@@ -456,9 +463,9 @@ exports.generatePDF = async (req, res) => {
         if (quotation.billTo?.address) {
             const parts = quotation.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
             if (parts.length >= 3) {
-                city = parts[parts.length - 3];
+                city = parts.at(-3);
             } else if (parts.length > 0) {
-                city = parts[0];
+                city = parts.at(0);
             }
         }
         const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -510,7 +517,6 @@ exports.generatePDF = async (req, res) => {
         const infoY = 90;
 
         // --- Info Section ---
-        const isPI = quotation.quotationNumber?.startsWith("PI");
         const hasPO = isPI && (quotation.poNumber || quotation.poDate);
         const poRowCount = hasPO ? 1 : 0;
         const infoBlockHeight = hasPO ? 80 + (poRowCount * 20) : 80;
