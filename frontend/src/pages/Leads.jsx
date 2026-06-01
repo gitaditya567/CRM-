@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
-import html2pdf from "html2pdf.js";
+
 
 
 import { format } from "date-fns";
@@ -2705,6 +2705,10 @@ const TeamInspire = () => {
         try {
             const toastId = toast.loading("Generating PDF file with premium formatting...");
             
+            // Dynamic import of html2pdf.js to avoid bundle load crashes in production
+            const html2pdfModule = await import("html2pdf.js");
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+
             // Wait for all images inside iframe to complete loading to avoid blank images
             const images = iframeDoc.getElementsByTagName('img');
             await Promise.all(Array.from(images).map(img => {
