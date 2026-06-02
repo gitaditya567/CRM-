@@ -9,19 +9,15 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
-              return 'vendor-react';
-            }
-            if (id.includes('lucide-react')) {
-              return 'vendor-icons';
+            // Split heavy utility packages to keep the initial boot bundle small
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('xlsx') || id.includes('html2pdf.js')) {
+              return 'vendor-pdf-excel';
             }
             if (id.includes('recharts') || id.includes('d3')) {
               return 'vendor-charts';
             }
-            if (id.includes('jspdf') || id.includes('html2canvas')) {
-              return 'vendor-pdf';
-            }
-            return 'vendor-others';
+            // Keep all core UI/React packages (react, react-dom, react-router, lucide-react, framer-motion, react-hot-toast, axios)
+            // together in a single default vendor bundle to prevent context/boot order issues like "createContext is undefined".
           }
         }
       }
