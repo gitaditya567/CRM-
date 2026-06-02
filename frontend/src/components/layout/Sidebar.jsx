@@ -29,6 +29,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
     const { theme, toggleTheme } = useTheme();
     const location = useLocation();
     const navigate = useNavigate();
+    const { uiSettings } = useSettings();
 
     const handleLogout = async () => {
         try {
