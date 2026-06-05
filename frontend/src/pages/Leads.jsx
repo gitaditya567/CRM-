@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
-import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw } from "lucide-react";
+import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
 
@@ -216,16 +216,13 @@ const StatCard = React.memo(({ title, value, icon, color, loading }) => (
 ));
 
 
-const SkeletonRow = () => (
+const SkeletonRow = ({ cols = 8 }) => (
     <tr className="animate-pulse">
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-40"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-28"></div></td>
-        <td className="px-6 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32"></div></td>
-        <td className="px-6 py-4 text-center"><div className="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-20 mx-auto"></div></td>
+        {[...Array(cols)].map((_, i) => (
+            <td key={i} className="px-6 py-4">
+                <div className={`h-4 bg-gray-200 dark:bg-gray-700 rounded ${i === cols - 1 ? 'w-20 mx-auto h-8 rounded-lg' : 'w-24'}`}></div>
+            </td>
+        ))}
     </tr>
 );
 
@@ -254,7 +251,7 @@ const ClientTableView = React.memo(({
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {loading && clients.length === 0 ? (
-                            [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
+                            [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={6} />)
                         ) : filteredClients.length === 0 ? (
                             <tr><td colSpan="6" className="px-6 py-12 text-center text-gray-500 italic">No clients found.</td></tr>
                         ) : (
@@ -368,7 +365,7 @@ const ClientTableView = React.memo(({
 
 const QuotationTableView = React.memo(({ 
     quotations, searchQuotationQuery, openQuotationModal, handleDeleteQuotation, loading,
-    pagination, onPageChange, userRole, printQuotation, downloadQuotation, onWhatsAppClick, onConvertToPI
+    pagination, onPageChange, userRole, printQuotation, downloadQuotation, onWhatsAppClick, onConvertToPI, openFollowUpModal
 }) => {
     const filteredQuotations = quotations;
     const isPIView = quotations.some(q => q.quotationNumber?.startsWith("PI"));
@@ -385,14 +382,15 @@ const QuotationTableView = React.memo(({
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Lead / Client</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Financials</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Issued Date</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Follow-up</th>
                             <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
                         {loading && quotations.length === 0 ? (
-                            [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
+                            [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={6} />)
                         ) : filteredQuotations.length === 0 ? (
-                            <tr><td colSpan="5" className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
+                            <tr><td colSpan="6" className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
                         ) : (
                             filteredQuotations.map((q) => (
                                 <tr key={q._id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all group">
@@ -417,9 +415,44 @@ const QuotationTableView = React.memo(({
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
-                                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg">
-                                            {format(new Date(q.createdAt), "dd MMM yyyy")}
-                                        </span>
+                                        <div className="flex flex-col items-start gap-1">
+                                            <span className="text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg">
+                                                {format(new Date(q.createdAt), "dd MMM yyyy")}
+                                            </span>
+                                            {q.followUps && q.followUps.length > 0 && (
+                                                (() => {
+                                                    const sorted = [...q.followUps].sort((a, b) => new Date(a.date) - new Date(b.date));
+                                                    const upcoming = sorted.find(f => new Date(f.date) >= new Date());
+                                                    if (upcoming) {
+                                                        return (
+                                                            <div className="text-[10px] text-orange-600 dark:text-orange-400 font-bold flex items-center gap-1 mt-0.5" title={`Upcoming follow-up: ${upcoming.remark}`}>
+                                                                <Flag size={10} className="fill-orange-600 dark:fill-orange-400 text-orange-600 dark:text-orange-400" />
+                                                                <span>F/U: {format(new Date(upcoming.date), "dd MMM HH:mm")}</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-5 text-sm text-gray-500 dark:text-gray-400">
+                                        {q.followUps && q.followUps.length > 0 ? (
+                                            (() => {
+                                                const sorted = [...q.followUps].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+                                                const recent = sorted[0];
+                                                return (
+                                                    <div className="flex flex-col max-w-[200px]" title={recent.remark}>
+                                                        <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{recent.remark}</span>
+                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold mt-0.5">
+                                                            By: {recent.createdBy?.name || "System"} | {format(new Date(recent.createdAt || recent.date), "dd MMM")}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()
+                                        ) : (
+                                            <span className="text-gray-400 dark:text-gray-600 italic">No Follow-up</span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-5 text-center">
                                         <div className="flex justify-center gap-2">
@@ -429,6 +462,13 @@ const QuotationTableView = React.memo(({
                                                 title="View / Print Quotation"
                                             >
                                                 <Eye size={18} />
+                                            </button>
+                                            <button 
+                                                onClick={() => openFollowUpModal && openFollowUpModal(q, "quotation")} 
+                                                className="p-2.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-xl transition-all shadow-sm bg-white dark:bg-gray-800" 
+                                                title="Add Follow-up"
+                                            >
+                                                <Flag size={18} />
                                             </button>
                                             <button 
                                                 onClick={() => {
@@ -616,7 +656,7 @@ const GroupTableView = React.memo(({
 
 const TableView = React.memo(({ 
     data, type, statusColors, rolePermissions, userRole, openViewModal, openModal, handleDelete, 
-    currentUserId, currentUserName, pagination, onPageChange, loading, onWhatsAppClick
+    currentUserId, currentUserName, pagination, onPageChange, loading, onWhatsAppClick, openFollowUpModal
 }) => (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
         <div className="overflow-x-auto">
@@ -625,28 +665,39 @@ const TableView = React.memo(({
                 <thead className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <tr>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Lead No</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Created By</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Contact</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Follow-up</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky right-0 bg-gray-100 dark:bg-gray-700 z-10 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)]">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {loading && data.length === 0 ? (
-                        [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
+                        [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={7} />)
                     ) : data.length === 0 ? (
-                        <tr><td colSpan="8" className="px-6 py-12 text-center text-gray-500">No {type} found.</td></tr>
+                        <tr><td colSpan="7" className="px-6 py-12 text-center text-gray-500">No {type} found.</td></tr>
                     ) : (
                         data.map((l) => (
                             <tr key={l._id} className="hover:bg-gray-50/80 dark:hover:bg-gray-700/50 transition-colors group">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 dark:text-blue-400">
-                                    {l.leadNumber || "-"}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                    {l.createdAt ? format(new Date(l.createdAt), "dd MMM yyyy") : "-"}
+                                    <div>{l.leadNumber || "-"}</div>
+                                    {l.followUps && l.followUps.length > 0 && (
+                                        (() => {
+                                            const sortedFollowUps = [...l.followUps].sort((a, b) => new Date(a.date) - new Date(b.date));
+                                            const upcoming = sortedFollowUps.find(f => new Date(f.date) >= new Date());
+                                            if (upcoming) {
+                                                return (
+                                                    <div className="text-[10px] text-orange-600 dark:text-orange-400 font-bold mt-1 flex items-center gap-1" title={`Upcoming follow-up: ${upcoming.remark}`}>
+                                                        <Flag size={10} className="fill-orange-600 dark:fill-orange-400 text-orange-600 dark:text-orange-400" />
+                                                        <span>F/U: {format(new Date(upcoming.date), "dd MMM HH:mm")}</span>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-2 py-1 text-xs font-bold rounded-full ${getStatusColor(l.status)}`}>
@@ -665,12 +716,30 @@ const TableView = React.memo(({
                                     {l.source || "-"}
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                    {l.phone}
+                                    {l.followUps && l.followUps.length > 0 ? (
+                                        (() => {
+                                            const sorted = [...l.followUps].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+                                            const recent = sorted[0];
+                                            return (
+                                                <div className="flex flex-col max-w-[200px]" title={recent.remark}>
+                                                    <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{recent.remark}</span>
+                                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold mt-0.5">
+                                                        By: {recent.createdBy?.name || "System"} | {format(new Date(recent.createdAt || recent.date), "dd MMM")}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })()
+                                    ) : (
+                                        <span className="text-gray-400 dark:text-gray-600 italic">No Follow-up</span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-center text-sm sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50/80 dark:group-hover:bg-gray-700/50 transition-colors">
                                     <div className="flex items-center justify-center gap-2">
                                         <button onClick={() => openViewModal(l)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all" title="View Details">
                                             <Eye size={18} />
+                                        </button>
+                                        <button onClick={() => openFollowUpModal && openFollowUpModal(l)} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-all" title="Add Follow-up">
+                                            <Flag size={18} />
                                         </button>
                                         <button 
                                             onClick={() => onWhatsAppClick && onWhatsAppClick(l)} 
@@ -857,6 +926,14 @@ const TeamInspire = () => {
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [viewingClient, setViewingClient] = useState(null);
     const [isClientViewModalOpen, setIsClientViewModalOpen] = useState(false);
+
+    // Follow-up States
+    const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+    const [followUpItem, setFollowUpItem] = useState(null);
+    const [followUpType, setFollowUpType] = useState("lead");
+    const [followUpDate, setFollowUpDate] = useState("");
+    const [followUpRemark, setFollowUpRemark] = useState("");
+    const [isSubmittingFollowUp, setIsSubmittingFollowUp] = useState(false);
 
     // Quotation State
     const [quotations, setQuotations] = useState([]);
@@ -1806,9 +1883,15 @@ const TeamInspire = () => {
         }
     };
 
-    const openViewModal = useCallback((lead) => {
+    const openViewModal = useCallback(async (lead) => {
         setViewingLead(lead);
         setIsViewModalOpen(true);
+        try {
+            const res = await API.get(`/leads/${lead._id}`);
+            setViewingLead(res.data);
+        } catch (err) {
+            console.error("Error fetching lead details:", err);
+        }
     }, []);
 
     const closeViewModal = () => {
@@ -1824,6 +1907,62 @@ const TeamInspire = () => {
     const closeClientViewModal = () => {
         setIsClientViewModalOpen(false);
         setViewingClient(null);
+    };
+
+    const openFollowUpModal = useCallback((item, type = "lead") => {
+        setFollowUpItem(item);
+        setFollowUpType(type);
+        const now = new Date();
+        const tzoffset = now.getTimezoneOffset() * 60000;
+        const localISOTime = (new Date(now - tzoffset)).toISOString().slice(0, 16);
+        setFollowUpDate(localISOTime);
+        setFollowUpRemark("");
+        setIsFollowUpModalOpen(true);
+    }, []);
+
+    const closeFollowUpModal = useCallback(() => {
+        setIsFollowUpModalOpen(false);
+        setFollowUpItem(null);
+        setFollowUpType("lead");
+        setFollowUpDate("");
+        setFollowUpRemark("");
+    }, []);
+
+    const handleFollowUpSubmit = async (e) => {
+        e.preventDefault();
+        if (!followUpItem || isSubmittingFollowUp) return;
+
+        if (!followUpDate || !followUpRemark.trim()) {
+            toast.error("Please fill in both the date and remark");
+            return;
+        }
+
+        const wordCount = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+        if (wordCount > 100) {
+            toast.error("Remark cannot exceed 100 words");
+            return;
+        }
+
+        setIsSubmittingFollowUp(true);
+        try {
+            const url = followUpType === "quotation"
+                ? `/quotations/${followUpItem._id}/followup`
+                : `/leads/${followUpItem._id}/followup`;
+
+            await API.post(url, {
+                date: followUpDate,
+                remark: followUpRemark.trim()
+            });
+            toast.success("Follow-up added successfully!");
+            closeFollowUpModal();
+            fetchData();
+        } catch (err) {
+            console.error("Follow-up Save Error:", err);
+            const msg = err.response?.data?.message || "Failed to add follow-up";
+            toast.error(msg);
+        } finally {
+            setIsSubmittingFollowUp(false);
+        }
     };
 
     const printClientDetails = (client) => {
@@ -3198,6 +3337,7 @@ const TeamInspire = () => {
                         currentUserId={currentUserId}
                         currentUserName={currentUserName}
                         loading={loading}
+                        openFollowUpModal={openFollowUpModal}
                     />
                 </div>
             </div>
@@ -3361,6 +3501,7 @@ const TeamInspire = () => {
                                     onConvertToPI={handleConvertToPI}
                                     pagination={{ currentPage: quotationPage, totalPages: quotationTotalPages, totalItems: totalQuotations }}
                                     onPageChange={(p) => fetchData(p, 'quotations')}
+                                    openFollowUpModal={openFollowUpModal}
                                 />
                             </div>
                         </div>
@@ -3584,6 +3725,7 @@ const TeamInspire = () => {
                                 onPageChange={(p) => fetchData(p)}
                                 loading={loading}
                                 onWhatsAppClick={handleWhatsAppClick}
+                                openFollowUpModal={openFollowUpModal}
                             />
                         </div>
                     )}
@@ -3775,6 +3917,7 @@ const TeamInspire = () => {
                                 }}
                                 onPageChange={(p) => fetchData(p, 'quotations')}
                                 onWhatsAppClick={handleWhatsAppClick}
+                                openFollowUpModal={openFollowUpModal}
                             />
                         </div>
                     )}
@@ -3841,6 +3984,7 @@ const TeamInspire = () => {
                                 }}
                                 onPageChange={(p) => fetchData(p, 'proformas')}
                                 onWhatsAppClick={handleWhatsAppClick}
+                                openFollowUpModal={openFollowUpModal}
                             />
                         </div>
 
@@ -4089,6 +4233,11 @@ const TeamInspire = () => {
                         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-700/50">
                             <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                 👁️ View Lead Details
+                                {viewingLead.leadNumber && (
+                                    <span className="text-xs font-mono font-bold bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded-full">
+                                        #{viewingLead.leadNumber}
+                                    </span>
+                                )}
                             </h3>
                             <button onClick={closeViewModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-2xl">&times;</button>
                         </div>
@@ -4151,6 +4300,32 @@ const TeamInspire = () => {
                                         ) : (
                                             <p className="text-sm text-gray-400 text-center">No remarks found.</p>
                                         )
+                                    )}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Follow-up History</label>
+                                <div className="max-h-48 overflow-y-auto bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600 space-y-3">
+                                    {viewingLead.followUps && viewingLead.followUps.length > 0 ? (
+                                        [...viewingLead.followUps]
+                                            .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                            .map((fu, idx) => (
+                                                <div key={idx} className="text-sm border-b last:border-0 border-gray-200 dark:border-gray-500 pb-2 last:pb-0 space-y-1">
+                                                    <div className="flex justify-between items-center text-xs font-bold text-orange-600 dark:text-orange-400">
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock size={12} />
+                                                            Scheduled: {format(new Date(fu.date), "dd MMM yyyy HH:mm")}
+                                                        </span>
+                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">
+                                                            By: {fu.createdBy?.name || "System"} | Added: {format(new Date(fu.createdAt), "dd MMM HH:mm")}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{fu.remark}</p>
+                                                </div>
+                                            ))
+                                    ) : (
+                                        <p className="text-sm text-gray-400 text-center">No scheduled follow-ups.</p>
                                     )}
                                 </div>
                             </div>
@@ -5313,6 +5488,131 @@ const TeamInspire = () => {
                                 </button>
                             </div>
                             
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Follow-up Modal */}
+            {isFollowUpModalOpen && followUpItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-all duration-300">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in border border-gray-100 dark:border-gray-700 transform transition-all duration-300">
+                        {/* Decorative Top Bar */}
+                        <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 h-2 w-full"></div>
+                        
+                        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-700/30">
+                            <h3 className="font-black text-gray-800 dark:text-white flex items-center gap-2 text-lg">
+                                <Flag className="text-orange-500 fill-orange-500" size={20} />
+                                {followUpType === "quotation" ? "Quotation Follow-up" : "Lead Follow-up"}
+                            </h3>
+                            <button onClick={closeFollowUpModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-2xl transition-colors">&times;</button>
+                        </div>
+                        
+                        <div className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+                            {/* Summary Details */}
+                            <div className="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50">
+                                <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1">
+                                    {followUpType === "quotation" ? "Proposal Details" : "Lead Details"}
+                                </label>
+                                <p className="font-bold text-gray-900 dark:text-white text-base">
+                                    {followUpType === "quotation" ? `${followUpItem.billTo?.name || "Proposal"}` : followUpItem.name}
+                                </p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400 font-mono mt-0.5">
+                                    {followUpType === "quotation" ? `#${followUpItem.quotationNumber}` : followUpItem.leadNumber}
+                                </p>
+                            </div>
+
+                            {/* Follow-up History (Show History list) */}
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-2">Follow-up History</label>
+                                <div className="max-h-40 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50 space-y-3">
+                                    {followUpItem.followUps && followUpItem.followUps.length > 0 ? (
+                                        [...followUpItem.followUps]
+                                            .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                            .map((fu, idx) => (
+                                                <div key={idx} className="text-xs border-b last:border-0 border-gray-200 dark:border-gray-700 pb-2 last:pb-0 space-y-1">
+                                                    <div className="flex justify-between items-center font-bold text-orange-600 dark:text-orange-400">
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock size={11} />
+                                                            F/U: {format(new Date(fu.date), "dd MMM yyyy HH:mm")}
+                                                        </span>
+                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">
+                                                            By: {fu.createdBy?.name || "System"} | {format(new Date(fu.createdAt), "dd MMM HH:mm")}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-medium">{fu.remark}</p>
+                                                </div>
+                                            ))
+                                    ) : (
+                                        <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic font-medium">No follow-ups recorded yet.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* New Follow-up Input Form */}
+                            <form onSubmit={handleFollowUpSubmit} className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-700/50">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Scheduled Date & Time *</label>
+                                    <input
+                                        type="datetime-local"
+                                        required
+                                        value={followUpDate}
+                                        onChange={(e) => setFollowUpDate(e.target.value)}
+                                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                                    />
+                                </div>
+                                
+                                <div className="space-y-1">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Remark *</label>
+                                        <span className={`text-[11px] font-bold ${(() => {
+                                            const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                            return wc > 100 ? "text-red-500" : wc >= 90 ? "text-amber-500" : "text-gray-400 dark:text-gray-500";
+                                        })()}`}>
+                                            Words: {followUpRemark.trim().split(/\s+/).filter(Boolean).length} / 100
+                                        </span>
+                                    </div>
+                                    <textarea
+                                        required
+                                        rows={3}
+                                        placeholder="Write follow-up details (maximum 100 words)..."
+                                        value={followUpRemark}
+                                        onChange={(e) => setFollowUpRemark(e.target.value)}
+                                        className={`w-full px-4 py-3 rounded-xl border bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 outline-none transition-all resize-none ${(() => {
+                                            const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                            return wc > 100 ? "border-red-500 focus:ring-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-700 focus:ring-orange-500";
+                                        })()}`}
+                                    />
+                                    {(() => {
+                                        const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                        if (wc > 100) {
+                                            return (
+                                                <p className="text-[11px] text-red-500 font-semibold mt-1">
+                                                    ⚠️ Error: Word limit exceeded! Please shorten by {wc - 100} word{wc - 100 > 1 ? "s" : ""}.
+                                                </p>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                </div>
+                                
+                                <div className="flex gap-3 pt-4 border-t border-gray-100 dark:border-gray-700/50">
+                                    <button
+                                        type="button"
+                                        onClick={closeFollowUpModal}
+                                        className="flex-1 py-3 px-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold rounded-2xl transition-all duration-200 active:scale-95 text-sm"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmittingFollowUp || followUpRemark.trim().split(/\s+/).filter(Boolean).length > 100 || !followUpRemark.trim()}
+                                        className="flex-1 py-3 px-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/20 hover:-translate-y-0.5 transition-all duration-200 active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                                    >
+                                        {isSubmittingFollowUp ? "Saving..." : "Add Follow-up"}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>

@@ -8,5 +8,6 @@ router.post("/", auth.protect, quotationController.createQuotation);
 router.get("/:id/pdf", auth.protect, quotationController.generatePDF);
 router.put("/:id", auth.protect, quotationController.updateQuotation);
 router.delete("/:id", auth.protect, quotationController.deleteQuotation);
+router.post("/:id/followup", auth.protect, quotationController.addFollowUp);
 
 module.exports = router;

@@ -112,7 +112,26 @@ const quotationSchema = new mongoose.Schema({
     poComment: {
         type: String,
         default: ""
-    }
+    },
+    followUps: [{
+        date: {
+            type: Date,
+            required: true
+        },
+        remark: {
+            type: String,
+            required: true
+        },
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null
+        },
+        createdAt: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 }, { timestamps: true });
 quotationSchema.index({ createdAt: -1 });
 quotationSchema.index({ lead: 1, createdAt: -1 });

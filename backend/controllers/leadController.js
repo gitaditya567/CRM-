@@ -480,6 +480,7 @@ exports.getLeadById = async (req, res) => {
             .populate("assignedTo", "name")
             .populate("createdBy", "name role")
             .populate("assignedBy", "name role")
+            .populate("followUps.createdBy", "name")
             .lean();
         if (!lead) {
             return res.status(404).json({ message: "Lead not found" });
@@ -491,5 +492,60 @@ exports.getLeadById = async (req, res) => {
     } catch (err) {
         console.error("Get Lead By ID Error:", err);
         res.status(500).json({ message: "Failed to fetch lead details" });
+    }
+};
+
+// POST /api/leads/:id/followup
+exports.addFollowUp = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { date, remark } = req.body;
+
+        if (!date || !remark) {
+            return res.status(400).json({ message: "Date and remark are required" });
+        }
+
+        // Validate word limit of remark (max 100 words)
+        const wordCount = remark.trim().split(/\s+/).filter(Boolean).length;
+        if (wordCount > 100) {
+            return res.status(400).json({ message: "Remark cannot exceed 100 words" });
+        }
+
+        const lead = await Lead.findById(id);
+        if (!lead) {
+            return res.status(404).json({ message: "Lead not found" });
+        }
+
+        lead.followUps.push({
+            date: new Date(date),
+            remark: remark.trim(),
+            createdBy: req.user?._id || null
+        });
+
+        await lead.save();
+
+        const populatedLead = await Lead.findById(lead._id)
+            .populate("group")
+            .populate("assignedTo", "name")
+            .populate("createdBy", "name role")
+            .populate("assignedBy", "name role")
+            .populate("followUps.createdBy", "name");
+
+        const Quotation = require("../models/Quotation");
+        const hasPI = await Quotation.exists({ lead: lead._id, quotationNumber: /^PI/i });
+        const leadObj = populatedLead.toObject ? populatedLead.toObject() : populatedLead;
+        leadObj.hasPI = !!hasPI;
+
+        // Emit socket event
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("leadUpdated", leadObj);
+        }
+
+        clearCachePrefix("dashboard_");
+        res.status(200).json(leadObj);
+    } catch (err) {
+        console.error("Add Follow Up Error:", err);
+        res.status(500).json({ message: "Failed to add follow up" });
     }
 };

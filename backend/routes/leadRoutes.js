@@ -1,6 +1,6 @@
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
-const { getLeads, createLead, updateLead, deleteLead, deleteMultipleLeads, getLeadById } = require("../controllers/leadController");
+const { getLeads, createLead, updateLead, deleteLead, deleteMultipleLeads, getLeadById, addFollowUp } = require("../controllers/leadController");
 
 const router = express.Router();
 
@@ -10,5 +10,6 @@ router.post("/", protect, createLead);
 router.put("/:id", protect, updateLead);
 router.delete("/:id", protect, deleteLead);
 router.post("/bulk-delete", protect, deleteMultipleLeads);
+router.post("/:id/followup", protect, addFollowUp);
 
 module.exports = router;

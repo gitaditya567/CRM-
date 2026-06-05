@@ -107,6 +107,7 @@ exports.getQuotations = async (req, res) => {
             })
             .populate("createdBy", "name")
             .populate("products.product", "name productNo")
+            .populate("followUps.createdBy", "name")
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
@@ -835,5 +836,61 @@ exports.generatePDF = async (req, res) => {
         if (!res.headersSent) {
             res.status(500).json({ message: "Failed to generate PDF document" });
         }
+    }
+};
+
+// POST /api/quotations/:id/followup
+exports.addFollowUp = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { date, remark } = req.body;
+
+        if (!date || !remark) {
+            return res.status(400).json({ message: "Date and remark are required" });
+        }
+
+        // Validate word limit of remark (max 100 words)
+        const wordCount = remark.trim().split(/\s+/).filter(Boolean).length;
+        if (wordCount > 100) {
+            return res.status(400).json({ message: "Remark cannot exceed 100 words" });
+        }
+
+        const quotation = await Quotation.findById(id);
+        if (!quotation) {
+            return res.status(404).json({ message: "Quotation not found" });
+        }
+
+        quotation.followUps.push({
+            date: new Date(date),
+            remark: remark.trim(),
+            createdBy: req.user?._id || null
+        });
+
+        await quotation.save();
+
+        const populatedQuotation = await Quotation.findById(quotation._id)
+            .populate({
+                path: "lead",
+                select: "name email phone leadNumber status source assignedTo group",
+                populate: [
+                    { path: "assignedTo", select: "name" },
+                    { path: "group", select: "name priceType" }
+                ]
+            })
+            .populate("createdBy", "name")
+            .populate("products.product", "name productNo")
+            .populate("followUps.createdBy", "name");
+
+        // Emit socket event
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("quotationUpdated", populatedQuotation);
+        }
+
+        clearCachePrefix("dashboard_");
+        res.status(200).json(populatedQuotation);
+    } catch (err) {
+        console.error("Add Quotation Follow Up Error:", err);
+        res.status(500).json({ message: "Failed to add follow up" });
     }
 };

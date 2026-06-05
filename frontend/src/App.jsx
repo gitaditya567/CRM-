@@ -16,6 +16,7 @@ const ProductHistory = lazy(() => import("./pages/ProductHistory"));
 const TeamInspire = lazy(() => import("./pages/Leads"));
 const Clients = lazy(() => import("./pages/Clients"));
 const ClientSupport = lazy(() => import("./pages/ClientSupport"));
+const POManagement = lazy(() => import("./pages/POManagement"));
 
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 
@@ -181,6 +182,16 @@ const App = () => {
                 element={
                   <PrivateRoute>
                     <ClientSupport />
+                  </PrivateRoute>
+                }
+              />
+
+              {/* PO Management */}
+              <Route
+                path="/po-management"
+                element={
+                  <PrivateRoute>
+                    <POManagement />
                   </PrivateRoute>
                 }
               />
