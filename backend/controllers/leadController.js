@@ -2,6 +2,7 @@ const Lead = require("../models/Lead");
 const Client = require("../models/Client");
 const { clearCachePrefix } = require("../utils/cache");
 
+
 // GET /api/leads
 exports.getLeads = async (req, res) => {
     try {
@@ -88,6 +89,19 @@ exports.getLeads = async (req, res) => {
 
         if (req.query.status) {
             filter.status = req.query.status;
+        }
+
+        if (req.query.hasFollowUp === "true") {
+            const condition = { followUps: { $exists: true, $not: { $size: 0 } } };
+            filter = Object.keys(filter).length > 0 ? { $and: [filter, condition] } : condition;
+        } else if (req.query.hasFollowUp === "false") {
+            const condition = {
+                $or: [
+                    { followUps: { $exists: false } },
+                    { followUps: { $size: 0 } }
+                ]
+            };
+            filter = Object.keys(filter).length > 0 ? { $and: [filter, condition] } : condition;
         }
 
         if (req.query.startDate || req.query.endDate) {
@@ -310,7 +324,8 @@ exports.createLead = async (req, res) => {
         }
 
         clearCachePrefix("dashboard_");
-        res.status(201).json(newLead);
+        const newLeadObj = newLead.toObject ? newLead.toObject() : newLead;
+        res.status(201).json(newLeadObj);
     } catch (err) {
         console.error("Create Lead Error:", err);
         // Handle duplicate key error if sequence collision happens (retry logic could be added)
@@ -488,6 +503,7 @@ exports.getLeadById = async (req, res) => {
         const Quotation = require("../models/Quotation");
         const hasPI = await Quotation.exists({ lead: lead._id, quotationNumber: /^PI/i });
         lead.hasPI = !!hasPI;
+        // No AI priority scoring
         res.json(lead);
     } catch (err) {
         console.error("Get Lead By ID Error:", err);
@@ -516,6 +532,10 @@ exports.addFollowUp = async (req, res) => {
             return res.status(404).json({ message: "Lead not found" });
         }
 
+        if (lead.status === "Won" || lead.status === "Lost") {
+            return res.status(400).json({ message: "Cannot add follow-up to a Won or Lost lead" });
+        }
+
         lead.followUps.push({
             date: new Date(date),
             remark: remark.trim(),
@@ -535,6 +555,8 @@ exports.addFollowUp = async (req, res) => {
         const hasPI = await Quotation.exists({ lead: lead._id, quotationNumber: /^PI/i });
         const leadObj = populatedLead.toObject ? populatedLead.toObject() : populatedLead;
         leadObj.hasPI = !!hasPI;
+
+        // No AI priority scoring
 
         // Emit socket event
         const io = req.app.get("io");

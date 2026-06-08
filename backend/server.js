@@ -50,6 +50,8 @@ app.use("/api/settings", require("./routes/settingRoutes"));
 console.log("Settings routes loaded");
 app.use("/api/roles", require("./routes/roleRoutes"));
 console.log("Role routes loaded");
+app.use("/api/ai", require("./routes/aiRoutes"));
+console.log("AI routes loaded");
 
 // DB Connection
 console.log("Connecting to MongoDB...");

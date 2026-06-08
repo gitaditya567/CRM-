@@ -365,10 +365,11 @@ const ClientTableView = React.memo(({
 
 const QuotationTableView = React.memo(({ 
     quotations, searchQuotationQuery, openQuotationModal, handleDeleteQuotation, loading,
-    pagination, onPageChange, userRole, printQuotation, downloadQuotation, onWhatsAppClick, onConvertToPI, openFollowUpModal
+    pagination, onPageChange, userRole, printQuotation, downloadQuotation, onWhatsAppClick, onConvertToPI, openFollowUpModal,
+    isPIView: isPIViewProp
 }) => {
     const filteredQuotations = quotations;
-    const isPIView = quotations.some(q => q.quotationNumber?.startsWith("PI"));
+    const isPIView = isPIViewProp !== undefined ? isPIViewProp : quotations.some(q => q.quotationNumber?.startsWith("PI"));
 
     const { currentPage, totalPages, totalItems } = pagination || { currentPage: 1, totalPages: 1, totalItems: 0 };
 
@@ -382,15 +383,15 @@ const QuotationTableView = React.memo(({
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Lead / Client</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Financials</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Issued Date</th>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Follow-up</th>
+                            {!isPIView && <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Follow-up</th>}
                             <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
                         {loading && quotations.length === 0 ? (
-                            [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={6} />)
+                            [...Array(5)].map((_, i) => <SkeletonRow key={i} cols={isPIView ? 5 : 6} />)
                         ) : filteredQuotations.length === 0 ? (
-                            <tr><td colSpan="6" className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
+                            <tr><td colSpan={isPIView ? 5 : 6} className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
                         ) : (
                             filteredQuotations.map((q) => (
                                 <tr key={q._id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all group">
@@ -419,14 +420,14 @@ const QuotationTableView = React.memo(({
                                             <span className="text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg">
                                                 {format(new Date(q.createdAt), "dd MMM yyyy")}
                                             </span>
-                                            {q.followUps && q.followUps.length > 0 && (
+                                            {!isPIView && q.lead?.status !== "Won" && q.lead?.status !== "Lost" && q.followUps && q.followUps.length > 0 && (
                                                 (() => {
                                                     const sorted = [...q.followUps].sort((a, b) => new Date(a.date) - new Date(b.date));
                                                     const upcoming = sorted.find(f => new Date(f.date) >= new Date());
                                                     if (upcoming) {
                                                         return (
-                                                            <div className="text-[10px] text-orange-600 dark:text-orange-400 font-bold flex items-center gap-1 mt-0.5" title={`Upcoming follow-up: ${upcoming.remark}`}>
-                                                                <Flag size={10} className="fill-orange-600 dark:fill-orange-400 text-orange-600 dark:text-orange-400" />
+                                                            <div className="text-[10px] text-red-600 dark:text-red-400 font-bold flex items-center gap-1 mt-0.5" title={`Upcoming follow-up: ${upcoming.remark}`}>
+                                                                <Flag size={10} className="fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
                                                                 <span>F/U: {format(new Date(upcoming.date), "dd MMM HH:mm")}</span>
                                                             </div>
                                                         );
@@ -436,24 +437,26 @@ const QuotationTableView = React.memo(({
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-6 py-5 text-sm text-gray-500 dark:text-gray-400">
-                                        {q.followUps && q.followUps.length > 0 ? (
-                                            (() => {
-                                                const sorted = [...q.followUps].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
-                                                const recent = sorted[0];
-                                                return (
-                                                    <div className="flex flex-col max-w-[200px]" title={recent.remark}>
-                                                        <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{recent.remark}</span>
-                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold mt-0.5">
-                                                            By: {recent.createdBy?.name || "System"} | {format(new Date(recent.createdAt || recent.date), "dd MMM")}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })()
-                                        ) : (
-                                            <span className="text-gray-400 dark:text-gray-600 italic">No Follow-up</span>
-                                        )}
-                                    </td>
+                                    {!isPIView && (
+                                        <td className="px-6 py-5 text-sm text-gray-500 dark:text-gray-400">
+                                            {q.followUps && q.followUps.length > 0 ? (
+                                                (() => {
+                                                    const sorted = [...q.followUps].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+                                                    const recent = sorted[0];
+                                                    return (
+                                                        <div className="flex flex-col max-w-[200px]" title={recent.remark}>
+                                                            <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{recent.remark}</span>
+                                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold mt-0.5">
+                                                                By: {recent.createdBy?.name || "System"} | {format(new Date(recent.createdAt || recent.date), "dd MMM")}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()
+                                            ) : (
+                                                <span className="text-gray-400 dark:text-gray-600 italic">No Follow-up</span>
+                                            )}
+                                        </td>
+                                    )}
                                     <td className="px-6 py-5 text-center">
                                         <div className="flex justify-center gap-2">
                                             <button 
@@ -463,13 +466,19 @@ const QuotationTableView = React.memo(({
                                             >
                                                 <Eye size={18} />
                                             </button>
-                                            <button 
-                                                onClick={() => openFollowUpModal && openFollowUpModal(q, "quotation")} 
-                                                className="p-2.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded-xl transition-all shadow-sm bg-white dark:bg-gray-800" 
-                                                title="Add Follow-up"
-                                            >
-                                                <Flag size={18} />
-                                            </button>
+                                            {!isPIView && (
+                                                <button 
+                                                    onClick={() => openFollowUpModal && openFollowUpModal(q, "quotation")} 
+                                                    className={`p-2.5 transition-all shadow-sm bg-white dark:bg-gray-800 rounded-xl ${
+                                                        q.lead?.status === "Won" || q.lead?.status === "Lost"
+                                                            ? "text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                                                            : "text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                                    }`}
+                                                    title={q.lead?.status === "Won" || q.lead?.status === "Lost" ? "View Follow-up History" : "Add Follow-up"}
+                                                >
+                                                    <Flag size={18} className={q.lead?.status === "Won" || q.lead?.status === "Lost" ? "" : "fill-current"} />
+                                                </button>
+                                            )}
                                             <button 
                                                 onClick={() => {
                                                     const phone = q.lead?.phone || "";
@@ -669,7 +678,7 @@ const TableView = React.memo(({
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Created By</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Follow-up</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Assigned To</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky right-0 bg-gray-100 dark:bg-gray-700 z-10 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)]">Actions</th>
                     </tr>
                 </thead>
@@ -683,14 +692,14 @@ const TableView = React.memo(({
                             <tr key={l._id} className="hover:bg-gray-50/80 dark:hover:bg-gray-700/50 transition-colors group">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 dark:text-blue-400">
                                     <div>{l.leadNumber || "-"}</div>
-                                    {l.followUps && l.followUps.length > 0 && (
+                                    {l.status !== "Won" && l.status !== "Lost" && l.followUps && l.followUps.length > 0 && (
                                         (() => {
                                             const sortedFollowUps = [...l.followUps].sort((a, b) => new Date(a.date) - new Date(b.date));
                                             const upcoming = sortedFollowUps.find(f => new Date(f.date) >= new Date());
                                             if (upcoming) {
                                                 return (
-                                                    <div className="text-[10px] text-orange-600 dark:text-orange-400 font-bold mt-1 flex items-center gap-1" title={`Upcoming follow-up: ${upcoming.remark}`}>
-                                                        <Flag size={10} className="fill-orange-600 dark:fill-orange-400 text-orange-600 dark:text-orange-400" />
+                                                    <div className="text-[10px] text-red-600 dark:text-red-400 font-bold mt-1 flex items-center gap-1" title={`Upcoming follow-up: ${upcoming.remark}`}>
+                                                        <Flag size={10} className="fill-red-600 dark:fill-red-400 text-red-600 dark:text-red-400" />
                                                         <span>F/U: {format(new Date(upcoming.date), "dd MMM HH:mm")}</span>
                                                     </div>
                                                 );
@@ -715,31 +724,24 @@ const TableView = React.memo(({
                                 <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                                     {l.source || "-"}
                                 </td>
-                                <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                    {l.followUps && l.followUps.length > 0 ? (
-                                        (() => {
-                                            const sorted = [...l.followUps].sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
-                                            const recent = sorted[0];
-                                            return (
-                                                <div className="flex flex-col max-w-[200px]" title={recent.remark}>
-                                                    <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{recent.remark}</span>
-                                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold mt-0.5">
-                                                        By: {recent.createdBy?.name || "System"} | {format(new Date(recent.createdAt || recent.date), "dd MMM")}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })()
-                                    ) : (
-                                        <span className="text-gray-400 dark:text-gray-600 italic">No Follow-up</span>
-                                    )}
+                                <td className="px-6 py-4 text-sm text-gray-900 dark:text-white font-medium whitespace-nowrap">
+                                    {l.assignedTo?.name || <span className="text-gray-400 dark:text-gray-600 italic">Unassigned</span>}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-center text-sm sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50/80 dark:group-hover:bg-gray-700/50 transition-colors">
                                     <div className="flex items-center justify-center gap-2">
                                         <button onClick={() => openViewModal(l)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all" title="View Details">
                                             <Eye size={18} />
                                         </button>
-                                        <button onClick={() => openFollowUpModal && openFollowUpModal(l)} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-all" title="Add Follow-up">
-                                            <Flag size={18} />
+                                        <button 
+                                            onClick={() => openFollowUpModal && openFollowUpModal(l)} 
+                                            className={`p-2 transition-all rounded-lg ${
+                                                l.status === "Won" || l.status === "Lost"
+                                                    ? "text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                                                    : "text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            }`} 
+                                            title={l.status === "Won" || l.status === "Lost" ? "View Follow-up History" : "Add Follow-up"}
+                                        >
+                                            <Flag size={18} className={l.status === "Won" || l.status === "Lost" ? "" : "fill-current"} />
                                         </button>
                                         <button 
                                             onClick={() => onWhatsAppClick && onWhatsAppClick(l)} 
@@ -907,10 +909,16 @@ const TeamInspire = () => {
     const [searchGroupQuery, setSearchGroupQuery] = useState("");
     const [searchLeadQuery, setSearchLeadQuery] = useState("");
     const [searchMyLeadQuery, setSearchMyLeadQuery] = useState("");
+    const [isLeadsSearchExpanded, setIsLeadsSearchExpanded] = useState(false);
+    const [isMyLeadsSearchExpanded, setIsMyLeadsSearchExpanded] = useState(false);
     const [searchClientQuery, setSearchClientQuery] = useState("");
     const [searchClientGroup, setSearchClientGroup] = useState("");
     const [searchClientAllotment, setSearchClientAllotment] = useState("");
     const [searchQuotationQuery, setSearchQuotationQuery] = useState("");
+    const [leadFollowUpFilter, setLeadFollowUpFilter] = useState("all"); // 'all', 'true', 'false'
+    const [myLeadsFollowUpFilter, setMyLeadsFollowUpFilter] = useState("all"); // 'all', 'true', 'false'
+    const [quotationFollowUpFilter, setQuotationFollowUpFilter] = useState("all"); // 'all', 'true', 'false'
+    const [proformaFollowUpFilter, setProformaFollowUpFilter] = useState("all"); // 'all', 'true', 'false'
     const [leadFilterType, setLeadFilterType] = useState("all"); // 'all', 'created', 'assigned'
     const [myLeadsFilterType, setMyLeadsFilterType] = useState("all"); // 'all', 'created', 'assigned'
     const [staffFilter, setStaffFilter] = useState("all");
@@ -1046,7 +1054,11 @@ const TeamInspire = () => {
         searchQuotationQuery: "",
         searchProformaQuery: "",
         searchClientGroup: "",
-        searchClientAllotment: ""
+        searchClientAllotment: "",
+        leadFollowUpFilter: "all",
+        myLeadsFollowUpFilter: "all",
+        quotationFollowUpFilter: "all",
+        proformaFollowUpFilter: "all"
     });
 
     const prevFiltersRef = React.useRef({
@@ -1070,6 +1082,10 @@ const TeamInspire = () => {
         searchClientAllotment: "",
         quotationStaffFilter: "all",
         proformaStaffFilter: "all",
+        leadFollowUpFilter: "all",
+        myLeadsFollowUpFilter: "all",
+        quotationFollowUpFilter: "all",
+        proformaFollowUpFilter: "all"
     });
 
     // Update filtersRef in real-time as state variables change
@@ -1094,7 +1110,11 @@ const TeamInspire = () => {
             searchQuotationQuery,
             searchProformaQuery,
             searchClientGroup,
-            searchClientAllotment
+            searchClientAllotment,
+            leadFollowUpFilter,
+            myLeadsFollowUpFilter,
+            quotationFollowUpFilter,
+            proformaFollowUpFilter
         };
     }, [
         activeTab,
@@ -1116,7 +1136,11 @@ const TeamInspire = () => {
         searchQuotationQuery,
         searchProformaQuery,
         searchClientGroup,
-        searchClientAllotment
+        searchClientAllotment,
+        leadFollowUpFilter,
+        myLeadsFollowUpFilter,
+        quotationFollowUpFilter,
+        proformaFollowUpFilter
     ]);
 
     // Request sequence tracking to solve race conditions
@@ -1167,6 +1191,9 @@ const TeamInspire = () => {
                     if (currentFilters.myLeadsStartDate) params += `&startDate=${encodeURIComponent(currentFilters.myLeadsStartDate)}`;
                     if (currentFilters.myLeadsEndDate) params += `&endDate=${encodeURIComponent(currentFilters.myLeadsEndDate)}`;
                     if (currentFilters.searchMyLeadQuery) params += `&search=${encodeURIComponent(currentFilters.searchMyLeadQuery)}`;
+                    if (currentFilters.myLeadsFollowUpFilter !== 'all') {
+                        params += `&hasFollowUp=${currentFilters.myLeadsFollowUpFilter}`;
+                    }
                 } else {
                     if (currentFilters.leadFilterType !== 'all') {
                         params += `&filterType=${currentFilters.leadFilterType}`;
@@ -1180,6 +1207,9 @@ const TeamInspire = () => {
                     if (currentFilters.leadStartDate) params += `&startDate=${encodeURIComponent(currentFilters.leadStartDate)}`;
                     if (currentFilters.leadEndDate) params += `&endDate=${encodeURIComponent(currentFilters.leadEndDate)}`;
                     if (currentFilters.searchLeadQuery) params += `&search=${encodeURIComponent(currentFilters.searchLeadQuery)}`;
+                    if (currentFilters.leadFollowUpFilter !== 'all') {
+                        params += `&hasFollowUp=${currentFilters.leadFollowUpFilter}`;
+                    }
                 }
                 
                 promises.push(
@@ -1214,6 +1244,9 @@ const TeamInspire = () => {
                 let params = `page=${pageNum}&limit=20&docType=Quotation`;
                 if (currentFilters.searchQuotationQuery) params += `&search=${encodeURIComponent(currentFilters.searchQuotationQuery)}`;
                 if (currentFilters.quotationStaffFilter !== 'all') params += `&staff=${encodeURIComponent(currentFilters.quotationStaffFilter)}`;
+                if (currentFilters.quotationFollowUpFilter !== 'all') {
+                    params += `&hasFollowUp=${currentFilters.quotationFollowUpFilter}`;
+                }
                 promises.push(
                     API.get(`/quotations?${params}`).then(res => {
                         if (currentRequestId !== requestCounterRef.current[fetchType]) return;
@@ -1229,6 +1262,9 @@ const TeamInspire = () => {
                 let params = `page=${pageNum}&limit=20&docType=PI`;
                 if (currentFilters.searchProformaQuery) params += `&search=${encodeURIComponent(currentFilters.searchProformaQuery)}`;
                 if (currentFilters.proformaStaffFilter !== 'all') params += `&staff=${encodeURIComponent(currentFilters.proformaStaffFilter)}`;
+                if (currentFilters.proformaFollowUpFilter !== 'all') {
+                    params += `&hasFollowUp=${currentFilters.proformaFollowUpFilter}`;
+                }
                 promises.push(
                     API.get(`/quotations?${params}`).then(res => {
                         if (currentRequestId !== requestCounterRef.current[fetchType]) return;
@@ -1367,14 +1403,18 @@ const TeamInspire = () => {
         return () => clearTimeout(delayDebounceFn);
     }, [searchQuotationQuery, activeTab, fetchData]);
 
-    // Re-fetch quotations when staff filter changes
+    // Re-fetch quotations when staff or follow-up filters change
     useEffect(() => {
         if (activeTab !== 'quotations') return;
-        if (prevFiltersRef.current.quotationStaffFilter === quotationStaffFilter) return;
+        const staffChanged = prevFiltersRef.current.quotationStaffFilter !== quotationStaffFilter;
+        const followUpChanged = prevFiltersRef.current.quotationFollowUpFilter !== quotationFollowUpFilter;
+        if (!staffChanged && !followUpChanged) return;
+
         prevFiltersRef.current.quotationStaffFilter = quotationStaffFilter;
+        prevFiltersRef.current.quotationFollowUpFilter = quotationFollowUpFilter;
 
         fetchData(1, 'quotations');
-    }, [quotationStaffFilter, activeTab, fetchData]);
+    }, [quotationStaffFilter, quotationFollowUpFilter, activeTab, fetchData]);
 
     // Debounced search for proformas
     useEffect(() => {
@@ -1388,14 +1428,18 @@ const TeamInspire = () => {
         return () => clearTimeout(delayDebounceFn);
     }, [searchProformaQuery, activeTab, fetchData]);
 
-    // Re-fetch proformas when staff filter changes
+    // Re-fetch proformas when staff or follow-up filters change
     useEffect(() => {
         if (activeTab !== 'proformas') return;
-        if (prevFiltersRef.current.proformaStaffFilter === proformaStaffFilter) return;
+        const staffChanged = prevFiltersRef.current.proformaStaffFilter !== proformaStaffFilter;
+        const followUpChanged = prevFiltersRef.current.proformaFollowUpFilter !== proformaFollowUpFilter;
+        if (!staffChanged && !followUpChanged) return;
+
         prevFiltersRef.current.proformaStaffFilter = proformaStaffFilter;
+        prevFiltersRef.current.proformaFollowUpFilter = proformaFollowUpFilter;
 
         fetchData(1, 'proformas');
-    }, [proformaStaffFilter, activeTab, fetchData]);
+    }, [proformaStaffFilter, proformaFollowUpFilter, activeTab, fetchData]);
 
     // Debounced search for groups
     useEffect(() => {
@@ -1418,17 +1462,19 @@ const TeamInspire = () => {
         const statusChanged = prevFiltersRef.current.leadStatusFilter !== leadStatusFilter;
         const startDateChanged = prevFiltersRef.current.leadStartDate !== leadStartDate;
         const endDateChanged = prevFiltersRef.current.leadEndDate !== leadEndDate;
+        const followUpChanged = prevFiltersRef.current.leadFollowUpFilter !== leadFollowUpFilter;
 
-        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged) return;
+        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged && !followUpChanged) return;
 
         prevFiltersRef.current.leadFilterType = leadFilterType;
         prevFiltersRef.current.staffFilter = staffFilter;
         prevFiltersRef.current.leadStatusFilter = leadStatusFilter;
         prevFiltersRef.current.leadStartDate = leadStartDate;
         prevFiltersRef.current.leadEndDate = leadEndDate;
+        prevFiltersRef.current.leadFollowUpFilter = leadFollowUpFilter;
 
         fetchData(1, 'leads');
-    }, [leadFilterType, staffFilter, leadStatusFilter, leadStartDate, leadEndDate, activeTab, fetchData]);
+    }, [leadFilterType, staffFilter, leadStatusFilter, leadStartDate, leadEndDate, leadFollowUpFilter, activeTab, fetchData]);
 
     // Re-fetch my_leads when my_leads filter changes
     useEffect(() => {
@@ -1438,17 +1484,19 @@ const TeamInspire = () => {
         const statusChanged = prevFiltersRef.current.myLeadsStatusFilter !== myLeadsStatusFilter;
         const startDateChanged = prevFiltersRef.current.myLeadsStartDate !== myLeadsStartDate;
         const endDateChanged = prevFiltersRef.current.myLeadsEndDate !== myLeadsEndDate;
+        const followUpChanged = prevFiltersRef.current.myLeadsFollowUpFilter !== myLeadsFollowUpFilter;
 
-        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged) return;
+        if (!filterTypeChanged && !staffChanged && !statusChanged && !startDateChanged && !endDateChanged && !followUpChanged) return;
 
         prevFiltersRef.current.myLeadsFilterType = myLeadsFilterType;
         prevFiltersRef.current.myLeadsStaffFilter = myLeadsStaffFilter;
         prevFiltersRef.current.myLeadsStatusFilter = myLeadsStatusFilter;
         prevFiltersRef.current.myLeadsStartDate = myLeadsStartDate;
         prevFiltersRef.current.myLeadsEndDate = myLeadsEndDate;
+        prevFiltersRef.current.myLeadsFollowUpFilter = myLeadsFollowUpFilter;
 
         fetchData(1, 'my_leads');
-    }, [myLeadsFilterType, myLeadsStaffFilter, myLeadsStatusFilter, myLeadsStartDate, myLeadsEndDate, activeTab, fetchData]);
+    }, [myLeadsFilterType, myLeadsStaffFilter, myLeadsStatusFilter, myLeadsStartDate, myLeadsEndDate, myLeadsFollowUpFilter, activeTab, fetchData]);
 
     useEffect(() => {
         console.log("DEBUG: Mount useEffect running in Leads.jsx");
@@ -3631,7 +3679,7 @@ const TeamInspire = () => {
                                         {totalLeads}
                                     </span>
                                 </h3>
-                                <div className="flex flex-col lg:flex-row gap-3 w-full sm:w-auto">
+                                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-start sm:justify-end">
                                     <select
                                         value={activeTab === 'my_leads' ? myLeadsFilterType : leadFilterType}
                                         onChange={(e) => activeTab === 'my_leads' ? setMyLeadsFilterType(e.target.value) : setLeadFilterType(e.target.value)}
@@ -3697,13 +3745,37 @@ const TeamInspire = () => {
                                             <option value="Won">Won</option>
                                             <option value="Lost">Lost</option>
                                         </select>
-                                        <input
-                                            type="text"
-                                            placeholder="Search Leads..."
-                                            value={activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery}
-                                            onChange={(e) => activeTab === 'my_leads' ? setSearchMyLeadQuery(e.target.value) : setSearchLeadQuery(e.target.value)}
-                                            className="w-full sm:w-64 px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all"
-                                        />
+                                        <select
+                                            value={activeTab === 'my_leads' ? myLeadsFollowUpFilter : leadFollowUpFilter}
+                                            onChange={(e) => activeTab === 'my_leads' ? setMyLeadsFollowUpFilter(e.target.value) : setLeadFollowUpFilter(e.target.value)}
+                                            className="px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all font-semibold"
+                                        >
+                                            <option value="all">All Follow-ups</option>
+                                            <option value="true">With Follow-up</option>
+                                            <option value="false">Without Follow-up</option>
+                                        </select>
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type="text"
+                                                placeholder={(activeTab === 'my_leads' ? (isMyLeadsSearchExpanded || searchMyLeadQuery) : (isLeadsSearchExpanded || searchLeadQuery)) ? "Search Leads..." : ""}
+                                                value={activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery}
+                                                onChange={(e) => activeTab === 'my_leads' ? setSearchMyLeadQuery(e.target.value) : setSearchLeadQuery(e.target.value)}
+                                                onFocus={() => activeTab === 'my_leads' ? setIsMyLeadsSearchExpanded(true) : setIsLeadsSearchExpanded(true)}
+                                                onBlur={() => {
+                                                    const val = activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery;
+                                                    if (!val) {
+                                                        if (activeTab === 'my_leads') setIsMyLeadsSearchExpanded(false);
+                                                        else setIsLeadsSearchExpanded(false);
+                                                    }
+                                                }}
+                                                className={`h-10 pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all duration-300 ease-in-out ${
+                                                    (activeTab === 'my_leads' ? (isMyLeadsSearchExpanded || searchMyLeadQuery) : (isLeadsSearchExpanded || searchLeadQuery))
+                                                        ? "w-48 sm:w-64 opacity-100"
+                                                        : "w-10 pl-10 pr-0 opacity-60 cursor-pointer hover:opacity-100"
+                                                }`}
+                                            />
+                                            <span className="absolute left-3 pointer-events-none text-gray-400">🔍</span>
+                                        </div>
                                     </div>
                                 </div>
                             <TableView 
@@ -3891,6 +3963,18 @@ const TeamInspire = () => {
                                             <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
                                         </div>
                                     )}
+                                    <div className="relative group">
+                                        <select
+                                            value={quotationFollowUpFilter}
+                                            onChange={(e) => setQuotationFollowUpFilter(e.target.value)}
+                                            className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                        >
+                                            <option value="all">All Follow-ups</option>
+                                            <option value="true">With Follow-up</option>
+                                            <option value="false">Without Follow-up</option>
+                                        </select>
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                    </div>
                                     <button 
                                         onClick={() => openQuotationModal()} 
                                         className="px-8 py-3.5 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 hover:-translate-y-1 transition-all active:scale-95 whitespace-nowrap flex items-center gap-2"
@@ -3964,6 +4048,18 @@ const TeamInspire = () => {
                                             <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
                                         </div>
                                     )}
+                                    <div className="relative group">
+                                        <select
+                                            value={proformaFollowUpFilter}
+                                            onChange={(e) => setProformaFollowUpFilter(e.target.value)}
+                                            className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                        >
+                                            <option value="all">All Follow-ups</option>
+                                            <option value="true">With Follow-up</option>
+                                            <option value="false">Without Follow-up</option>
+                                        </select>
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                    </div>
                                 </div>
                             </div>
  
@@ -3977,6 +4073,7 @@ const TeamInspire = () => {
                                 printQuotation={printQuotation}
                                 downloadQuotation={downloadQuotation}
                                 onConvertToPI={null}
+                                isPIView={true}
                                 pagination={{
                                     currentPage: proformaPage,
                                     totalPages: proformaTotalPages,
@@ -5494,129 +5591,153 @@ const TeamInspire = () => {
             )}
 
             {/* Follow-up Modal */}
-            {isFollowUpModalOpen && followUpItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-all duration-300">
-                    <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in border border-gray-100 dark:border-gray-700 transform transition-all duration-300">
-                        {/* Decorative Top Bar */}
-                        <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 h-2 w-full"></div>
-                        
-                        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-700/30">
-                            <h3 className="font-black text-gray-800 dark:text-white flex items-center gap-2 text-lg">
-                                <Flag className="text-orange-500 fill-orange-500" size={20} />
-                                {followUpType === "quotation" ? "Quotation Follow-up" : "Lead Follow-up"}
-                            </h3>
-                            <button onClick={closeFollowUpModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-2xl transition-colors">&times;</button>
-                        </div>
-                        
-                        <div className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
-                            {/* Summary Details */}
-                            <div className="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50">
-                                <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1">
-                                    {followUpType === "quotation" ? "Proposal Details" : "Lead Details"}
-                                </label>
-                                <p className="font-bold text-gray-900 dark:text-white text-base">
-                                    {followUpType === "quotation" ? `${followUpItem.billTo?.name || "Proposal"}` : followUpItem.name}
-                                </p>
-                                <p className="text-xs text-blue-600 dark:text-blue-400 font-mono mt-0.5">
-                                    {followUpType === "quotation" ? `#${followUpItem.quotationNumber}` : followUpItem.leadNumber}
-                                </p>
+            {isFollowUpModalOpen && followUpItem && (() => {
+                const itemStatus = followUpType === "quotation" ? followUpItem.lead?.status : followUpItem.status;
+                const isWonOrLost = itemStatus === "Won" || itemStatus === "Lost";
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-all duration-300">
+                        <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in border border-gray-100 dark:border-gray-700 transform transition-all duration-300">
+                            {/* Decorative Top Bar */}
+                            <div className="bg-gradient-to-r from-red-500 via-rose-500 to-pink-500 h-2 w-full"></div>
+                            
+                            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-700/30">
+                                <h3 className="font-black text-gray-800 dark:text-white flex items-center gap-2 text-lg">
+                                    <Flag className="text-red-500 fill-red-500" size={20} />
+                                    {followUpType === "quotation" ? "Quotation Follow-up" : "Lead Follow-up"}
+                                </h3>
+                                <button onClick={closeFollowUpModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-2xl transition-colors">&times;</button>
                             </div>
+                            
+                            <div className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+                                {/* Summary Details */}
+                                <div className="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50">
+                                    <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1">
+                                        {followUpType === "quotation" ? "Proposal Details" : "Lead Details"}
+                                    </label>
+                                    <p className="font-bold text-gray-900 dark:text-white text-base">
+                                        {followUpType === "quotation" ? `${followUpItem.billTo?.name || "Proposal"}` : followUpItem.name}
+                                    </p>
+                                    <p className="text-xs text-blue-600 dark:text-blue-400 font-mono mt-0.5">
+                                        {followUpType === "quotation" ? `#${followUpItem.quotationNumber}` : followUpItem.leadNumber}
+                                    </p>
+                                </div>
 
-                            {/* Follow-up History (Show History list) */}
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-2">Follow-up History</label>
-                                <div className="max-h-40 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50 space-y-3">
-                                    {followUpItem.followUps && followUpItem.followUps.length > 0 ? (
-                                        [...followUpItem.followUps]
-                                            .sort((a, b) => new Date(b.date) - new Date(a.date))
-                                            .map((fu, idx) => (
-                                                <div key={idx} className="text-xs border-b last:border-0 border-gray-200 dark:border-gray-700 pb-2 last:pb-0 space-y-1">
-                                                    <div className="flex justify-between items-center font-bold text-orange-600 dark:text-orange-400">
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock size={11} />
-                                                            F/U: {format(new Date(fu.date), "dd MMM yyyy HH:mm")}
-                                                        </span>
-                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">
-                                                            By: {fu.createdBy?.name || "System"} | {format(new Date(fu.createdAt), "dd MMM HH:mm")}
-                                                        </span>
+                                {/* Follow-up History (Show History list) */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-2">Follow-up History</label>
+                                    <div className="max-h-40 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/50 space-y-3">
+                                        {followUpItem.followUps && followUpItem.followUps.length > 0 ? (
+                                            [...followUpItem.followUps]
+                                                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                                                .map((fu, idx) => (
+                                                    <div key={idx} className="text-xs border-b last:border-0 border-gray-200 dark:border-gray-700 pb-2 last:pb-0 space-y-1">
+                                                        <div className="flex justify-between items-center font-bold text-orange-600 dark:text-orange-400">
+                                                            <span className="flex items-center gap-1">
+                                                                <Clock size={11} />
+                                                                F/U: {format(new Date(fu.date), "dd MMM yyyy HH:mm")}
+                                                            </span>
+                                                            <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">
+                                                                By: {fu.createdBy?.name || "System"} | {format(new Date(fu.createdAt), "dd MMM HH:mm")}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-medium">{fu.remark}</p>
                                                     </div>
-                                                    <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-medium">{fu.remark}</p>
-                                                </div>
-                                            ))
-                                    ) : (
-                                        <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic font-medium">No follow-ups recorded yet.</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* New Follow-up Input Form */}
-                            <form onSubmit={handleFollowUpSubmit} className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-700/50">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Scheduled Date & Time *</label>
-                                    <input
-                                        type="datetime-local"
-                                        required
-                                        value={followUpDate}
-                                        onChange={(e) => setFollowUpDate(e.target.value)}
-                                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
-                                    />
-                                </div>
-                                
-                                <div className="space-y-1">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Remark *</label>
-                                        <span className={`text-[11px] font-bold ${(() => {
-                                            const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
-                                            return wc > 100 ? "text-red-500" : wc >= 90 ? "text-amber-500" : "text-gray-400 dark:text-gray-500";
-                                        })()}`}>
-                                            Words: {followUpRemark.trim().split(/\s+/).filter(Boolean).length} / 100
-                                        </span>
+                                                ))
+                                        ) : (
+                                            <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic font-medium">No follow-ups recorded yet.</p>
+                                        )}
                                     </div>
-                                    <textarea
-                                        required
-                                        rows={3}
-                                        placeholder="Write follow-up details (maximum 100 words)..."
-                                        value={followUpRemark}
-                                        onChange={(e) => setFollowUpRemark(e.target.value)}
-                                        className={`w-full px-4 py-3 rounded-xl border bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 outline-none transition-all resize-none ${(() => {
-                                            const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
-                                            return wc > 100 ? "border-red-500 focus:ring-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-700 focus:ring-orange-500";
-                                        })()}`}
-                                    />
-                                    {(() => {
-                                        const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
-                                        if (wc > 100) {
-                                            return (
-                                                <p className="text-[11px] text-red-500 font-semibold mt-1">
-                                                    ⚠️ Error: Word limit exceeded! Please shorten by {wc - 100} word{wc - 100 > 1 ? "s" : ""}.
-                                                </p>
-                                            );
-                                        }
-                                        return null;
-                                    })()}
                                 </div>
-                                
-                                <div className="flex gap-3 pt-4 border-t border-gray-100 dark:border-gray-700/50">
-                                    <button
-                                        type="button"
-                                        onClick={closeFollowUpModal}
-                                        className="flex-1 py-3 px-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold rounded-2xl transition-all duration-200 active:scale-95 text-sm"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={isSubmittingFollowUp || followUpRemark.trim().split(/\s+/).filter(Boolean).length > 100 || !followUpRemark.trim()}
-                                        className="flex-1 py-3 px-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/20 hover:-translate-y-0.5 transition-all duration-200 active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
-                                    >
-                                        {isSubmittingFollowUp ? "Saving..." : "Add Follow-up"}
-                                    </button>
-                                </div>
-                            </form>
+
+                                {/* New Follow-up Input Form */}
+                                {isWonOrLost ? (
+                                    <div className="pt-4 border-t border-gray-100 dark:border-gray-700/50 space-y-3">
+                                        <div className="bg-red-50 dark:bg-red-950/20 p-4 rounded-2xl border border-red-100 dark:border-red-900/30 text-center space-y-2">
+                                            <p className="text-sm font-bold text-red-700 dark:text-red-300 flex items-center justify-center gap-2">
+                                                <span>⚠️ Follow-up Scheduling Disabled</span>
+                                            </p>
+                                            <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                                                This lead is marked as <span className="font-extrabold uppercase">{itemStatus}</span>. Scheduling new follow-ups is disabled, but you can still view the past history.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={closeFollowUpModal}
+                                            className="w-full py-3 px-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold rounded-2xl transition-all duration-200 active:scale-95 text-sm"
+                                        >
+                                            Close Window
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <form onSubmit={handleFollowUpSubmit} className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-700/50">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Scheduled Date & Time *</label>
+                                            <input
+                                                type="datetime-local"
+                                                required
+                                                value={followUpDate}
+                                                onChange={(e) => setFollowUpDate(e.target.value)}
+                                                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                                            />
+                                        </div>
+                                        
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between items-center">
+                                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">Remark *</label>
+                                                <span className={`text-[11px] font-bold ${(() => {
+                                                    const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                                    return wc > 100 ? "text-red-500" : wc >= 90 ? "text-amber-500" : "text-gray-400 dark:text-gray-500";
+                                                })()}`}>
+                                                    Words: {followUpRemark.trim().split(/\s+/).filter(Boolean).length} / 100
+                                                </span>
+                                            </div>
+                                            <textarea
+                                                required
+                                                rows={3}
+                                                placeholder="Write follow-up details (maximum 100 words)..."
+                                                value={followUpRemark}
+                                                onChange={(e) => setFollowUpRemark(e.target.value)}
+                                                className={`w-full px-4 py-3 rounded-xl border bg-gray-50 dark:bg-gray-900/50 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 outline-none transition-all resize-none ${(() => {
+                                                    const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                                    return wc > 100 ? "border-red-500 focus:ring-red-500 focus:border-red-500" : "border-gray-200 dark:border-gray-700 focus:ring-orange-500";
+                                                })()}`}
+                                            />
+                                            {(() => {
+                                                const wc = followUpRemark.trim().split(/\s+/).filter(Boolean).length;
+                                                if (wc > 100) {
+                                                    return (
+                                                        <p className="text-[11px] text-red-500 font-semibold mt-1">
+                                                            ⚠️ Error: Word limit exceeded! Please shorten by {wc - 100} word{wc - 100 > 1 ? "s" : ""}.
+                                                        </p>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+                                        </div>
+                                        
+                                        <div className="flex gap-3 pt-4 border-t border-gray-100 dark:border-gray-700/50">
+                                            <button
+                                                type="button"
+                                                onClick={closeFollowUpModal}
+                                                className="flex-1 py-3 px-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold rounded-2xl transition-all duration-200 active:scale-95 text-sm"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                disabled={isSubmittingFollowUp || followUpRemark.trim().split(/\s+/).filter(Boolean).length > 100 || !followUpRemark.trim()}
+                                                className="flex-1 py-3 px-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-black rounded-2xl shadow-lg shadow-orange-500/20 hover:-translate-y-0.5 transition-all duration-200 active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
+                                            >
+                                                {isSubmittingFollowUp ? "Saving..." : "Add Follow-up"}
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 };

@@ -48,17 +48,23 @@ exports.getQuotations = async (req, res) => {
             // Strip "Lead No:" prefix if copied accidentally
             search = search.replace(/^lead\s*no\s*:\s*/i, "").trim();
 
+            const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const matchedLeads = await Lead.find({
-                leadNumber: { $regex: search, $options: "i" }
+                $or: [
+                    { name: { $regex: escapedSearch, $options: "i" } },
+                    { email: { $regex: escapedSearch, $options: "i" } },
+                    { phone: { $regex: escapedSearch, $options: "i" } },
+                    { leadNumber: { $regex: escapedSearch, $options: "i" } }
+                ]
             }).distinct("_id");
             console.log("Quotation Search term:", search);
             console.log("Matched Leads:", matchedLeads);
 
             filters.push({
                 $or: [
-                    { quotationNumber: { $regex: search, $options: "i" } },
-                    { "billTo.name": { $regex: search, $options: "i" } },
-                    { status: { $regex: search, $options: "i" } },
+                    { quotationNumber: { $regex: escapedSearch, $options: "i" } },
+                    { "billTo.name": { $regex: escapedSearch, $options: "i" } },
+                    { status: { $regex: escapedSearch, $options: "i" } },
                     { lead: { $in: matchedLeads } }
                 ]
             });
@@ -84,6 +90,18 @@ exports.getQuotations = async (req, res) => {
             filters.push({ quotationNumber: /^PI/i });
         } else if (req.query.docType === "Quotation") {
             filters.push({ quotationNumber: { $not: /^PI/i } });
+        }
+
+        // 4. Follow-up Filter
+        if (req.query.hasFollowUp === "true") {
+            filters.push({ followUps: { $exists: true, $not: { $size: 0 } } });
+        } else if (req.query.hasFollowUp === "false") {
+            filters.push({
+                $or: [
+                    { followUps: { $exists: false } },
+                    { followUps: { $size: 0 } }
+                ]
+            });
         }
 
         if (filters.length > 0) {
@@ -858,6 +876,11 @@ exports.addFollowUp = async (req, res) => {
         const quotation = await Quotation.findById(id);
         if (!quotation) {
             return res.status(404).json({ message: "Quotation not found" });
+        }
+
+        const lead = await Lead.findById(quotation.lead);
+        if (lead && (lead.status === "Won" || lead.status === "Lost")) {
+            return res.status(400).json({ message: "Cannot add follow-up to a quotation for a Won or Lost lead" });
         }
 
         quotation.followUps.push({
