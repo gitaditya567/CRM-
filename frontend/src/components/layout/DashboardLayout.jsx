@@ -3,6 +3,7 @@ import Sidebar from "./Sidebar";
 import { Menu } from "lucide-react";
 import NotificationToast from "../common/NotificationToast";
 import ScrollingBanner from "./ScrollingBanner";
+import ChatWidget from "../common/ChatWidget";
 
 /**
  * Dashboard Layout
@@ -40,8 +41,10 @@ const DashboardLayout = ({ children }) => {
             </div>
           </div>
           <NotificationToast />
+          <ChatWidget />
         </div>
     );
 };
 
 export default DashboardLayout;
+

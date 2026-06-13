@@ -5,6 +5,7 @@ const cors = require("cors");
 const compression = require("compression");
 const User = require("./models/User");
 const bcrypt = require("bcryptjs");
+const path = require("path");
 
 console.log("Starting dotenv config...");
 dotenv.config();
@@ -15,6 +16,7 @@ console.log("Express app created");
 app.use(compression()); 
 app.use(cors());
 app.use(express.json());
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Request logger
 app.use((req, res, next) => {
@@ -52,6 +54,8 @@ app.use("/api/roles", require("./routes/roleRoutes"));
 console.log("Role routes loaded");
 app.use("/api/ai", require("./routes/aiRoutes"));
 console.log("AI routes loaded");
+app.use("/api/messages", require("./routes/messageRoutes"));
+console.log("Message routes loaded");
 
 // DB Connection
 console.log("Connecting to MongoDB...");
@@ -122,6 +126,14 @@ const io = new Server(server, {
 
 io.on("connection", (socket) => {
   console.log("New client connected", socket.id);
+  
+  socket.on("join", (userId) => {
+    if (userId) {
+      socket.join(userId);
+      console.log(`User ${userId} joined room`);
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("Client disconnected", socket.id);
   });

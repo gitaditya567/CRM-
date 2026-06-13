@@ -26,7 +26,6 @@ const FileIcon = FileText;
 import StatsCard from "../components/dashboard/StatsCard";
 import DashboardCharts from "../components/dashboard/DashboardCharts";
 import RecentActivity from "../components/dashboard/RecentActivity";
-import AIAssistantWidget from "../components/dashboard/AIAssistantWidget";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -450,7 +449,6 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-      <AIAssistantWidget />
     </div>
   );
 };
