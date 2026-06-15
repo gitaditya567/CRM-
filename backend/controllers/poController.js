@@ -52,22 +52,21 @@ exports.createPOFromPI = async (req, res) => {
             return res.status(400).json({ message: "Purchase Order already exists for this PI", po: existingPO });
         }
 
-        // Auto-generate PO Number
-        const currentYear = new Date().getFullYear();
-        const typePrefix = "PO-IN";
-        const latestPO = await PurchaseOrder.findOne({
-            poNumber: new RegExp(`^${typePrefix}-${currentYear}-`)
-        }).sort({ createdAt: -1 }).select("poNumber").lean();
-
-        let nextNum = 1;
-        if (latestPO && latestPO.poNumber) {
-            const parts = latestPO.poNumber.split("-");
-            const lastSeq = parseInt(parts[parts.length - 1], 10);
-            if (!isNaN(lastSeq)) {
-                nextNum = lastSeq + 1;
-            }
+        // Verify that the client's PO Number is present in the PI
+        const poNumber = piDoc.poNumber ? piDoc.poNumber.trim() : "";
+        if (!poNumber) {
+            return res.status(400).json({ 
+                message: "Client's PO Number is missing in the Proforma Invoice (PI). Please edit the PI and add the Client's PO Number before converting to an Inward PO." 
+            });
         }
-        const poNumber = `${typePrefix}-${currentYear}-${String(nextNum).padStart(3, '0')}`;
+
+        // Ensure unique PO Number across all POs in PO Management
+        const existingPOWithNum = await PurchaseOrder.findOne({ poNumber });
+        if (existingPOWithNum) {
+            return res.status(400).json({ 
+                message: `A Purchase Order with PO Number "${poNumber}" already exists in PO Management.` 
+            });
+        }
 
         // Map products
         const products = piDoc.products.map(p => ({

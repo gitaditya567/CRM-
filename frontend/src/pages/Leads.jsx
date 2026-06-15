@@ -3293,7 +3293,11 @@ const TeamInspire = () => {
     };
 
     const handleMoveToPO = async (q) => {
-        if (!window.confirm(`Are you sure you want to move Proforma Invoice #${q.quotationNumber} to Inward PO in PO Management?`)) return;
+        if (!q.poNumber || !q.poNumber.trim()) {
+            toast.error("Client's PO Number is missing in the Proforma Invoice (PI). Please edit the PI to add the PO Number under PO Details first.");
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to move Proforma Invoice #${q.quotationNumber} (Client PO: ${q.poNumber}) to Inward PO in PO Management?`)) return;
         try {
             const res = await API.post(`/purchase-orders/create-from-pi/${q._id}`);
             toast.success(`Purchase Order ${res.data.poNumber} created successfully!`);
