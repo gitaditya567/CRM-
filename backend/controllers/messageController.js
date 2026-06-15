@@ -11,7 +11,8 @@ exports.getMessages = async (req, res) => {
       $or: [
         { sender: currentUserId, recipient: otherUserId },
         { sender: otherUserId, recipient: currentUserId }
-      ]
+      ],
+      deletedFor: { $ne: currentUserId }
     }).sort({ createdAt: 1 });
 
     // Mark these messages as read
@@ -95,7 +96,8 @@ exports.getConversations = async (req, res) => {
           $or: [
             { sender: currentUserId, recipient: u._id },
             { sender: u._id, recipient: currentUserId }
-          ]
+          ],
+          deletedFor: { $ne: currentUserId }
         })
           .sort({ createdAt: -1 })
           .lean();
@@ -130,5 +132,52 @@ exports.getConversations = async (req, res) => {
   } catch (err) {
     console.error("Get conversations error:", err);
     res.status(500).json({ message: "Failed to load conversations" });
+  }
+};
+
+// Delete a message (WhatsApp style: 'me' or 'everyone')
+exports.deleteMessage = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { messageId } = req.params;
+    const { type } = req.query; // 'me' or 'everyone'
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    const isSender = message.sender.toString() === currentUserId.toString();
+    const isRecipient = message.recipient.toString() === currentUserId.toString();
+
+    if (!isSender && !isRecipient) {
+      return res.status(403).json({ message: "Not authorized to delete this message" });
+    }
+
+    if (type === "everyone") {
+      if (!isSender) {
+        return res.status(400).json({ message: "Only the sender can delete a message for everyone" });
+      }
+      // Delete completely from database
+      await message.deleteOne();
+
+      // Broadcast socket event so it disappears in real-time
+      const io = req.app.get("io");
+      if (io) {
+        io.to(message.recipient.toString()).emit("messageDeleted", { messageId });
+        io.to(message.sender.toString()).emit("messageDeleted", { messageId });
+      }
+    } else {
+      // Delete for me: add to deletedFor array if not already present
+      if (!message.deletedFor.includes(currentUserId)) {
+        message.deletedFor.push(currentUserId);
+        await message.save();
+      }
+    }
+
+    res.json({ message: "Message deleted successfully" });
+  } catch (err) {
+    console.error("Delete message error:", err);
+    res.status(500).json({ message: "Failed to delete message" });
   }
 };

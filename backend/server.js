@@ -46,6 +46,8 @@ app.use("/api/clients", require("./routes/clientRoutes"));
 console.log("Client routes loaded");
 app.use("/api/quotations", require("./routes/quotationRoutes"));
 console.log("Quotation routes loaded");
+app.use("/api/purchase-orders", require("./routes/poRoutes"));
+console.log("Purchase Order routes loaded");
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 console.log("Dashboard routes loaded");
 app.use("/api/settings", require("./routes/settingRoutes"));
@@ -132,6 +134,26 @@ io.on("connection", (socket) => {
       socket.join(userId);
       console.log(`User ${userId} joined room`);
     }
+  });
+
+  // WebRTC calling signaling
+  socket.on("callUser", ({ callerId, calleeId, callerName, type }) => {
+    console.log(`Call request from ${callerId} (${callerName}) to ${calleeId} (${type})`);
+    io.to(calleeId).emit("incomingCall", { callerId, callerName, type });
+  });
+
+  socket.on("answerCall", ({ callerId, calleeId, accept }) => {
+    console.log(`Call answer from ${calleeId} to ${callerId}: accept=${accept}`);
+    io.to(callerId).emit("callResponse", { calleeId, accept });
+  });
+
+  socket.on("webRtcSignal", ({ targetId, signal, senderId }) => {
+    io.to(targetId).emit("webRtcSignal", { signal, senderId });
+  });
+
+  socket.on("endCall", ({ targetId }) => {
+    console.log(`Call ended by a peer. Notifying ${targetId}`);
+    io.to(targetId).emit("callEnded");
   });
 
   socket.on("disconnect", () => {

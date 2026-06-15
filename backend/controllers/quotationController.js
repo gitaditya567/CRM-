@@ -348,7 +348,25 @@ exports.updateQuotation = async (req, res) => {
         const { id } = req.params;
         const { products, additionalCharges, poOnly, ...otherUpdates } = req.body;
 
+        const existingQuotation = await Quotation.findById(id);
+        if (!existingQuotation) {
+            return res.status(404).json({ message: "Quotation not found" });
+        }
+
         let updates = { ...otherUpdates };
+
+        // Check if converting quotation to PI (from non-PI to PI)
+        const wasPI = existingQuotation.quotationNumber && /^PI/i.test(existingQuotation.quotationNumber);
+        const isNowPI = updates.quotationNumber && /^PI/i.test(updates.quotationNumber);
+
+        if (!wasPI && isNowPI) {
+            const mongoose = require("mongoose");
+            // Direct MongoDB update bypassing Mongoose's immutable createdAt schema path
+            await Quotation.collection.updateOne(
+                { _id: new mongoose.Types.ObjectId(id) },
+                { $set: { createdAt: new Date() } }
+            );
+        }
 
         // Pluck PO-specific fields from updates so they are always persisted
         const poFields = {};
@@ -365,15 +383,12 @@ exports.updateQuotation = async (req, res) => {
             updates.roundOff = totals.roundOff;
             updates.grandTotal = totals.grandTotal;
         } else if (additionalCharges) {
-            const existingQuotation = await Quotation.findById(id);
-            if (existingQuotation) {
-                const totals = await calculateQuotationTotals(existingQuotation.products, additionalCharges);
-                updates.additionalCharges = additionalCharges;
-                updates.subTotal = totals.subTotal;
-                updates.gstTotal = totals.gstTotal;
-                updates.roundOff = totals.roundOff;
-                updates.grandTotal = totals.grandTotal;
-            }
+            const totals = await calculateQuotationTotals(existingQuotation.products, additionalCharges);
+            updates.additionalCharges = additionalCharges;
+            updates.subTotal = totals.subTotal;
+            updates.gstTotal = totals.gstTotal;
+            updates.roundOff = totals.roundOff;
+            updates.grandTotal = totals.grandTotal;
         }
 
         // Merge PO fields back – they are always saved, but never trigger a revisionNo bump

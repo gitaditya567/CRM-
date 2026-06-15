@@ -1,6 +1,6 @@
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
-const { getMessages, sendMessage, getConversations } = require("../controllers/messageController");
+const { getMessages, sendMessage, getConversations, deleteMessage } = require("../controllers/messageController");
 const upload = require("../middleware/upload");
 
 const router = express.Router();
@@ -24,5 +24,6 @@ router.post("/upload", protect, upload.single("file"), (req, res) => {
 });
 router.get("/:otherUserId", protect, getMessages);
 router.post("/", protect, sendMessage);
+router.delete("/:messageId", protect, deleteMessage);
 
 module.exports = router;
