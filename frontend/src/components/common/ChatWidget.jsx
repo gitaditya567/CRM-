@@ -98,11 +98,10 @@ const ChatWidget = () => {
   const [callDuration, setCallDuration] = useState(0);
 
   const peerConnectionRef = useRef(null);
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
   const callTimerRef = useRef(null);
   const playOutgoingRingRef = useRef(null);
   const playIncomingRingRef = useRef(null);
+  const iceCandidatesQueue = useRef([]);
 
   // Sync activeChat state to ref
   useEffect(() => {
@@ -126,18 +125,6 @@ const ChatWidget = () => {
     return () => clearInterval(timer);
   }, [currentUserId]);
 
-  // Render streams to HTML video elements
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream, callState]);
-
-  useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream, callState]);
 
   // Call timer effect
   useEffect(() => {
@@ -252,6 +239,7 @@ const ChatWidget = () => {
       peerConnectionRef.current = null;
     }
 
+    iceCandidatesQueue.current = [];
     setCallState(null);
     setCallType("audio");
     setCallPartner(null);
@@ -278,9 +266,23 @@ const ChatWidget = () => {
       setLocalStream(stream);
       return stream;
     } catch (err) {
-      console.error("Failed to get local media:", err);
-      toast.error("Could not access camera or microphone.");
-      throw err;
+      console.error("Failed to get local media with initial constraints:", err);
+      if (type === "video") {
+        toast.error("Camera not found or access denied. Trying audio-only...");
+        setCallType("audio");
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          setLocalStream(audioStream);
+          return audioStream;
+        } catch (audioErr) {
+          console.error("Failed to get audio-only media:", audioErr);
+          toast.error("Could not access camera or microphone.");
+          throw audioErr;
+        }
+      } else {
+        toast.error("Could not access microphone.");
+        throw err;
+      }
     }
   };
 
@@ -337,17 +339,19 @@ const ChatWidget = () => {
     if (!callPartner) return;
     stopRingtones();
 
-    socketRef.current.emit("answerCall", {
-      callerId: callPartner.id,
-      calleeId: currentUserId,
-      accept: true
-    });
-
     try {
       const stream = await getLocalMedia(callType);
-      setCallState("connected");
       createPeerConnection(callPartner.id, stream);
+      setCallState("connected");
+
+      // Emit response to caller only after local media and peer connection are initialized
+      socketRef.current.emit("answerCall", {
+        callerId: callPartner.id,
+        calleeId: currentUserId,
+        accept: true
+      });
     } catch (err) {
+      console.error("Failed to accept call:", err);
       handleHangUp();
     }
   };
@@ -394,8 +398,8 @@ const ChatWidget = () => {
 
     try {
       if (signal.type === "offer") {
-        const stream = localStream || await getLocalMedia(callType);
         if (!pc) {
+          const stream = localStream || await getLocalMedia(callType);
           pc = createPeerConnection(senderId, stream);
         }
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -407,13 +411,33 @@ const ChatWidget = () => {
           senderId: currentUserId,
           signal: { type: "answer", sdp: pc.localDescription }
         });
+
+        // Drain queued candidate signals
+        while (iceCandidatesQueue.current.length > 0) {
+          const candidate = iceCandidatesQueue.current.shift();
+          await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => {
+            console.warn("Failed to add queued candidate:", e);
+          });
+        }
       } else if (signal.type === "answer") {
         if (pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          
+          // Drain queued candidate signals
+          while (iceCandidatesQueue.current.length > 0) {
+            const candidate = iceCandidatesQueue.current.shift();
+            await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => {
+              console.warn("Failed to add queued candidate:", e);
+            });
+          }
         }
       } else if (signal.type === "candidate") {
-        if (pc) {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(e => {
+            console.warn("Failed to add remote candidate:", e);
+          });
+        } else {
+          iceCandidatesQueue.current.push(signal.candidate);
         }
       }
     } catch (err) {
@@ -436,6 +460,7 @@ const ChatWidget = () => {
         signal: { type: "offer", sdp: pc.localDescription }
       });
     } catch (err) {
+      console.error("Failed to negotiate WebRTC call:", err);
       handleHangUp();
     }
   };
@@ -1094,13 +1119,21 @@ const ChatWidget = () => {
               {callState === "connected" && callType === "video" && (
                 <div className="flex-1 my-4 relative rounded-2xl overflow-hidden bg-black border border-gray-800">
                   <video 
-                    ref={remoteVideoRef} 
+                    ref={(el) => {
+                      if (el && remoteStream) {
+                        el.srcObject = remoteStream;
+                      }
+                    }} 
                     autoPlay 
                     playsInline 
                     className="w-full h-full object-cover"
                   />
                   <video 
-                    ref={localVideoRef} 
+                    ref={(el) => {
+                      if (el && localStream) {
+                        el.srcObject = localStream;
+                      }
+                    }} 
                     autoPlay 
                     playsInline 
                     muted
@@ -1111,7 +1144,14 @@ const ChatWidget = () => {
 
               {callState === "connected" && callType === "audio" && (
                 <>
-                  <audio ref={remoteVideoRef} autoPlay />
+                  <audio 
+                    ref={(el) => {
+                      if (el && remoteStream) {
+                        el.srcObject = remoteStream;
+                      }
+                    }} 
+                    autoPlay 
+                  />
                   <div className="flex-1 flex items-center justify-center my-4">
                     <div className="flex items-center gap-1.5 h-16">
                       <div className="w-1.5 bg-blue-500 rounded-full animate-bounce" style={{ height: '30%', animationDelay: '0.1s' }}></div>
