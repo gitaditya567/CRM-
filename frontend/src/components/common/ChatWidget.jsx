@@ -298,8 +298,16 @@ const ChatWidget = () => {
     });
 
     pc.ontrack = (event) => {
-      console.log("Remote track detected:", event.streams[0]);
-      setRemoteStream(event.streams[0]);
+      console.log("Remote track detected:", event.track.kind);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(new MediaStream(event.streams[0].getTracks()));
+      } else {
+        setRemoteStream(prev => {
+          const stream = prev || new MediaStream();
+          stream.addTrack(event.track);
+          return new MediaStream(stream.getTracks());
+        });
+      }
     };
 
     pc.onicecandidate = (event) => {
@@ -1120,8 +1128,11 @@ const ChatWidget = () => {
                 <div className="flex-1 my-4 relative rounded-2xl overflow-hidden bg-black border border-gray-800">
                   <video 
                     ref={(el) => {
-                      if (el && remoteStream) {
-                        el.srcObject = remoteStream;
+                      if (el) {
+                        if (el.srcObject !== remoteStream) {
+                          el.srcObject = remoteStream;
+                        }
+                        el.play().catch(e => console.log("Remote play pending:", e));
                       }
                     }} 
                     autoPlay 
@@ -1130,8 +1141,11 @@ const ChatWidget = () => {
                   />
                   <video 
                     ref={(el) => {
-                      if (el && localStream) {
-                        el.srcObject = localStream;
+                      if (el) {
+                        if (el.srcObject !== localStream) {
+                          el.srcObject = localStream;
+                        }
+                        el.play().catch(e => console.log("Local play pending:", e));
                       }
                     }} 
                     autoPlay 
@@ -1146,8 +1160,11 @@ const ChatWidget = () => {
                 <>
                   <audio 
                     ref={(el) => {
-                      if (el && remoteStream) {
-                        el.srcObject = remoteStream;
+                      if (el) {
+                        if (el.srcObject !== remoteStream) {
+                          el.srcObject = remoteStream;
+                        }
+                        el.play().catch(e => console.log("Audio play pending:", e));
                       }
                     }} 
                     autoPlay 
