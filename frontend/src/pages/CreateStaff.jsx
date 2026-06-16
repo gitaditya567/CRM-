@@ -107,7 +107,9 @@ const CreateStaff = () => {
             ? import.meta.env.VITE_API_URL.replace(/\/api$/, "")
             : (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
                 ? "http://localhost:5000"
-                : window.location.origin);
+                : (window.location.port === "5173" || window.location.port === "5174"
+                    ? `http://${window.location.hostname}:5000`
+                    : window.location.origin));
 
         const socket = io(socketUrl);
         socket.on("userAction", () => {
