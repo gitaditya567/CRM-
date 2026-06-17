@@ -215,7 +215,7 @@ const Dashboard = () => {
             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 font-bold">Client Entity</th>
             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 text-gray-400">Location</th>
             <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 text-center">View</th>
-            {(rolePermissions?.menuPermissions?.['Leads']?.edit || userRole === "admin" || userRole === "sales" || userRole === "services") && (
+            {(rolePermissions?.menuPermissions?.['Leads']?.edit || userRole === "admin" || userRole === "superadmin" || userRole === "sales" || userRole === "services") && (
               <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 text-center">Manage</th>
             )}
             {(userRole === "admin" || userRole === "superadmin") && (
@@ -247,7 +247,7 @@ const Dashboard = () => {
                 </button>
               </td>
 
-              {(userRole === "admin" || (l.createdBy && String(l.createdBy._id || l.createdBy) === String(currentUserId)) || (l.source === currentUserName)) ? (
+              {(userRole === "admin" || userRole === "superadmin" || (l.createdBy && String(l.createdBy._id || l.createdBy) === String(currentUserId)) || (l.source === currentUserName)) ? (
                 <td className="px-6 py-4 text-center">
                   <button
                     onClick={() => window.location.href = `/leads?action=edit&id=${l._id}`}
@@ -360,7 +360,7 @@ const Dashboard = () => {
           ) : (
             <>
               <StatsCard title="Total Leads" value={summary?.leads || 0} icon={Users} trend="up" trendValue="12" color="blue" onClick={() => navigate('/leads')} />
-              {localStorage.getItem("role")?.toLowerCase() === "admin" && (
+              {(localStorage.getItem("role")?.toLowerCase() === "admin" || localStorage.getItem("role")?.toLowerCase() === "superadmin") && (
                 <StatsCard title="Total Products" value={summary?.products || 0} icon={ShoppingBag} trend="up" trendValue="5" color="purple" onClick={() => window.location.href = '/search'} />
               )}
               <StatsCard title="Total Quotations" value={summary?.quotations || 0} icon={FileText} trend="down" trendValue="2" color="green" onClick={() => navigate('/leads?tab=quotations')} />

@@ -263,16 +263,21 @@ exports.createQuotation = async (req, res) => {
         const fyStartDate = new Date(startYear, 3, 1, 0, 0, 0, 0);
         const fyEndDate = new Date(endYear, 2, 31, 23, 59, 59, 999);
 
-        const lastQuote = await Quotation.findOne({
+        const quotes = await Quotation.find({
             createdAt: { $gte: fyStartDate, $lte: fyEndDate }
-        }).sort({ createdAt: -1 });
+        }, 'quotationNumber').lean();
 
-        let seq = 1;
-        if (lastQuote && lastQuote.quotationNumber) {
-            const parts = lastQuote.quotationNumber.split('-');
-            const lastSeq = parseInt(parts.at(-1));
-            if (!isNaN(lastSeq)) seq = lastSeq + 1;
-        }
+        let maxSeq = 0;
+        quotes.forEach(q => {
+            if (q.quotationNumber) {
+                const parts = q.quotationNumber.split('-');
+                const seqNum = parseInt(parts.at(-1));
+                if (!isNaN(seqNum) && seqNum > maxSeq) {
+                    maxSeq = seqNum;
+                }
+            }
+        });
+        const seq = maxSeq + 1;
 
         const quotationNumber = `Q-${fyStr}-${initials}-${String(seq).padStart(3, '0')}`;
 

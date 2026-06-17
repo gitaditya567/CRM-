@@ -96,8 +96,13 @@ const ChatWidget = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  const [iceState, setIceState] = useState("new");
+  const [connState, setConnState] = useState("new");
+  const [remoteTracksCount, setRemoteTracksCount] = useState(0);
 
   const peerConnectionRef = useRef(null);
+  const remoteStreamRef = useRef(null);
   const callTimerRef = useRef(null);
   const playOutgoingRingRef = useRef(null);
   const playIncomingRingRef = useRef(null);
@@ -245,9 +250,14 @@ const ChatWidget = () => {
     setCallPartner(null);
     setLocalStream(null);
     setRemoteStream(null);
+    remoteStreamRef.current = null;
+    setPlaybackBlocked(false);
     setIsMuted(false);
     setIsVideoOff(false);
     setCallDuration(0);
+    setIceState("new");
+    setConnState("new");
+    setRemoteTracksCount(0);
     
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -286,10 +296,15 @@ const ChatWidget = () => {
     }
   };
 
-  const createPeerConnection = (partnerId, stream) => {
+  const createPeerConnection = (partnerId, stream, remoteMediaStream) => {
     const pc = new RTCPeerConnection({
       iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+        { urls: "stun:stun.services.mozilla.com" }
       ]
     });
 
@@ -298,16 +313,29 @@ const ChatWidget = () => {
     });
 
     pc.ontrack = (event) => {
-      console.log("Remote track detected:", event.track.kind);
-      if (event.streams && event.streams[0]) {
-        setRemoteStream(new MediaStream(event.streams[0].getTracks()));
-      } else {
-        setRemoteStream(prev => {
-          const stream = prev || new MediaStream();
-          stream.addTrack(event.track);
-          return new MediaStream(stream.getTracks());
-        });
+      console.log("Remote track detected:", event.track.kind, event.track.id);
+      if (remoteMediaStream) {
+        if (!remoteMediaStream.getTracks().find(t => t.id === event.track.id)) {
+          remoteMediaStream.addTrack(event.track);
+        }
+        setRemoteTracksCount(remoteMediaStream.getTracks().length);
       }
+
+      // Explicitly trigger play on all video/audio elements in case of autoPlay lock
+      const mediaElements = document.querySelectorAll("video, audio");
+      mediaElements.forEach(el => {
+        el.play().catch(e => console.log("Play on track add pending:", e));
+      });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE Connection State Change:", pc.iceConnectionState);
+      setIceState(pc.iceConnectionState);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log("Connection State Change:", pc.connectionState);
+      setConnState(pc.connectionState);
     };
 
     pc.onicecandidate = (event) => {
@@ -349,7 +377,11 @@ const ChatWidget = () => {
 
     try {
       const stream = await getLocalMedia(callType);
-      createPeerConnection(callPartner.id, stream);
+      const rStream = new MediaStream();
+      setRemoteStream(rStream);
+      remoteStreamRef.current = rStream;
+
+      createPeerConnection(callPartner.id, stream, rStream);
       setCallState("connected");
 
       // Emit response to caller only after local media and peer connection are initialized
@@ -408,7 +440,10 @@ const ChatWidget = () => {
       if (signal.type === "offer") {
         if (!pc) {
           const stream = localStream || await getLocalMedia(callType);
-          pc = createPeerConnection(senderId, stream);
+          const rStream = remoteStream || new MediaStream();
+          setRemoteStream(rStream);
+          remoteStreamRef.current = rStream;
+          pc = createPeerConnection(senderId, stream, rStream);
         }
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         const answer = await pc.createAnswer();
@@ -456,9 +491,13 @@ const ChatWidget = () => {
   const initiateWebRtcNegotiation = async (partnerId) => {
     try {
       const stream = await getLocalMedia(callType);
+      const rStream = new MediaStream();
+      setRemoteStream(rStream);
+      remoteStreamRef.current = rStream;
+
       setCallState("connected");
 
-      const pc = createPeerConnection(partnerId, stream);
+      const pc = createPeerConnection(partnerId, stream, rStream);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -1106,6 +1145,15 @@ const ChatWidget = () => {
           {/* 📞 Real-time Calling Overlay */}
           {callState && (
             <div className="absolute inset-0 bg-gray-950/95 z-[999] flex flex-col justify-between text-white p-6 animate-fade-in">
+              {/* Diagnostic Overlay */}
+              {callState === "connected" && (
+                <div className="absolute top-2 left-2 right-2 bg-black/80 backdrop-blur-xs text-[9px] font-mono p-1.5 rounded-lg flex flex-wrap justify-between gap-1.5 z-40 border border-white/5">
+                  <div>Conn: <span className={connState === "connected" ? "text-green-400 font-bold" : "text-amber-400 font-bold"}>{connState}</span></div>
+                  <div>ICE: <span className={iceState === "connected" || iceState === "completed" ? "text-green-400 font-bold" : "text-amber-400 font-bold"}>{iceState}</span></div>
+                  <div>Local: <span>{localStream ? `${localStream.getVideoTracks().length}V/${localStream.getAudioTracks().length}A` : "0"}</span></div>
+                  <div>Remote: <span>{remoteStream ? `${remoteStream.getVideoTracks().length}V/${remoteStream.getAudioTracks().length}A` : "0"}</span></div>
+                </div>
+              )}
               <div className="flex flex-col items-center mt-8">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-500 flex items-center justify-center text-white font-black text-3xl shadow-2xl relative mb-4">
                   {callPartner?.name?.charAt(0).toUpperCase() || "U"}
@@ -1132,7 +1180,12 @@ const ChatWidget = () => {
                         if (el.srcObject !== remoteStream) {
                           el.srcObject = remoteStream;
                         }
-                        el.play().catch(e => console.log("Remote play pending:", e));
+                        el.play().catch(e => {
+                          console.log("Remote play pending:", e);
+                          if (e.name === "NotAllowedError") {
+                            setPlaybackBlocked(true);
+                          }
+                        });
                       }
                     }} 
                     autoPlay 
@@ -1164,7 +1217,12 @@ const ChatWidget = () => {
                         if (el.srcObject !== remoteStream) {
                           el.srcObject = remoteStream;
                         }
-                        el.play().catch(e => console.log("Audio play pending:", e));
+                        el.play().catch(e => {
+                          console.log("Audio play pending:", e);
+                          if (e.name === "NotAllowedError") {
+                            setPlaybackBlocked(true);
+                          }
+                        });
                       }
                     }} 
                     autoPlay 
@@ -1181,6 +1239,31 @@ const ChatWidget = () => {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* 🔒 Autoplay block overlay */}
+              {playbackBlocked && (
+                <div className="absolute inset-0 bg-black/90 z-[1000] flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+                  <div className="bg-gray-900 border border-gray-800 p-6 rounded-3xl max-w-xs w-full shadow-2xl flex flex-col items-center">
+                    <Video size={36} className="text-blue-500 mb-3 animate-pulse" />
+                    <h4 className="font-bold text-sm mb-1">Click to Join Call</h4>
+                    <p className="text-[11px] text-gray-400 mb-4">
+                      Your browser requires interaction to enable audio & video playback.
+                    </p>
+                    <button
+                      onClick={() => {
+                        const mediaElements = document.querySelectorAll("video, audio");
+                        mediaElements.forEach(el => {
+                          el.play().catch(err => console.log("Manual play failed:", err));
+                        });
+                        setPlaybackBlocked(false);
+                      }}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition active:scale-95 cursor-pointer shadow-lg shadow-blue-500/20"
+                    >
+                      Connect Audio & Video
+                    </button>
+                  </div>
+                </div>
               )}
 
               <div className="flex justify-center items-center gap-6 mb-8">

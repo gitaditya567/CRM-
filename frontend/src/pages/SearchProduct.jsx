@@ -11,7 +11,7 @@ const SearchProduct = () => {
   const ALL_KEYS = ["brand", "description", "productNo", "dealerPriceINR", "retailPriceINR", "quantity"];
   const { uiSettings } = useSettings();
   const visibleFields = ALL_KEYS.filter(f => {
-    if (role === "admin") return true; // Admin sees all columns
+    if (role === "admin" || role === "superadmin") return true; // Admin/Superadmin sees all columns
     if (["productNo", "brand", "description"].includes(f)) return true; // Core identity always visible
     if (!uiSettings || !uiSettings.productColumns) return true;
     return uiSettings.productColumns[f] !== false;

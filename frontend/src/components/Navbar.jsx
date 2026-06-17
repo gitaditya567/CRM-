@@ -23,7 +23,7 @@ const Navbar = () => {
         <Link to="/search" className="hover:text-blue-200 dark:hover:text-blue-400 transition-colors duration-200">Search</Link>
         <Link to="/leads" className="hover:text-blue-200 dark:hover:text-blue-400 transition-colors duration-200">TeamInspire</Link>
         <Link to="/add-product" className="hover:text-blue-200 dark:hover:text-blue-400 transition-colors duration-200">Add Product</Link>
-        {role === "admin" && (
+        {(role === "admin" || role === "superadmin") && (
           <>
             <Link to="/product-history" className="hover:text-blue-200 dark:hover:text-blue-400 transition-colors duration-200">History</Link>
             <Link to="/upload" className="hover:text-blue-200 dark:hover:text-blue-400 transition-colors duration-200">Upload</Link>

@@ -3640,13 +3640,13 @@ const TeamInspire = () => {
                             <div className="flex gap-3">
 
 
-                                {activeTab !== 'my_leads' && (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin") && (
+                                {activeTab !== 'my_leads' && (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin" || userRole === "superadmin") && (
                                     <button onClick={() => openGroupModal()} className="px-4 py-2 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-bold rounded-xl hover:bg-purple-200 transition-colors">
                                         + Add Group
                                     </button>
                                 )}
 
-                                {activeTab !== 'my_leads' && (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin") && (
+                                {activeTab !== 'my_leads' && (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin" || userRole === "superadmin") && (
                                     <button onClick={() => {
                                         setShowClientModal(true);
                                         setEditingClient(null);
@@ -3658,7 +3658,7 @@ const TeamInspire = () => {
                                     </button>
                                 )}
 
-                                {(rolePermissions?.modulePermissions?.['View All Leads']?.view || rolePermissions?.modulePermissions?.['Lead Management']?.view || userRole === "admin" || userRole?.toLowerCase() === "sales" || userRole?.toLowerCase() === "services") && (
+                                {(rolePermissions?.modulePermissions?.['View All Leads']?.view || rolePermissions?.modulePermissions?.['Lead Management']?.view || userRole === "admin" || userRole === "superadmin" || userRole?.toLowerCase() === "sales" || userRole?.toLowerCase() === "services") && (
                                     <button onClick={() => openModal()} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition-all active:scale-95">
                                         + Add Lead
                                     </button>
@@ -3671,8 +3671,8 @@ const TeamInspire = () => {
                         <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
                             {[
                                 "leads",
-                                (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin") && !(userRole?.toLowerCase() === 'sales' || userRole?.toLowerCase() === 'services') ? "clients" : null,
-                                (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin") ? "groups" : null,
+                                (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin" || userRole === "superadmin") && !(userRole?.toLowerCase() === 'sales' || userRole?.toLowerCase() === 'services') ? "clients" : null,
+                                (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin" || userRole === "superadmin") ? "groups" : null,
                                 "quotations",
                                 "proformas"
                             ].filter(Boolean).map((tab) => (
@@ -4205,11 +4205,11 @@ const TeamInspire = () => {
                                             }
                                         };
                                         const currentRank = editingLead ? getStatusRank(editingLead.status) : 0;
-                                        const isAdminOrCreator = userRole === "admin" || (editingLead && (String(editingLead.createdBy?._id || editingLead.createdBy) === String(currentUserId) || editingLead.source === currentUserName));
+                                        const isAdminOrCreator = userRole === "admin" || userRole === "superadmin" || (editingLead && (String(editingLead.createdBy?._id || editingLead.createdBy) === String(currentUserId) || editingLead.source === currentUserName));
                                         
                                         // Helper to check if disabled
                                         const isStatusDisabled = (targetRank) => {
-                                            if (userRole === "admin") return false; // Admin can move freely
+                                            if (userRole === "admin" || userRole === "superadmin") return false; // Admin/Superadmin can move freely
                                             if (!editingLead) return false; // New leads can start anywhere (usually New)
                                             return targetRank < currentRank;
                                         };
@@ -4220,15 +4220,15 @@ const TeamInspire = () => {
                                                 <option value="Contacted" disabled={isStatusDisabled(1)}>Contacted</option>
                                                 <option value="Qualified" disabled={isStatusDisabled(2)}>Qualified</option>
                                                 <option value="Quotation Submitted" disabled={isStatusDisabled(3)}>Quotation Submitted</option>
-                                                <option value="Won" disabled={!(userRole === "admin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Won (Client)</option>
-                                                <option value="Lost" disabled={!(userRole === "admin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Lost</option>
+                                                <option value="Won" disabled={!(userRole === "admin" || userRole === "superadmin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Won (Client)</option>
+                                                <option value="Lost" disabled={!(userRole === "admin" || userRole === "superadmin" || editingLead?.hasPI || editingLead?.status === "Won" || editingLead?.status === "Lost")}>Lost</option>
                                             </>
                                         );
                                     })()}
                                 </select>
                             </div>
 
-                            {(userRole === "admin" || userRole?.toLowerCase() === "sales" || userRole?.toLowerCase() === "services" || (editingLead && (String(editingLead.createdBy?._id || editingLead.createdBy) === String(currentUserId) || editingLead.source === currentUserName))) && (
+                            {(userRole === "admin" || userRole === "superadmin" || userRole?.toLowerCase() === "sales" || userRole?.toLowerCase() === "services" || (editingLead && (String(editingLead.createdBy?._id || editingLead.createdBy) === String(currentUserId) || editingLead.source === currentUserName))) && (
                                 <select name="assignedTo" value={formData.assignedTo} onChange={handleChange} required className="w-full px-4 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white">
                                     <option value="">Lead Assign *</option>
                                     {users.map(u => <option key={u._id} value={u._id}>{u.name}</option>)}
