@@ -87,7 +87,7 @@ exports.getQuotations = async (req, res) => {
 
         // 3. Document Type Filter (PI or Quotation)
         if (req.query.docType === "PI") {
-            filters.push({ quotationNumber: /^PI/i });
+            filters.push({ quotationNumber: /^PI/i, isConvertedToPO: { $ne: true } });
         } else if (req.query.docType === "Quotation") {
             filters.push({ quotationNumber: { $not: /^PI/i } });
         }

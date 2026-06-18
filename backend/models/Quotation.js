@@ -131,7 +131,11 @@ const quotationSchema = new mongoose.Schema({
             type: Date,
             default: Date.now
         }
-    }]
+    }],
+    isConvertedToPO: {
+        type: Boolean,
+        default: false
+    }
 }, { timestamps: true });
 quotationSchema.index({ createdAt: -1 });
 quotationSchema.index({ lead: 1, createdAt: -1 });

@@ -99,10 +99,15 @@ exports.createPOFromPI = async (req, res) => {
 
         const savedPO = await newPO.save();
 
+        // Mark the PI as converted
+        piDoc.isConvertedToPO = true;
+        await piDoc.save();
+
         // Optional: emit socket event if socket is setup
         const io = req.app.get("io");
         if (io) {
             io.emit("poAdded", savedPO);
+            io.emit("quotationUpdated", piDoc); // Broadcast that the PI was updated/converted
         }
 
         res.status(201).json(savedPO);
