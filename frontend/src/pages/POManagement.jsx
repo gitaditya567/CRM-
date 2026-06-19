@@ -240,7 +240,7 @@ const POManagement = () => {
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PI / Lead Ref</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                    {activeTab === "inward" ? "Vendor Name" : "Client Name"}
+                    {activeTab === "inward" ? "Client Name" : "Vendor Name"}
                   </th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Total Value</th>
@@ -318,13 +318,15 @@ const POManagement = () => {
                           </button>
                         )}
                         {/* Delete Icon */}
-                        <button 
-                          onClick={() => handleDeletePO(po)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                          title="Delete PO"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        {activeTab === "outward" && (
+                          <button 
+                            onClick={() => handleDeletePO(po)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="Delete PO"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
