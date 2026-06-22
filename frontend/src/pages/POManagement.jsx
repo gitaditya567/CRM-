@@ -13,7 +13,8 @@ import {
   Square,
   FileCheck,
   X,
-  Trash2
+  Trash2,
+  History
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
@@ -31,6 +32,13 @@ const POManagement = () => {
 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPOForDetails, setSelectedPOForDetails] = useState(null);
+
+  const [isInvoicePromptOpen, setIsInvoicePromptOpen] = useState(false);
+  const [selectedPOForInvoice, setSelectedPOForInvoice] = useState(null);
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceNo: "", date: "" });
+
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [selectedPOForHistory, setSelectedPOForHistory] = useState(null);
 
   // Fetch POs from server
   const fetchPOs = async () => {
@@ -50,41 +58,61 @@ const POManagement = () => {
     fetchPOs();
   }, [activeTab]);
 
-  // Harmonious badge color mapping
   const statusColors = {
     "Approved": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
     "Received": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
     "Pending": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
     "Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-    "Invoiced": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    "Processed": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+    "Completed": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   };
 
-  // Filter based on search query (by PO number or partner name)
+  // Filter based on search query (by PO number, partner name, lead no, or pi no)
   const filteredPOs = pos.filter(po => {
     const query = searchQuery.toLowerCase();
     const matchesPo = po.poNumber?.toLowerCase().includes(query);
     const partnerName = po.vendorName || "";
     const matchesPartner = partnerName.toLowerCase().includes(query);
-    return matchesPo || matchesPartner;
+    
+    const piNumber = po.pi?.quotationNumber || "";
+    const matchesPi = piNumber.toLowerCase().includes(query);
+
+    const leadNumber = po.leadNumber || po.pi?.lead?.leadNumber || "";
+    const matchesLead = leadNumber.toLowerCase().includes(query);
+
+    return matchesPo || matchesPartner || matchesPi || matchesLead;
   });
 
   // Action handlers
   const handleOpenProductsModal = (po) => {
     setSelectedPOForProducts(po);
     // Deep copy products array for local editing
-    setModalProducts(po.products.map(p => ({ ...p })));
+    setModalProducts(po.products.map(p => {
+      const billed = p.invoicedQuantity || 0;
+      const pending = Math.max(0, p.quantity - billed);
+      return { 
+        ...p,
+        currentInvoiceQty: pending
+      };
+    }));
     setIsProductsModalOpen(true);
   };
 
   const handleToggleProduct = (index) => {
     const updated = [...modalProducts];
-    updated[index].selected = !updated[index].selected;
-    setModalProducts(updated);
+    const isFullyBilled = (updated[index].invoicedQuantity || 0) >= updated[index].quantity;
+    if (!isFullyBilled) {
+        updated[index].selected = !updated[index].selected;
+        setModalProducts(updated);
+    }
   };
 
   const handleToggleAllProducts = () => {
-    const allSelected = modalProducts.every(p => p.selected);
-    const updated = modalProducts.map(p => ({ ...p, selected: !allSelected }));
+    const uninvoicedProducts = modalProducts.filter(p => (p.invoicedQuantity || 0) < p.quantity);
+    const allSelected = uninvoicedProducts.every(p => p.selected);
+    const updated = modalProducts.map(p => 
+      (p.invoicedQuantity || 0) >= p.quantity ? p : { ...p, selected: !allSelected }
+    );
     setModalProducts(updated);
   };
 
@@ -111,34 +139,112 @@ const POManagement = () => {
   const handleDownloadPDF = async (po) => {
     try {
       toast.loading("Generating PDF...", { id: "pdf" });
-      const response = await API.get(`/purchase-orders/${po._id}/pdf`, {
+      
+      const hasPI = po.pi && po.pi._id;
+      const endpoint = hasPI 
+        ? `/quotations/${po.pi._id}/pdf` 
+        : `/purchase-orders/${po._id}/pdf`;
+
+      const response = await API.get(endpoint, {
         responseType: 'blob'
       });
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href = window.URL.createObjectURL(blob);
-      link.download = `${po.poNumber}.pdf`;
+
+      let filename = `${po.poNumber}.pdf`;
+      if (hasPI) {
+        const clientName = po.pi.billTo?.name || po.pi.lead?.name || "Client";
+        const firstWord = clientName.trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9_-]/g, "");
+        let city = "";
+        if (po.pi.billTo?.address) {
+          const parts = po.pi.billTo.address.split(",").map(p => p.trim()).filter(Boolean);
+          if (parts.length >= 3) {
+            city = parts[parts.length - 3];
+          } else if (parts.length > 0) {
+            city = parts[0];
+          }
+        }
+        const safeCity = (city || "City").replace(/[^a-zA-Z0-9_-]/g, "");
+        const safeDocNumber = po.pi.quotationNumber?.replace(/[^a-zA-Z0-9_-]/g, "_") || "";
+        filename = `${firstWord}_${safeCity}_${safeDocNumber}.pdf`;
+      }
+
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       toast.success("PDF downloaded successfully", { id: "pdf" });
     } catch (err) {
-      console.error("Error downloading PO PDF:", err);
+      console.error("Error downloading PDF:", err);
       toast.error("Failed to download PDF", { id: "pdf" });
     }
   };
 
-  const handleMoveToInvoice = async (po) => {
-    if (!window.confirm(`Are you sure you want to move Purchase Order ${po.poNumber} to Invoice?`)) return;
+  const handleOpenInvoicePrompt = (po) => {
+    const itemsToBill = po.products.filter(p => p.selected && (p.currentInvoiceQty > 0));
+    if (itemsToBill.length === 0) {
+      toast.error("No items selected or Bill Now quantity is 0. Please update the PO first.");
+      return;
+    }
+    setSelectedPOForInvoice(po);
+    setInvoiceForm({ invoiceNo: "", date: new Date().toISOString().split("T")[0] });
+    setIsInvoicePromptOpen(true);
+  };
+
+  const handleProcessInvoice = async () => {
+    if (!invoiceForm.invoiceNo || !invoiceForm.date) {
+      toast.error("Invoice No and Date are required!");
+      return;
+    }
+    const po = selectedPOForInvoice;
     try {
-      const res = await API.put(`/purchase-orders/${po._id}`, {
-        status: "Invoiced"
+      const itemsToBill = po.products.filter(p => p.selected && (p.currentInvoiceQty > 0));
+      const invoiceTotal = itemsToBill.reduce((sum, p) => sum + (p.currentInvoiceQty * p.unitPrice), 0);
+
+      const newInvoice = {
+        invoiceNo: invoiceForm.invoiceNo,
+        date: invoiceForm.date,
+        totalValue: invoiceTotal,
+        products: itemsToBill.map(p => ({
+          productNo: p.productNo,
+          name: p.name,
+          brand: p.brand,
+          quantity: p.currentInvoiceQty,
+          unitPrice: p.unitPrice,
+          total: p.currentInvoiceQty * p.unitPrice
+        }))
+      };
+
+      const updatedProducts = po.products.map(p => {
+        if (p.selected && p.currentInvoiceQty > 0) {
+          const toBill = parseInt(p.currentInvoiceQty) || 0;
+          return {
+            ...p,
+            invoicedQuantity: (p.invoicedQuantity || 0) + toBill,
+            currentInvoiceQty: 0
+          };
+        }
+        return p;
       });
-      toast.success(`Purchase Order ${res.data.poNumber} moved to Invoice successfully!`);
+
+      const allInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+      const noneInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) === 0);
+      
+      const newStatus = allInvoiced ? "Completed" : (noneInvoiced ? po.status : "Processed");
+
+      const res = await API.put(`/purchase-orders/${po._id}`, {
+        products: updatedProducts,
+        status: newStatus,
+        invoiceHistory: [...(po.invoiceHistory || []), newInvoice]
+      });
+      
+      toast.success(`Invoice created successfully!`);
+      setIsInvoicePromptOpen(false);
       fetchPOs();
     } catch (err) {
-      console.error("Error moving to Invoice:", err);
-      toast.error(err.response?.data?.message || "Failed to move Purchase Order to Invoice");
+      console.error("Error creating Invoice:", err);
+      toast.error(err.response?.data?.message || "Failed to create invoice");
     }
   };
 
@@ -238,7 +344,7 @@ const POManagement = () => {
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PI / Lead Ref</th>
+                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 w-52">PI / Lead Ref</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
                     {activeTab === "inward" ? "Client Name" : "Vendor Name"}
                   </th>
@@ -251,9 +357,16 @@ const POManagement = () => {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {filteredPOs.map((po) => (
                   <tr key={po._id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
-                    <td className="px-6 py-4 text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
-                      <FileText size={16} />
-                      {po.poNumber}
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <div className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                          <FileText size={16} />
+                          {po.poNumber}
+                        </div>
+                        <span className="text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5 ml-6">
+                          PO Date: {po.pi?.poDate ? new Date(po.pi.poDate).toLocaleDateString("en-GB") : new Date(po.date).toLocaleDateString("en-GB")}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -261,7 +374,7 @@ const POManagement = () => {
                           {po.pi?.quotationNumber || "-"}
                         </span>
                         {(po.leadNumber || po.pi?.lead?.leadNumber) && (
-                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 mt-0.5">
+                          <span className="text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5">
                             Lead No: {po.leadNumber || po.pi.lead.leadNumber}
                           </span>
                         )}
@@ -308,13 +421,26 @@ const POManagement = () => {
                           <Download size={18} />
                         </button>
                         {/* Move to Invoice Icon */}
-                        {po.status !== "Invoiced" && (
+                        {po.status !== "Completed" && (
                           <button 
-                            onClick={() => handleMoveToInvoice(po)}
+                            onClick={() => handleOpenInvoicePrompt(po)}
                             className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
                             title="Move to Invoice"
                           >
                             <FileCheck size={18} />
+                          </button>
+                        )}
+                        {/* History Icon */}
+                        {po.invoiceHistory && po.invoiceHistory.length > 0 && (
+                          <button 
+                            onClick={() => {
+                              setSelectedPOForHistory(po);
+                              setIsHistoryModalOpen(true);
+                            }}
+                            className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="View Invoice History"
+                          >
+                            <History size={18} />
                           </button>
                         )}
                         {/* Delete Icon */}
@@ -347,7 +473,7 @@ const POManagement = () => {
       {/* 📦 View Products Modal (Checkboxes + All Select + Update PO) */}
       {isProductsModalOpen && selectedPOForProducts && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
@@ -363,7 +489,7 @@ const POManagement = () => {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 max-h-[350px] overflow-y-auto space-y-4">
+            <div className="p-6 max-h-[500px] overflow-y-auto space-y-4">
               {/* All Select toggle */}
               <div 
                 onClick={handleToggleAllProducts}
@@ -382,15 +508,21 @@ const POManagement = () => {
                 {modalProducts.map((p, idx) => (
                   <div 
                     key={idx}
-                    onClick={() => handleToggleProduct(idx)}
-                    className={`flex items-start gap-3 p-4 border rounded-2xl cursor-pointer transition ${
-                      p.selected 
-                        ? "bg-white dark:bg-gray-800 border-blue-500 shadow-sm" 
-                        : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-60"
+                    onClick={() => {
+                      if ((p.invoicedQuantity || 0) < p.quantity) handleToggleProduct(idx);
+                    }}
+                    className={`flex items-start gap-3 p-4 border rounded-2xl transition ${
+                      (p.invoicedQuantity || 0) >= p.quantity 
+                        ? "bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-50 cursor-not-allowed"
+                        : p.selected 
+                          ? "bg-white dark:bg-gray-800 border-blue-500 shadow-sm cursor-pointer" 
+                          : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-60 cursor-pointer"
                     }`}
                   >
                     <div className="mt-0.5">
-                      {p.selected ? (
+                      {(p.invoicedQuantity || 0) >= p.quantity ? (
+                        <CheckSquare size={18} className="text-gray-400 dark:text-gray-500" />
+                      ) : p.selected ? (
                         <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
                       ) : (
                         <Square size={18} className="text-gray-400 dark:text-gray-500" />
@@ -399,11 +531,38 @@ const POManagement = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
-                        <p className="text-sm font-bold text-gray-900 dark:text-white shrink-0">₹{p.total?.toLocaleString()}</p>
+                        <p className="text-sm font-bold text-gray-900 dark:text-white shrink-0">₹{((p.quantity || 0) * (p.unitPrice || 0)).toLocaleString()}</p>
                       </div>
                       <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">
-                        <span className="truncate">{p.brand} | {p.productNo}</span>
-                        <span>Qty: {p.quantity} × ₹{p.unitPrice?.toLocaleString()}</span>
+                        <span className="truncate">{p.brand} | {p.productNo} {(p.invoicedQuantity || 0) >= p.quantity && "(Completed)"}</span>
+                        <div className="flex items-center gap-4">
+                          <div className="flex flex-col text-[10px] text-gray-500 dark:text-gray-400 font-bold">
+                            <span>Total: {p.quantity}</span>
+                            <span className="text-indigo-500 dark:text-indigo-400">Billed: {p.invoicedQuantity || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <span>Bill Now:</span>
+                            <input 
+                              type="number"
+                              min="0"
+                              max={p.quantity - (p.invoicedQuantity || 0)}
+                              disabled={(p.invoicedQuantity || 0) >= p.quantity || !p.selected}
+                              value={p.currentInvoiceQty ?? 0}
+                              onChange={(e) => {
+                                let newQuantity = parseInt(e.target.value) || 0;
+                                const pending = p.quantity - (p.invoicedQuantity || 0);
+                                if (newQuantity > pending) newQuantity = pending;
+                                if (newQuantity < 0) newQuantity = 0;
+                                
+                                const updated = [...modalProducts];
+                                updated[idx].currentInvoiceQty = newQuantity;
+                                setModalProducts(updated);
+                              }}
+                              className={`w-14 px-1 py-0.5 text-xs text-center text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none focus:border-blue-500 ${((p.invoicedQuantity || 0) >= p.quantity) ? "opacity-50" : ""}`}
+                            />
+                          </div>
+                          <span>× ₹{p.unitPrice?.toLocaleString()}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -443,7 +602,10 @@ const POManagement = () => {
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-black text-gray-900 dark:text-white">Purchase Order Details</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO Number: {selectedPOForDetails.poNumber}</p>
+                <div className="flex flex-col mt-0.5 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                  <p>PO Number: {selectedPOForDetails.poNumber}</p>
+                  <p className="text-lime-600 dark:text-lime-400 font-semibold">PO Date: {selectedPOForDetails.pi?.poDate ? new Date(selectedPOForDetails.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
+                </div>
               </div>
               <button 
                 onClick={() => setIsDetailModalOpen(false)}
@@ -480,8 +642,8 @@ const POManagement = () => {
                   <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mt-0.5 capitalize">{selectedPOForDetails.type} PO</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Grand Total</p>
-                  <p className="text-sm font-black text-gray-900 dark:text-white mt-0.5">₹{selectedPOForDetails.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Taxable Value</p>
+                  <p className="text-sm font-black text-gray-900 dark:text-white mt-0.5">₹{(selectedPOForDetails.products || []).filter(p => p.selected).reduce((sum, p) => sum + ((p.quantity || 0) * (p.unitPrice || 0)), 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
 
@@ -545,6 +707,130 @@ const POManagement = () => {
           </div>
         </div>
       )}
+
+      {/* 📄 Create Invoice Prompt Modal */}
+      {isInvoicePromptOpen && selectedPOForInvoice && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-black text-gray-900 dark:text-white">Create Invoice</h3>
+              <button 
+                onClick={() => setIsInvoicePromptOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Invoice Number</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. INV-1020"
+                  value={invoiceForm.invoiceNo}
+                  onChange={e => setInvoiceForm({...invoiceForm, invoiceNo: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Invoice Date</label>
+                <input 
+                  type="date"
+                  value={invoiceForm.date}
+                  onChange={e => setInvoiceForm({...invoiceForm, date: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+              <button
+                onClick={() => setIsInvoicePromptOpen(false)}
+                className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleProcessInvoice}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition"
+              >
+                Generate Bill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🕒 Invoice History Modal */}
+      {isHistoryModalOpen && selectedPOForHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-gray-900 dark:text-white">Invoice History</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO Number: {selectedPOForHistory.poNumber}</p>
+              </div>
+              <button 
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[450px] space-y-4">
+              {selectedPOForHistory.invoiceHistory?.length === 0 ? (
+                <div className="text-center py-10 text-gray-400 font-bold uppercase tracking-widest text-xs">No invoices generated yet</div>
+              ) : (
+                selectedPOForHistory.invoiceHistory?.map((inv, i) => (
+                  <div key={i} className="border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
+                    <div className="bg-gray-50 dark:bg-gray-900 px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                      <div className="flex gap-4">
+                        <div>
+                          <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Invoice No</p>
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">{inv.invoiceNo}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Date</p>
+                          <p className="text-sm font-bold text-gray-900 dark:text-white">{new Date(inv.date).toLocaleDateString("en-GB")}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Total</p>
+                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">₹{inv.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-white dark:bg-gray-800">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr>
+                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Product</th>
+                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Qty</th>
+                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Price</th>
+                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                          {inv.products.map((p, j) => (
+                            <tr key={j}>
+                              <td className="py-2 text-xs font-bold text-gray-800 dark:text-gray-200">
+                                {p.productNo}
+                                <div className="text-[10px] font-medium text-gray-500 font-normal truncate max-w-[200px]" title={p.name}>{p.name}</div>
+                              </td>
+                              <td className="py-2 text-xs text-center font-bold text-gray-600 dark:text-gray-400">{p.quantity}</td>
+                              <td className="py-2 text-xs text-right font-medium text-gray-500 dark:text-gray-400">₹{p.unitPrice?.toLocaleString()}</td>
+                              <td className="py-2 text-xs text-right font-bold text-gray-900 dark:text-white">₹{p.total?.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

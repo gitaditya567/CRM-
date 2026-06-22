@@ -29,7 +29,7 @@ const purchaseOrderSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["Pending", "Approved", "Received", "Sent", "Invoiced"],
+        enum: ["Pending", "Approved", "Received", "Sent", "Processed", "Completed"],
         default: "Pending"
     },
     type: {
@@ -53,13 +53,38 @@ const purchaseOrderSchema = new mongoose.Schema({
         selected: {
             type: Boolean,
             default: true
+        },
+        invoicedQuantity: {
+            type: Number,
+            default: 0
+        },
+        currentInvoiceQty: {
+            type: Number,
+            default: 0
         }
     }],
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
         default: null
-    }
+    },
+    invoiceHistory: [{
+        invoiceNo: String,
+        date: Date,
+        totalValue: Number,
+        products: [{
+            productNo: String,
+            name: String,
+            brand: String,
+            quantity: Number,
+            unitPrice: Number,
+            total: Number
+        }],
+        createdAt: {
+            type: Date,
+            default: Date.now
+        }
+    }]
 }, { timestamps: true });
 
 module.exports = mongoose.model("PurchaseOrder", purchaseOrderSchema);

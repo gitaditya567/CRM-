@@ -24,7 +24,31 @@ exports.getPOs = async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        res.json(pos);
+        // Map legalEntityName to clientName
+        const Client = require("../models/Client");
+        const clients = await Client.find({}, "clientName legalEntityName").lean();
+        const nameMap = new Map();
+        clients.forEach(c => {
+            if (c.legalEntityName) {
+                nameMap.set(c.legalEntityName.trim().toLowerCase(), c.clientName);
+            }
+        });
+
+        const formattedPOs = pos.map(po => {
+            let name = po.vendorName;
+            if (name) {
+                const key = name.trim().toLowerCase();
+                if (nameMap.has(key)) {
+                    name = nameMap.get(key);
+                }
+            }
+            return {
+                ...po,
+                vendorName: name
+            };
+        });
+
+        res.json(formattedPOs);
     } catch (err) {
         console.error("Get POs Error:", err);
         res.status(500).json({ message: "Failed to fetch purchase orders" });
@@ -82,7 +106,17 @@ exports.createPOFromPI = async (req, res) => {
             selected: true
         }));
 
-        const vendorName = piDoc.billTo?.name || piDoc.lead?.name || "Unknown Vendor";
+        const Client = require("../models/Client");
+        const clientDoc = await Client.findOne({
+            $or: [
+                { clientName: piDoc.billTo?.name },
+                { legalEntityName: piDoc.billTo?.name },
+                { clientName: piDoc.lead?.name },
+                { legalEntityName: piDoc.lead?.name }
+            ]
+        }).lean();
+
+        const vendorName = clientDoc ? clientDoc.clientName : (piDoc.billTo?.name || piDoc.lead?.name || "Unknown Vendor");
         const leadNumber = piDoc.lead?.leadNumber || "";
 
         const newPO = new PurchaseOrder({
@@ -121,7 +155,7 @@ exports.createPOFromPI = async (req, res) => {
 exports.updatePO = async (req, res) => {
     try {
         const { id } = req.params;
-        const { products, status } = req.body;
+        const { products, status, invoiceHistory } = req.body;
 
         const po = await PurchaseOrder.findById(id);
         if (!po) {
@@ -132,6 +166,10 @@ exports.updatePO = async (req, res) => {
 
         if (status) {
             updates.status = status;
+        }
+
+        if (invoiceHistory) {
+            updates.invoiceHistory = invoiceHistory;
         }
 
         if (products) {
@@ -195,6 +233,19 @@ exports.generatePDF = async (req, res) => {
         const po = await PurchaseOrder.findById(id).populate("pi").lean();
         if (!po) {
             return res.status(404).json({ message: "Purchase Order not found" });
+        }
+
+        // Map legalEntityName to clientName
+        const Client = require("../models/Client");
+        const clientDoc = await Client.findOne({
+            $or: [
+                { clientName: po.vendorName },
+                { legalEntityName: po.vendorName }
+            ]
+        }).lean();
+        
+        if (clientDoc) {
+            po.vendorName = clientDoc.clientName;
         }
 
         const doc = new PDFDocument({
