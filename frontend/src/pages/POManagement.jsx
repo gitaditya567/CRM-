@@ -20,6 +20,20 @@ import API from "../api/api";
 import toast from "react-hot-toast";
 
 const POManagement = () => {
+  const userRole = (localStorage.getItem("role") || "").toLowerCase();
+  const isAdmin = userRole === "admin" || userRole === "superadmin";
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6 md:p-8 text-center py-20 font-sans bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-155 dark:border-gray-700 max-w-md mx-auto mt-20">
+        <h1 className="text-2xl font-black text-red-600 dark:text-red-400 uppercase tracking-wider">Permission Denied</h1>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mt-2 uppercase tracking-wide">
+          Only administrators and superadministrators are allowed to access this module.
+        </p>
+      </div>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState("inward");
   const [searchQuery, setSearchQuery] = useState("");
   const [pos, setPOs] = useState([]);

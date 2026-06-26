@@ -78,7 +78,6 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
         links.push({ name: "Sales Hub", path: "/sales-dashboard", icon: LayoutDashboard });
         links.push({ name: "My Leads", path: "/leads?tab=my_leads", icon: Users });
         links.push({ name: "Leads", path: "/leads", icon: Users });
-        links.push({ name: "PO Management", path: "/po-management", icon: FileText });
         links.push({ name: "Inventory Search", path: "/search", icon: ShoppingBag });
         links.push({ name: "Quotations", path: "/leads?tab=quotations", icon: FileText });
         
@@ -93,7 +92,9 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
         if (canViewMenu('Leads', 'showLeads')) {
             links.push({ name: "My Leads", path: "/leads?tab=my_leads", icon: Users });
             links.push({ name: "Leads", path: "/leads", icon: Users });
-            links.push({ name: "PO Management", path: "/po-management", icon: FileText });
+            if (role === 'admin' || role === 'superadmin') {
+                links.push({ name: "PO Management", path: "/po-management", icon: FileText });
+            }
         }
 
         if (canViewMenu('Clients', 'showClients')) {
