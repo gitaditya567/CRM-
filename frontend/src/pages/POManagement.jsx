@@ -14,7 +14,9 @@ import {
   FileCheck,
   X,
   Trash2,
-  History
+  History,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
@@ -44,6 +46,8 @@ const POManagement = () => {
   const [isProductsModalOpen, setIsProductsModalOpen] = useState(false);
   const [selectedPOForProducts, setSelectedPOForProducts] = useState(null);
   const [modalProducts, setModalProducts] = useState([]);
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [isChecklistFullScreen, setIsChecklistFullScreen] = useState(false);
 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPOForDetails, setSelectedPOForDetails] = useState(null);
@@ -55,11 +59,20 @@ const POManagement = () => {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedPOForHistory, setSelectedPOForHistory] = useState(null);
 
+  // Inward Invoice Billing Modal state
+  const [isInwardBillingOpen, setIsInwardBillingOpen] = useState(false);
+  const [selectedPOForBilling, setSelectedPOForBilling] = useState(null);
+  const [billingProducts, setBillingProducts] = useState([]);
+
+  // Move Confirmation Modal state
+  const [isMoveConfirmOpen, setIsMoveConfirmOpen] = useState(false);
+
   // Fetch POs from server
   const fetchPOs = async () => {
     setLoading(true);
     try {
-      const res = await API.get(`/purchase-orders?type=${activeTab}`);
+      const targetType = activeTab === "inward_invoice" ? "inward" : activeTab;
+      const res = await API.get(`/purchase-orders?type=${targetType}`);
       setPOs(res.data || []);
     } catch (err) {
       console.error("Error fetching POs:", err);
@@ -80,17 +93,29 @@ const POManagement = () => {
     "Pending": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
     "Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
     "Processed": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-    "Completed": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    "Partially Processed": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    "Partially Received": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    "Partially Fulfilled": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
   };
 
   // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
   const filteredPOs = pos.filter(po => {
-    // 1. Status Filter
+    // 1. Tab Specific Filtering for inward_invoice
+    if (activeTab === "inward_invoice") {
+      const isMoved = po.isMovedToInvoice || 
+                      po.status === "Partially Processed" || 
+                      po.status === "Partially Fulfilled" || 
+                      po.status === "Processed" || 
+                      (po.invoiceHistory && po.invoiceHistory.length > 0);
+      if (!isMoved) return false;
+    }
+
+    // 2. Status Filter
     if (statusFilter !== "All" && po.status !== statusFilter) {
       return false;
     }
 
-    // 2. Search query filter
+    // 3. Search query filter
     const query = searchQuery.toLowerCase();
     const matchesPo = po.poNumber?.toLowerCase().includes(query);
     const partnerName = po.vendorName || "";
@@ -124,58 +149,135 @@ const POManagement = () => {
   // Action handlers
   const handleOpenProductsModal = (po) => {
     setSelectedPOForProducts(po);
-    // Deep copy products array for local editing
+    setProductSearchQuery("");
+    setIsChecklistFullScreen(false);
     setModalProducts(po.products.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
       return { 
         ...p,
-        currentInvoiceQty: pending
+        currentInvoiceQty: pending,
+        selected: pending > 0 ? (p.selected !== false) : false
       };
     }));
     setIsProductsModalOpen(true);
   };
 
   const handleToggleProduct = (index) => {
+    const p = modalProducts[index];
+    const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
+    if (remaining === 0) return;
     const updated = [...modalProducts];
-    const isFullyBilled = (updated[index].invoicedQuantity || 0) >= updated[index].quantity;
-    if (!isFullyBilled) {
-        updated[index].selected = !updated[index].selected;
-        setModalProducts(updated);
-    }
-  };
-
-  const handleToggleAllProducts = () => {
-    const uninvoicedProducts = modalProducts.filter(p => (p.invoicedQuantity || 0) < p.quantity);
-    const allSelected = uninvoicedProducts.every(p => p.selected);
-    const updated = modalProducts.map(p => 
-      (p.invoicedQuantity || 0) >= p.quantity ? p : { ...p, selected: !allSelected }
-    );
+    updated[index].selected = !updated[index].selected;
     setModalProducts(updated);
   };
 
-  const handleUpdatePOProducts = async () => {
+  const handleToggleAllProducts = () => {
+    const availableProducts = modalProducts.filter(p => {
+      const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
+      return remaining > 0;
+    });
+    const allAvailableSelected = availableProducts.every(p => p.selected);
+    const updated = modalProducts.map(p => {
+      const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
+      if (remaining === 0) return { ...p, selected: false };
+      return { ...p, selected: !allAvailableSelected };
+    });
+    setModalProducts(updated);
+  };
+
+  const handleSavePOProducts = async (shouldMoveToInvoice) => {
     if (!selectedPOForProducts) return;
+    const po = selectedPOForProducts;
+    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
+
     try {
-      const res = await API.put(`/purchase-orders/${selectedPOForProducts._id}`, {
-        products: modalProducts
-      });
-      toast.success(`Purchase Order ${res.data.poNumber} updated successfully!`);
-      // Update selected PO state so that the checklist stays open and updates instantly
-      setSelectedPOForProducts(res.data);
-      setModalProducts(res.data.products.map(p => {
-        const billed = p.invoicedQuantity || 0;
-        const pending = Math.max(0, p.quantity - billed);
-        return { 
-          ...p,
-          currentInvoiceQty: pending
+      if (!isOutward) {
+        const allSelected = modalProducts.every(p => p.selected);
+        const anySelected = modalProducts.some(p => p.selected);
+        let newStatus = "Pending";
+        if (allSelected) {
+          newStatus = "Processed";
+        } else if (anySelected) {
+          newStatus = "Partially Processed";
+        }
+
+        const payload = {
+          products: modalProducts,
+          status: newStatus
         };
-      }));
-      fetchPOs();
+
+        if (shouldMoveToInvoice) {
+          payload.isMovedToInvoice = true;
+        }
+
+        const res = await API.put(`/purchase-orders/${po._id}`, payload);
+        toast.success(
+          shouldMoveToInvoice 
+            ? `Purchase Order ${res.data.poNumber} updated & moved to Inward Invoice!` 
+            : `Purchase Order ${res.data.poNumber} updated successfully!`
+        );
+        setIsMoveConfirmOpen(false);
+        setIsProductsModalOpen(false);
+        fetchPOs();
+      } else {
+        const res = await API.put(`/purchase-orders/${po._id}`, {
+          products: modalProducts
+        });
+        toast.success(`Purchase Order ${res.data.poNumber} updated successfully!`);
+        setSelectedPOForProducts(res.data);
+        setModalProducts(res.data.products.map(p => {
+          const billed = p.invoicedQuantity || 0;
+          const pending = Math.max(0, p.quantity - billed);
+          return { 
+            ...p,
+            currentInvoiceQty: pending
+          };
+        }));
+        fetchPOs();
+      }
     } catch (err) {
       console.error("Error updating PO products:", err);
       toast.error(err.response?.data?.message || "Failed to update Purchase Order");
     }
+  };
+
+  const handleUpdatePOProducts = () => {
+    if (!selectedPOForProducts) return;
+    const po = selectedPOForProducts;
+    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
+
+    if (!isOutward) {
+      setIsMoveConfirmOpen(true);
+    } else {
+      handleSavePOProducts(false);
+    }
+  };
+
+  const handleOpenInwardBilling = (po) => {
+    handleOpenProductsModal(po);
+  };
+
+  const handleProceedToInvoiceFromChecklist = () => {
+    const itemsToBill = modalProducts.filter(p => p.selected && (parseInt(p.currentInvoiceQty) || 0) > 0);
+    if (itemsToBill.length === 0) {
+      toast.error("Please select at least one product and enter an Invoice Quantity > 0!");
+      return;
+    }
+    setSelectedPOForInvoice(selectedPOForProducts);
+    setSelectedPOForBilling(null);
+    setInvoiceForm({ invoiceNo: "", date: new Date().toISOString().split("T")[0] });
+    setIsInvoicePromptOpen(true);
+  };
+
+  const handleProceedToInvoicePrompt = () => {
+    const itemsToBill = billingProducts.filter(p => p.selectedForBill && (parseInt(p.billQty) || 0) > 0);
+    if (itemsToBill.length === 0) {
+      toast.error("Please select at least one product with quantity > 0 to bill!");
+      return;
+    }
+    setInvoiceForm({ invoiceNo: "", date: new Date().toISOString().split("T")[0] });
+    setIsInvoicePromptOpen(true);
   };
 
   const handleOpenDetailModal = (po) => {
@@ -229,6 +331,7 @@ const POManagement = () => {
   };
 
   const handleOpenInvoicePrompt = (po) => {
+    setSelectedPOForBilling(null);
     const itemsToBill = po.products.filter(p => p.selected && (p.currentInvoiceQty > 0));
     if (itemsToBill.length === 0) {
       toast.error("No items selected or Bill Now quantity is 0. Please update the PO first.");
@@ -244,51 +347,118 @@ const POManagement = () => {
       toast.error("Invoice No and Date are required!");
       return;
     }
-    const po = selectedPOForInvoice;
+
+    const po = selectedPOForInvoice || selectedPOForBilling;
+    if (!po) return;
+
     try {
-      const itemsToBill = po.products.filter(p => p.selected && (p.currentInvoiceQty > 0));
-      const invoiceTotal = itemsToBill.reduce((sum, p) => sum + (p.currentInvoiceQty * p.unitPrice), 0);
+      const isOutward = activeTab === "outward" || po.type === "outward";
 
-      const newInvoice = {
-        invoiceNo: invoiceForm.invoiceNo,
-        date: invoiceForm.date,
-        totalValue: invoiceTotal,
-        products: itemsToBill.map(p => ({
-          productNo: p.productNo,
-          name: p.name,
-          brand: p.brand,
-          quantity: p.currentInvoiceQty,
-          unitPrice: p.unitPrice,
-          total: p.currentInvoiceQty * p.unitPrice
-        }))
-      };
+      if (!isOutward) {
+        // INWARD PO INVOICING
+        const sourceProducts = isProductsModalOpen ? modalProducts : (billingProducts.length > 0 ? billingProducts : po.products);
+        const itemsToBill = sourceProducts.filter(p => (p.selected || p.selectedForBill) && ((parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0) > 0));
 
-      const updatedProducts = po.products.map(p => {
-        if (p.selected && p.currentInvoiceQty > 0) {
-          const toBill = parseInt(p.currentInvoiceQty) || 0;
-          return {
-            ...p,
-            invoicedQuantity: (p.invoicedQuantity || 0) + toBill,
-            currentInvoiceQty: 0
-          };
+        if (itemsToBill.length === 0) {
+          toast.error("No products selected with valid invoice quantity!");
+          return;
         }
-        return p;
-      });
 
-      const allInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-      const noneInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) === 0);
-      
-      const newStatus = allInvoiced ? "Completed" : (noneInvoiced ? po.status : "Processed");
+        const invoiceTotal = itemsToBill.reduce((sum, p) => {
+          const qty = parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0;
+          return sum + (qty * (p.unitPrice || 0));
+        }, 0);
 
-      const res = await API.put(`/purchase-orders/${po._id}`, {
-        products: updatedProducts,
-        status: newStatus,
-        invoiceHistory: [...(po.invoiceHistory || []), newInvoice]
-      });
-      
-      toast.success(`Invoice created successfully!`);
-      setIsInvoicePromptOpen(false);
-      fetchPOs();
+        const newInvoice = {
+          invoiceNo: invoiceForm.invoiceNo,
+          date: invoiceForm.date,
+          totalValue: invoiceTotal,
+          products: itemsToBill.map(p => {
+            const qty = parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0;
+            return {
+              productNo: p.productNo,
+              name: p.name,
+              brand: p.brand,
+              quantity: qty,
+              unitPrice: p.unitPrice,
+              total: qty * (p.unitPrice || 0)
+            };
+          })
+        };
+
+        const updatedProducts = po.products.map(p => {
+          const matching = itemsToBill.find(b => b.productNo === p.productNo);
+          if (matching) {
+            const qty = parseInt(matching.currentInvoiceQty) || parseInt(matching.billQty) || 0;
+            return {
+              ...p,
+              invoicedQuantity: (p.invoicedQuantity || 0) + qty
+            };
+          }
+          return p;
+        });
+
+        const allBilled = updatedProducts.filter(p => p.selected !== false).every(p => (p.invoicedQuantity || 0) >= p.quantity);
+        const newStatus = allBilled ? "Processed" : "Partially Processed";
+
+        await API.put(`/purchase-orders/${po._id}`, {
+          products: updatedProducts,
+          status: newStatus,
+          invoiceHistory: [...(po.invoiceHistory || []), newInvoice]
+        });
+
+        toast.success("Invoice recorded successfully!");
+        setIsInvoicePromptOpen(false);
+        setIsProductsModalOpen(false);
+        setIsInwardBillingOpen(false);
+        setSelectedPOForBilling(null);
+        setSelectedPOForInvoice(null);
+        fetchPOs();
+      } else {
+        // OUTWARD PO INVOICING
+        const itemsToBill = po.products.filter(p => p.selected && (p.currentInvoiceQty > 0));
+        const invoiceTotal = itemsToBill.reduce((sum, p) => sum + (p.currentInvoiceQty * p.unitPrice), 0);
+
+        const newInvoice = {
+          invoiceNo: invoiceForm.invoiceNo,
+          date: invoiceForm.date,
+          totalValue: invoiceTotal,
+          products: itemsToBill.map(p => ({
+            productNo: p.productNo,
+            name: p.name,
+            brand: p.brand,
+            quantity: p.currentInvoiceQty,
+            unitPrice: p.unitPrice,
+            total: p.currentInvoiceQty * p.unitPrice
+          }))
+        };
+
+        const updatedProducts = po.products.map(p => {
+          if (p.selected && p.currentInvoiceQty > 0) {
+            const toBill = parseInt(p.currentInvoiceQty) || 0;
+            return {
+              ...p,
+              invoicedQuantity: (p.invoicedQuantity || 0) + toBill,
+              currentInvoiceQty: 0
+            };
+          }
+          return p;
+        });
+
+        const allInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+        const noneInvoiced = updatedProducts.every(p => (p.invoicedQuantity || 0) === 0);
+        const newStatus = allInvoiced ? "Processed" : (noneInvoiced ? po.status : "Processed");
+
+        await API.put(`/purchase-orders/${po._id}`, {
+          products: updatedProducts,
+          status: newStatus,
+          invoiceHistory: [...(po.invoiceHistory || []), newInvoice]
+        });
+        
+        toast.success(`Invoice created successfully!`);
+        setIsInvoicePromptOpen(false);
+        fetchPOs();
+      }
     } catch (err) {
       console.error("Error creating Invoice:", err);
       toast.error(err.response?.data?.message || "Failed to create invoice");
@@ -337,7 +507,7 @@ const POManagement = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           
           {/* Glassmorphic Tabs Button List */}
-          <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-fit border border-gray-200/50 dark:border-gray-800">
+          <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-fit border border-gray-200/50 dark:border-gray-800 flex-wrap gap-1">
             <button
               onClick={() => setActiveTab("inward")}
               className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer ${
@@ -348,6 +518,17 @@ const POManagement = () => {
             >
               <ArrowDownLeft size={16} className={activeTab === "inward" ? "text-blue-500" : ""} />
               Inward PO {activeTab === "inward" ? `(${filteredPOs.length})` : ""}
+            </button>
+            <button
+              onClick={() => setActiveTab("inward_invoice")}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                activeTab === "inward_invoice"
+                  ? "bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 shadow-sm border border-gray-100 dark:border-gray-700 font-bold"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+              }`}
+            >
+              <FileCheck size={16} className={activeTab === "inward_invoice" ? "text-purple-500" : ""} />
+              Inward Invoice {activeTab === "inward_invoice" ? `(${filteredPOs.length})` : ""}
             </button>
             <button
               onClick={() => setActiveTab("outward")}
@@ -373,6 +554,7 @@ const POManagement = () => {
               >
                 <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
                 <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
                 {activeTab === "outward" && (
                   <>
                     <option value="Approved" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Approved</option>
@@ -381,7 +563,6 @@ const POManagement = () => {
                   </>
                 )}
                 <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
-                <option value="Completed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Completed</option>
               </select>
             </div>
 
@@ -419,7 +600,7 @@ const POManagement = () => {
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 w-52">PI / Lead Ref</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                    {activeTab === "inward" ? "Client Name" : "Vendor Name"}
+                    {activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name"}
                   </th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Total Value</th>
@@ -493,8 +674,18 @@ const POManagement = () => {
                         >
                           <Download size={18} />
                         </button>
-                        {/* Move to Invoice Icon */}
-                        {po.status !== "Completed" && (
+                        {/* Generate Inward Invoice Button (Inward Invoice tab only) */}
+                        {activeTab === "inward_invoice" && po.products?.some(p => (p.invoicedQuantity || 0) < p.quantity) && (
+                          <button 
+                            onClick={() => handleOpenInwardBilling(po)}
+                            className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="Generate Inward Invoice / Bill"
+                          >
+                            <FileCheck size={18} />
+                          </button>
+                        )}
+                        {/* Move to Invoice Icon (Outward only) */}
+                        {activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward" && po.status !== "Processed" && (
                           <button 
                             onClick={() => handleOpenInvoicePrompt(po)}
                             className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -503,15 +694,15 @@ const POManagement = () => {
                             <FileCheck size={18} />
                           </button>
                         )}
-                        {/* History Icon */}
-                        {po.invoiceHistory && po.invoiceHistory.length > 0 && (
+                        {/* History / Records Icon */}
+                        {((activeTab === "inward_invoice") || (activeTab === "outward" && po.type !== "inward")) && po.invoiceHistory && po.invoiceHistory.length > 0 && (
                           <button 
                             onClick={() => {
                               setSelectedPOForHistory(po);
                               setIsHistoryModalOpen(true);
                             }}
                             className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                            title="View Invoice History"
+                            title="View History / Records"
                           >
                             <History size={18} />
                           </button>
@@ -532,7 +723,7 @@ const POManagement = () => {
                 ))}
                 {filteredPOs.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="px-6 py-12 text-center text-gray-400 uppercase tracking-widest text-xs font-bold">
+                    <td colSpan="7" className="px-6 py-12 text-center text-gray-400 uppercase tracking-widest text-xs font-bold">
                       No PO Records Found
                     </td>
                   </tr>
@@ -543,26 +734,62 @@ const POManagement = () => {
         </div>
       </div>
 
-      {/* 📦 View Products Modal (Checkboxes + All Select + Update PO) */}
+      {/* 📦 View Products Modal (Checkboxes + Batch Processing + Update PO) */}
       {isProductsModalOpen && selectedPOForProducts && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center ${isChecklistFullScreen ? "p-0" : "p-4"} bg-black/60 backdrop-blur-sm`}>
+          <div className={`bg-white dark:bg-gray-800 shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in flex flex-col transition-all duration-300 ${
+            isChecklistFullScreen 
+              ? "w-full h-full rounded-none max-w-none max-h-none m-0" 
+              : "rounded-3xl w-full max-w-5xl max-h-[90vh]"
+          }`}>
             {/* Modal Header */}
-            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between shrink-0">
               <div>
-                <h3 className="text-lg font-black text-gray-900 dark:text-white">PO Products Checklist</h3>
+                <h3 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
+                  PO Products Checklist
+                  {isChecklistFullScreen && <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Full Screen</span>}
+                </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO: {selectedPOForProducts.poNumber}</p>
               </div>
-              <button 
-                onClick={() => setIsProductsModalOpen(false)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setIsChecklistFullScreen(!isChecklistFullScreen)}
+                  className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                  title={isChecklistFullScreen ? "Exit Full Screen" : "Full Screen View"}
+                >
+                  {isChecklistFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+                <button 
+                  onClick={() => setIsProductsModalOpen(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 max-h-[500px] overflow-y-auto space-y-4">
+            <div className={`p-6 overflow-y-auto space-y-4 ${isChecklistFullScreen ? "flex-1 max-h-none" : "max-h-[650px] md:max-h-[70vh]"}`}>
+              {/* Product Search Bar */}
+              <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 py-3 w-full">
+                <Search size={18} className="text-gray-400 mr-2 shrink-0" />
+                <input 
+                  type="text"
+                  placeholder="Search products by name, model, or brand..."
+                  className="bg-transparent border-none text-xs font-medium outline-none text-gray-800 dark:text-white placeholder-gray-400 w-full"
+                  value={productSearchQuery}
+                  onChange={(e) => setProductSearchQuery(e.target.value)}
+                />
+                {productSearchQuery && (
+                  <button 
+                    onClick={() => setProductSearchQuery("")}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0 ml-2"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
               {/* All Select toggle */}
               <div 
                 onClick={handleToggleAllProducts}
@@ -573,87 +800,162 @@ const POManagement = () => {
                 ) : (
                   <Square size={20} className="text-gray-400 dark:text-gray-500" />
                 )}
-                <span className="text-sm font-black text-blue-800 dark:text-blue-300 uppercase tracking-wider">Select All Products</span>
+                <span className="text-sm font-black text-blue-800 dark:text-blue-300 uppercase tracking-wider">Select All Products ({modalProducts.length})</span>
               </div>
 
               {/* Product list */}
-              <div className="space-y-2">
-                {modalProducts.map((p, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => {
-                      if ((p.invoicedQuantity || 0) < p.quantity) handleToggleProduct(idx);
-                    }}
-                    className={`flex items-start gap-3 p-4 border rounded-2xl transition ${
-                      (p.invoicedQuantity || 0) >= p.quantity 
-                        ? "bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-50 cursor-not-allowed"
-                        : p.selected 
-                          ? "bg-white dark:bg-gray-800 border-blue-500 shadow-sm cursor-pointer" 
-                          : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-60 cursor-pointer"
-                    }`}
-                  >
-                    <div className="mt-0.5">
-                      {(p.invoicedQuantity || 0) >= p.quantity ? (
-                        <CheckSquare size={18} className="text-gray-400 dark:text-gray-500" />
-                      ) : p.selected ? (
-                        <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <Square size={18} className="text-gray-400 dark:text-gray-500" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                            {p.brand} | {p.productNo} {(p.invoicedQuantity || 0) >= p.quantity && <span className="text-green-600 dark:text-green-400 font-bold">(Completed)</span>}
-                          </p>
+              <div className="space-y-3">
+                {modalProducts
+                  .map((p, originalIdx) => ({ ...p, originalIdx }))
+                  .filter(p => {
+                    if (!productSearchQuery.trim()) return true;
+                    const q = productSearchQuery.toLowerCase();
+                    return (p.name || "").toLowerCase().includes(q) ||
+                           (p.brand || "").toLowerCase().includes(q) ||
+                           (p.productNo || "").toLowerCase().includes(q);
+                  })
+                  .map((p) => {
+                    const idx = p.originalIdx;
+                    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
+                    const processed = p.invoicedQuantity || 0;
+                    const remaining = Math.max(0, p.quantity - processed);
+                    const isFullyBilled = isOutward && (processed >= p.quantity);
+                    const isFullyProcessedInward = !isOutward && (remaining === 0);
+                    const isDisabled = isFullyBilled || isFullyProcessedInward;
+
+                    return (
+                      <div 
+                        key={idx}
+                        onClick={() => {
+                          if (!isDisabled) handleToggleProduct(idx);
+                        }}
+                        className={`flex items-start gap-3 p-4 border rounded-2xl transition ${
+                          isDisabled
+                            ? "bg-gray-100/70 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 opacity-50 cursor-not-allowed select-none"
+                            : p.selected 
+                              ? "bg-white dark:bg-gray-800 border-blue-500 shadow-sm cursor-pointer"
+                              : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-70 cursor-pointer"
+                        }`}
+                      >
+                        <div className="mt-0.5">
+                          {isDisabled ? (
+                            <CheckSquare size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
+                          ) : p.selected ? (
+                            <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Square size={18} className="text-gray-400 dark:text-gray-500" />
+                          )}
                         </div>
-                        <div className="flex flex-col items-end shrink-0">
-                          <p className="text-sm font-bold text-gray-900 dark:text-white">₹{((p.quantity || 0) * (p.unitPrice || 0)).toLocaleString()}</p>
-                          
-                          {/* Billed Quantity Box */}
-                          <div className="mt-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                            Billed: {p.invoicedQuantity || 0} / {p.quantity}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                {p.brand} | {p.productNo}
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end shrink-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white">Total: ₹{((p.quantity || 0) * (p.unitPrice || 0)).toLocaleString()}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Qty: {p.quantity} × ₹{p.unitPrice?.toLocaleString()}</p>
+                              
+                              {/* Inward Badges */}
+                              {!isOutward && (
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  {isFullyProcessedInward ? (
+                                    <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      Processed ({processed}/{p.quantity})
+                                    </span>
+                                  ) : processed > 0 ? (
+                                    <span className="bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      Processed: {processed} / {p.quantity} (Rem: {remaining})
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      Pending ({p.quantity} items)
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Outward Badges */}
+                              {isOutward && (
+                                <div className="mt-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                  Billed: {processed} / {p.quantity}
+                                </div>
+                              )}
+
+                              {/* Invoice details - Outward PO only */}
+                              {isOutward && getProductInvoices(p.productNo).map((inv, i) => (
+                                <span key={i} className="mt-1 text-[9px] font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-150 dark:border-gray-800 px-1.5 py-0.5 rounded-md">
+                                  Inv: {inv.invoiceNo} ({new Date(inv.date).toLocaleDateString("en-GB")}) - Qty: {inv.quantity}
+                                </span>
+                              ))}
+                            </div>
                           </div>
 
-                          {/* Invoice details */}
-                          {getProductInvoices(p.productNo).map((inv, i) => (
-                            <span key={i} className="mt-1 text-[9px] font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-150 dark:border-gray-800 px-1.5 py-0.5 rounded-md">
-                              Inv: {inv.invoiceNo} ({new Date(inv.date).toLocaleDateString("en-GB")}) - Qty: {inv.quantity}
-                            </span>
-                          ))}
+
+
+                          {/* Outward Bill Now Input */}
+                          {isOutward && (
+                            <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500 mt-3 font-medium border-t border-gray-100 dark:border-gray-700/50 pt-2">
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                  <span>Bill Now:</span>
+                                  <input 
+                                    type="number"
+                                    min="0"
+                                    max={p.quantity - processed}
+                                    disabled={processed >= p.quantity || !p.selected}
+                                    value={p.currentInvoiceQty ?? 0}
+                                    onChange={(e) => {
+                                      let newQuantity = parseInt(e.target.value) || 0;
+                                      const pending = p.quantity - processed;
+                                      if (newQuantity > pending) newQuantity = pending;
+                                      if (newQuantity < 0) newQuantity = 0;
+                                      
+                                      const updated = [...modalProducts];
+                                      updated[idx].currentInvoiceQty = newQuantity;
+                                      setModalProducts(updated);
+                                    }}
+                                    className={`w-14 px-1 py-0.5 text-xs text-center text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none focus:border-blue-500 ${(processed >= p.quantity) ? "opacity-50" : ""}`}
+                                  />
+                                </div>
+                                <span>× ₹{p.unitPrice?.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Inward Invoice Quantity Input */}
+                          {activeTab === "inward_invoice" && (
+                            <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 mt-3 font-medium border-t border-gray-100 dark:border-gray-700/50 pt-2.5" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold">Invoice Qty:</span>
+                                <input 
+                                  type="number"
+                                  min="0"
+                                  max={remaining}
+                                  disabled={remaining === 0 || !p.selected}
+                                  value={p.currentInvoiceQty ?? 0}
+                                  onChange={(e) => {
+                                    let val = parseInt(e.target.value) || 0;
+                                    if (val > remaining) val = remaining;
+                                    if (val < 0) val = 0;
+                                    const updated = [...modalProducts];
+                                    updated[idx].currentInvoiceQty = val;
+                                    setModalProducts(updated);
+                                  }}
+                                  className="w-20 px-2 py-1 text-xs font-bold text-center text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700 border border-purple-300 dark:border-purple-600 rounded-xl outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <span className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                                Rem: {remaining}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500 mt-3 font-medium border-t border-gray-100 dark:border-gray-700/50 pt-2">
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                            <span>Bill Now:</span>
-                            <input 
-                              type="number"
-                              min="0"
-                              max={p.quantity - (p.invoicedQuantity || 0)}
-                              disabled={(p.invoicedQuantity || 0) >= p.quantity || !p.selected}
-                              value={p.currentInvoiceQty ?? 0}
-                              onChange={(e) => {
-                                let newQuantity = parseInt(e.target.value) || 0;
-                                const pending = p.quantity - (p.invoicedQuantity || 0);
-                                if (newQuantity > pending) newQuantity = pending;
-                                if (newQuantity < 0) newQuantity = 0;
-                                
-                                const updated = [...modalProducts];
-                                updated[idx].currentInvoiceQty = newQuantity;
-                                setModalProducts(updated);
-                              }}
-                              className={`w-14 px-1 py-0.5 text-xs text-center text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded outline-none focus:border-blue-500 ${((p.invoicedQuantity || 0) >= p.quantity) ? "opacity-50" : ""}`}
-                            />
-                          </div>
-                          <span>× ₹{p.unitPrice?.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
             </div>
 
@@ -675,6 +977,15 @@ const POManagement = () => {
                 >
                   Update PO
                 </button>
+                {activeTab === "inward_invoice" && (
+                  <button
+                    onClick={handleProceedToInvoiceFromChecklist}
+                    className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-purple-500/10 transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <FileCheck size={16} />
+                    Invoice
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -795,8 +1106,137 @@ const POManagement = () => {
         </div>
       )}
 
+      {/* 🧾 Inward Invoice Billing Modal */}
+      {isInwardBillingOpen && selectedPOForBilling && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            {/* Modal Header */}
+            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-gray-900 dark:text-white">Generate Inward Invoice</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO: {selectedPOForBilling.poNumber} | Partner: {selectedPOForBilling.vendorName}</p>
+              </div>
+              <button 
+                onClick={() => setIsInwardBillingOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 max-h-[480px] overflow-y-auto space-y-4">
+              <div className="text-xs text-gray-500 dark:text-gray-400 font-medium bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900 p-3.5 rounded-2xl">
+                💡 Select products and enter the quantity to bill for this invoice. Remaining items can be billed in future invoices until quantity reaches 0.
+              </div>
+
+              {/* Product List */}
+              <div className="space-y-3">
+                {billingProducts.map((p, idx) => {
+                  const billed = p.invoicedQuantity || 0;
+                  const remaining = Math.max(0, p.quantity - billed);
+                  const isFullyBilled = remaining === 0;
+
+                  return (
+                    <div 
+                      key={idx}
+                      className={`flex items-start gap-3 p-4 border rounded-2xl transition ${
+                        isFullyBilled 
+                          ? "bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 opacity-60"
+                          : p.selectedForBill 
+                            ? "bg-white dark:bg-gray-800 border-purple-500 shadow-sm"
+                            : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800"
+                      }`}
+                    >
+                      <div className="mt-1">
+                        <input 
+                          type="checkbox"
+                          disabled={isFullyBilled}
+                          checked={p.selectedForBill && !isFullyBilled}
+                          onChange={(e) => {
+                            const updated = [...billingProducts];
+                            updated[idx].selectedForBill = e.target.checked;
+                            setBillingProducts(updated);
+                          }}
+                          className="w-4 h-4 text-purple-600 rounded cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{p.brand} | {p.productNo}</p>
+                          </div>
+                          <div className="flex flex-col items-end shrink-0">
+                            <p className="text-sm font-bold text-gray-900 dark:text-white">Price: ₹{p.unitPrice?.toLocaleString()}</p>
+                            <span className="text-xs font-bold text-gray-500 mt-0.5">Total Ordered: {p.quantity}</span>
+                            <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">Billed: {billed} / {p.quantity}</span>
+                          </div>
+                        </div>
+
+                        {!isFullyBilled ? (
+                          <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 mt-3 font-medium border-t border-gray-100 dark:border-gray-700/50 pt-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">Enter Bill Quantity:</span>
+                              <input 
+                                type="number"
+                                min="1"
+                                max={remaining}
+                                disabled={!p.selectedForBill}
+                                value={p.billQty ?? 0}
+                                onChange={(e) => {
+                                  let val = parseInt(e.target.value) || 0;
+                                  if (val > remaining) val = remaining;
+                                  if (val < 0) val = 0;
+                                  const updated = [...billingProducts];
+                                  updated[idx].billQty = val;
+                                  setBillingProducts(updated);
+                                }}
+                                className="w-20 px-2 py-1 text-xs font-bold text-center text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-700 border border-purple-300 dark:border-purple-600 rounded-xl outline-none focus:ring-2 focus:ring-purple-500"
+                              />
+                            </div>
+                            <span className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                              Remaining to bill: {remaining}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs font-bold text-green-600 dark:text-green-400">
+                            ✓ All items billed for this product
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider">
+                Current Invoice Total: <span className="text-purple-600 dark:text-purple-400 font-black text-sm">₹{billingProducts.filter(p => p.selectedForBill).reduce((sum, p) => sum + ((parseInt(p.billQty) || 0) * (p.unitPrice || 0)), 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsInwardBillingOpen(false)}
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleProceedToInvoicePrompt}
+                  className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md hover:scale-105 transition cursor-pointer"
+                >
+                  Invoice
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 📄 Create Invoice Prompt Modal */}
-      {isInvoicePromptOpen && selectedPOForInvoice && (
+      {isInvoicePromptOpen && (selectedPOForInvoice || selectedPOForBilling) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
@@ -913,6 +1353,39 @@ const POManagement = () => {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ❓ Move to Inward Invoice Confirmation Modal */}
+      {isMoveConfirmOpen && selectedPOForProducts && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in p-6 text-center space-y-5">
+            <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+              <FileCheck size={32} />
+            </div>
+
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white">Move to Inward Invoice?</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-semibold mt-2 px-2 leading-relaxed">
+                Do you want to move this Purchase Order (<span className="text-purple-600 dark:text-purple-400 font-bold">{selectedPOForProducts.poNumber}</span>) to the Inward Invoice tab for billing?
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                onClick={() => handleSavePOProducts(false)}
+                className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-700 text-xs font-black uppercase tracking-wider text-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition cursor-pointer"
+              >
+                No, Just Save
+              </button>
+              <button
+                onClick={() => handleSavePOProducts(true)}
+                className="flex-1 px-4 py-3 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-purple-500/20 transition cursor-pointer"
+              >
+                Yes, Move to Invoice
+              </button>
             </div>
           </div>
         </div>

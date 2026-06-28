@@ -155,7 +155,7 @@ exports.createPOFromPI = async (req, res) => {
 exports.updatePO = async (req, res) => {
     try {
         const { id } = req.params;
-        const { products, status, invoiceHistory } = req.body;
+        const { products, status, invoiceHistory, isMovedToInvoice } = req.body;
 
         const po = await PurchaseOrder.findById(id);
         if (!po) {
@@ -163,6 +163,10 @@ exports.updatePO = async (req, res) => {
         }
 
         let updates = {};
+
+        if (typeof isMovedToInvoice !== "undefined") {
+            updates.isMovedToInvoice = isMovedToInvoice;
+        }
 
         if (status) {
             updates.status = status;

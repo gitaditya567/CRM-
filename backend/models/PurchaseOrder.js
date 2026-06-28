@@ -29,13 +29,17 @@ const purchaseOrderSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["Pending", "Approved", "Received", "Sent", "Processed", "Completed"],
+        enum: ["Pending", "Approved", "Received", "Sent", "Processed", "Completed", "Partially Processed", "Partially Received", "Partially Fulfilled"],
         default: "Pending"
     },
     type: {
         type: String,
         enum: ["inward", "outward"],
         default: "inward"
+    },
+    isMovedToInvoice: {
+        type: Boolean,
+        default: false
     },
     products: [{
         product: {
