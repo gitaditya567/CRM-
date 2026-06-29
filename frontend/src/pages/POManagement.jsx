@@ -40,7 +40,7 @@ const POManagement = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("Pending");
 
   // Modal states
   const [isProductsModalOpen, setIsProductsModalOpen] = useState(false);
@@ -83,7 +83,11 @@ const POManagement = () => {
   };
 
   useEffect(() => {
-    setStatusFilter("All");
+    if (activeTab === "inward_invoice") {
+      setStatusFilter("All");
+    } else {
+      setStatusFilter("Pending");
+    }
     fetchPOs();
   }, [activeTab]);
 
@@ -93,6 +97,8 @@ const POManagement = () => {
     "Pending": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
     "Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
     "Processed": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+    "Partially Pending": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    "Partial Pending": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Processed": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Received": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Fulfilled": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
@@ -103,6 +109,8 @@ const POManagement = () => {
     // 1. Tab Specific Filtering for inward_invoice
     if (activeTab === "inward_invoice") {
       const isMoved = po.isMovedToInvoice || 
+                      po.status === "Partially Pending" || 
+                      po.status === "Partial Pending" || 
                       po.status === "Partially Processed" || 
                       po.status === "Partially Fulfilled" || 
                       po.status === "Processed" || 
@@ -110,8 +118,8 @@ const POManagement = () => {
       if (!isMoved) return false;
     }
 
-    // 2. Status Filter
-    if (statusFilter !== "All" && po.status !== statusFilter) {
+    // 2. Status Filter (Do not apply for Inward Invoice tab)
+    if (activeTab !== "inward_invoice" && statusFilter !== "All" && po.status !== statusFilter) {
       return false;
     }
 
@@ -151,7 +159,9 @@ const POManagement = () => {
     setSelectedPOForProducts(po);
     setProductSearchQuery("");
     setIsChecklistFullScreen(false);
-    setModalProducts(po.products.map(p => {
+    const isInvoiceTab = activeTab === "inward_invoice";
+    const sourceProducts = isInvoiceTab ? po.products.filter(p => p.selected !== false) : po.products;
+    setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
       return { 
@@ -199,7 +209,7 @@ const POManagement = () => {
         if (allSelected) {
           newStatus = "Processed";
         } else if (anySelected) {
-          newStatus = "Partially Processed";
+          newStatus = "Partially Pending";
         }
 
         const payload = {
@@ -399,7 +409,7 @@ const POManagement = () => {
         });
 
         const allBilled = updatedProducts.filter(p => p.selected !== false).every(p => (p.invoicedQuantity || 0) >= p.quantity);
-        const newStatus = allBilled ? "Processed" : "Partially Processed";
+        const newStatus = allBilled ? "Processed" : "Partially Pending";
 
         await API.put(`/purchase-orders/${po._id}`, {
           products: updatedProducts,
@@ -554,6 +564,7 @@ const POManagement = () => {
               >
                 <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
                 <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                <option value="Partially Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Pending</option>
                 <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
                 {activeTab === "outward" && (
                   <>
@@ -675,7 +686,7 @@ const POManagement = () => {
                           <Download size={18} />
                         </button>
                         {/* Generate Inward Invoice Button (Inward Invoice tab only) */}
-                        {activeTab === "inward_invoice" && po.products?.some(p => (p.invoicedQuantity || 0) < p.quantity) && (
+                        {activeTab === "inward_invoice" && po.products?.filter(p => p.selected !== false).some(p => (p.invoicedQuantity || 0) < p.quantity) && (
                           <button 
                             onClick={() => handleOpenInwardBilling(po)}
                             className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1361,7 +1372,14 @@ const POManagement = () => {
       {/* ❓ Move to Inward Invoice Confirmation Modal */}
       {isMoveConfirmOpen && selectedPOForProducts && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in p-6 text-center space-y-5">
+          <div className="relative bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in p-6 text-center space-y-5">
+            <button 
+              onClick={() => setIsMoveConfirmOpen(false)}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+              title="Close"
+            >
+              <X size={18} />
+            </button>
             <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
               <FileCheck size={32} />
             </div>
