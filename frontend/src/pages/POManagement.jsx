@@ -106,20 +106,20 @@ const POManagement = () => {
 
   // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
   const filteredPOs = pos.filter(po => {
-    // 1. Tab Specific Filtering for inward_invoice
+    // 1. Tab Specific Filtering for inward_invoice (Only show Partially Processed and Processed POs)
     if (activeTab === "inward_invoice") {
-      const isMoved = po.isMovedToInvoice || 
-                      po.status === "Partially Pending" || 
-                      po.status === "Partial Pending" || 
-                      po.status === "Partially Processed" || 
-                      po.status === "Partially Fulfilled" || 
-                      po.status === "Processed" || 
-                      (po.invoiceHistory && po.invoiceHistory.length > 0);
-      if (!isMoved) return false;
+      const isPartiallyOrFullyProcessed = 
+        po.status === "Partially Pending" || 
+        po.status === "Partial Pending" || 
+        po.status === "Partially Processed" || 
+        po.status === "Partially Fulfilled" || 
+        po.status === "Partially Received" || 
+        po.status === "Processed";
+      if (!isPartiallyOrFullyProcessed) return false;
     }
 
-    // 2. Status Filter (Do not apply for Inward Invoice tab)
-    if (activeTab !== "inward_invoice" && statusFilter !== "All" && po.status !== statusFilter) {
+    // 2. Status Filter
+    if (statusFilter !== "All" && po.status !== statusFilter) {
       return false;
     }
 
