@@ -17,8 +17,8 @@ const TeamInspire = lazy(() => import("./pages/Leads"));
 const Clients = lazy(() => import("./pages/Clients"));
 const ClientSupport = lazy(() => import("./pages/ClientSupport"));
 const POManagement = lazy(() => import("./pages/POManagement"));
-
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
+const DeveloperRequests = lazy(() => import("./pages/DeveloperRequests"));
 
 const GlobalLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -192,6 +192,18 @@ const App = () => {
                 element={
                   <PrivateRoute>
                     <POManagement />
+                  </PrivateRoute>
+                }
+              />
+
+              {/* Developer Desk */}
+              <Route
+                path="/developer-requests"
+                element={
+                  <PrivateRoute>
+                    <AdminRoute>
+                      <DeveloperRequests />
+                    </AdminRoute>
                   </PrivateRoute>
                 }
               />

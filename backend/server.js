@@ -58,6 +58,8 @@ app.use("/api/ai", require("./routes/aiRoutes"));
 console.log("AI routes loaded");
 app.use("/api/messages", require("./routes/messageRoutes"));
 console.log("Message routes loaded");
+app.use("/api/developer-requests", require("./routes/developerRequestRoutes"));
+console.log("Developer Request routes loaded");
 
 // DB Connection
 console.log("Connecting to MongoDB...");

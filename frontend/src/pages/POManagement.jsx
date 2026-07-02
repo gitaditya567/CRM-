@@ -37,7 +37,11 @@ const POManagement = () => {
   }
 
   const [activeTab, setActiveTab] = useState("inward");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQueries, setSearchQueries] = useState({
+    inward: "",
+    inward_invoice: "",
+    outward: ""
+  });
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("Pending");
@@ -102,20 +106,27 @@ const POManagement = () => {
     "Partially Processed": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Received": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Fulfilled": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+    "Partially Invoiced": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    "Invoiced": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  };
+
+  const getInwardPOInvoiceStatus = (products) => {
+    const activeProducts = (products || []).filter(p => p.selected !== false);
+    if (activeProducts.length === 0) return "Pending";
+    const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+    if (totalInvoiced === 0) return "Pending";
+    const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+    return allBilled ? "Invoiced" : "Partially Invoiced";
   };
 
   // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
   const filteredPOs = pos.filter(po => {
-    // 1. Tab Specific Filtering for inward_invoice (Only show Partially Processed and Processed POs)
+    // 1. Tab Specific Filtering
     if (activeTab === "inward_invoice") {
-      const isPartiallyOrFullyProcessed = 
-        po.status === "Partially Pending" || 
-        po.status === "Partial Pending" || 
-        po.status === "Partially Processed" || 
-        po.status === "Partially Fulfilled" || 
-        po.status === "Partially Received" || 
-        po.status === "Processed";
-      if (!isPartiallyOrFullyProcessed) return false;
+      if (po.isMovedToInvoice !== true) return false;
+    }
+    if (activeTab === "inward") {
+      if (po.isMovedToInvoice === true) return false;
     }
 
     // 2. Status Filter
@@ -124,7 +135,7 @@ const POManagement = () => {
     }
 
     // 3. Search query filter
-    const query = searchQuery.toLowerCase();
+    const query = (searchQueries[activeTab] || "").toLowerCase();
     const matchesPo = po.poNumber?.toLowerCase().includes(query);
     const partnerName = po.vendorName || "";
     const matchesPartner = partnerName.toLowerCase().includes(query);
@@ -203,13 +214,19 @@ const POManagement = () => {
 
     try {
       if (!isOutward) {
-        const allSelected = modalProducts.every(p => p.selected);
-        const anySelected = modalProducts.some(p => p.selected);
-        let newStatus = "Pending";
-        if (allSelected) {
-          newStatus = "Processed";
-        } else if (anySelected) {
-          newStatus = "Partially Pending";
+        const isMoved = po.isMovedToInvoice || shouldMoveToInvoice;
+        let newStatus;
+        if (isMoved) {
+          newStatus = getInwardPOInvoiceStatus(modalProducts);
+        } else {
+          const allSelected = modalProducts.every(p => p.selected);
+          const anySelected = modalProducts.some(p => p.selected);
+          newStatus = "Pending";
+          if (allSelected) {
+            newStatus = "Processed";
+          } else if (anySelected) {
+            newStatus = "Partially Pending";
+          }
         }
 
         const payload = {
@@ -408,8 +425,7 @@ const POManagement = () => {
           return p;
         });
 
-        const allBilled = updatedProducts.filter(p => p.selected !== false).every(p => (p.invoicedQuantity || 0) >= p.quantity);
-        const newStatus = allBilled ? "Processed" : "Partially Pending";
+        const newStatus = getInwardPOInvoiceStatus(updatedProducts);
 
         await API.put(`/purchase-orders/${po._id}`, {
           products: updatedProducts,
@@ -563,17 +579,27 @@ const POManagement = () => {
                 className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0"
               >
                 <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
-                <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                <option value="Partially Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Pending</option>
-                <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
-                {activeTab === "outward" && (
+                {activeTab === "inward_invoice" ? (
                   <>
-                    <option value="Approved" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Approved</option>
-                    <option value="Received" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Received</option>
-                    <option value="Sent" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Sent</option>
+                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                    <option value="Partially Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Invoiced</option>
+                    <option value="Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Invoiced</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                    <option value="Partially Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Pending</option>
+                    <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
+                    {activeTab === "outward" && (
+                      <>
+                        <option value="Approved" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Approved</option>
+                        <option value="Received" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Received</option>
+                        <option value="Sent" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Sent</option>
+                      </>
+                    )}
+                    <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
                   </>
                 )}
-                <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
               </select>
             </div>
 
@@ -583,8 +609,8 @@ const POManagement = () => {
                 type="text" 
                 placeholder="Search POs..." 
                 className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white placeholder-gray-400 w-full"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchQueries[activeTab] || ""}
+                onChange={(e) => setSearchQueries({ ...searchQueries, [activeTab]: e.target.value })}
               />
             </div>
             <button 
@@ -760,7 +786,9 @@ const POManagement = () => {
                   PO Products Checklist
                   {isChecklistFullScreen && <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Full Screen</span>}
                 </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO: {selectedPOForProducts.poNumber}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">
+                  PO: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForProducts.poNumber}</span> | PO Date: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForProducts.pi?.poDate ? new Date(selectedPOForProducts.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForProducts.date).toLocaleDateString("en-GB")}</span>
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button 
@@ -982,12 +1010,14 @@ const POManagement = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={handleUpdatePOProducts}
-                  className="px-5 py-2.5 bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-blue-500/10 transition cursor-pointer"
-                >
-                  Update PO
-                </button>
+                {activeTab !== "inward_invoice" && (
+                  <button
+                    onClick={handleUpdatePOProducts}
+                    className="px-5 py-2.5 bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-blue-500/10 transition cursor-pointer"
+                  >
+                    Update PO
+                  </button>
+                )}
                 {activeTab === "inward_invoice" && (
                   <button
                     onClick={handleProceedToInvoiceFromChecklist}
@@ -1125,7 +1155,9 @@ const POManagement = () => {
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-black text-gray-900 dark:text-white">Generate Inward Invoice</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO: {selectedPOForBilling.poNumber} | Partner: {selectedPOForBilling.vendorName}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">
+                  PO: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForBilling.poNumber}</span> | PO Date: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForBilling.pi?.poDate ? new Date(selectedPOForBilling.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForBilling.date).toLocaleDateString("en-GB")}</span> | Partner: {selectedPOForBilling.vendorName}
+                </p>
               </div>
               <button 
                 onClick={() => setIsInwardBillingOpen(false)}

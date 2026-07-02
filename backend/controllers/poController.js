@@ -168,7 +168,24 @@ exports.updatePO = async (req, res) => {
             updates.isMovedToInvoice = isMovedToInvoice;
         }
 
-        if (status) {
+        // Automatic status calculation for Inward POs in the invoice flow
+        let checkProducts = products || po.products;
+        let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
+
+        if (po.type === "inward" && checkMoved) {
+            const activeProducts = (checkProducts || []).filter(p => p.selected !== false);
+            if (activeProducts.length === 0) {
+                updates.status = "Pending";
+            } else {
+                const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+                if (totalInvoiced === 0) {
+                    updates.status = "Pending";
+                } else {
+                    const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+                    updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
+                }
+            }
+        } else if (status) {
             updates.status = status;
         }
 

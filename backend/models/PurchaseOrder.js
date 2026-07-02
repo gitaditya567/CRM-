@@ -29,7 +29,7 @@ const purchaseOrderSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["Pending", "Approved", "Received", "Sent", "Processed", "Completed", "Partially Processed", "Partially Received", "Partially Fulfilled", "Partially Pending", "Partial Pending"],
+        enum: ["Pending", "Approved", "Received", "Sent", "Processed", "Completed", "Partially Processed", "Partially Received", "Partially Fulfilled", "Partially Pending", "Partial Pending", "Partially Invoiced", "Invoiced"],
         default: "Pending"
     },
     type: {

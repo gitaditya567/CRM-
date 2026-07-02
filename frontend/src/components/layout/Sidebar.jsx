@@ -115,6 +115,10 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
             links.push({ name: "Manage Staff", path: "/create-staff", icon: Users });
             links.push({ name: "Permissions", path: "/permissions", icon: Settings });
         }
+
+        if (role === 'admin' || role === 'superadmin') {
+            links.push({ name: "Developer Desk", path: "/developer-requests", icon: RefreshCw });
+        }
     }
 
     const isActive = (path) => {
