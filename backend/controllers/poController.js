@@ -155,7 +155,7 @@ exports.createPOFromPI = async (req, res) => {
 exports.updatePO = async (req, res) => {
     try {
         const { id } = req.params;
-        const { products, status, invoiceHistory, isMovedToInvoice } = req.body;
+        const { products, status, invoiceHistory, isMovedToInvoice, dispatchHistory } = req.body;
 
         const po = await PurchaseOrder.findById(id);
         if (!po) {
@@ -177,8 +177,13 @@ exports.updatePO = async (req, res) => {
             if (activeProducts.length === 0) {
                 updates.status = "Pending";
             } else {
+                const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+                const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
                 const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-                if (totalInvoiced === 0) {
+
+                if (totalDispatched > 0) {
+                    updates.status = totalDispatched === totalQty ? "Dispatched" : "Partially Dispatched";
+                } else if (totalInvoiced === 0) {
                     updates.status = "Pending";
                 } else {
                     const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
@@ -191,6 +196,10 @@ exports.updatePO = async (req, res) => {
 
         if (invoiceHistory) {
             updates.invoiceHistory = invoiceHistory;
+        }
+
+        if (dispatchHistory) {
+            updates.dispatchHistory = dispatchHistory;
         }
 
         if (products) {
@@ -251,9 +260,26 @@ exports.deletePO = async (req, res) => {
 exports.generatePDF = async (req, res) => {
     try {
         const { id } = req.params;
+        const { mode } = req.query;
         const po = await PurchaseOrder.findById(id).populate("pi").lean();
         if (!po) {
             return res.status(404).json({ message: "Purchase Order not found" });
+        }
+
+        if (mode === "dispatch" && po.products) {
+            po.products = po.products.filter(p => (p.invoicedQuantity || 0) > 0).map(p => {
+                const invs = (po.invoiceHistory || []).filter(inv => 
+                    (inv.products || []).some(ip => ip.productNo === p.productNo)
+                ).map(inv => inv.invoiceNo);
+                const invoiceNo = Array.from(new Set(invs)).join(", ");
+                return {
+                    ...p,
+                    invoiceNo,
+                    quantity: p.invoicedQuantity,
+                    total: (p.invoicedQuantity || 0) * (p.unitPrice || 0)
+                };
+            });
+            po.totalValue = po.products.reduce((sum, p) => sum + (p.total || 0), 0);
         }
 
         // Map legalEntityName to clientName
@@ -372,7 +398,7 @@ exports.generatePDF = async (req, res) => {
                     sl: (index + 1).toString(),
                     brand: p.brand || "",
                     model: p.productNo || "",
-                    desc: p.name || "",
+                    desc: p.invoiceNo ? `${p.name || ""} (Invoice No: ${p.invoiceNo})` : (p.name || ""),
                     hsn: p.hsnCode || "",
                     qty: p.quantity?.toString() || "0",
                     rate: (p.unitPrice || 0).toFixed(2),

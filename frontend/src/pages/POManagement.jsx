@@ -16,7 +16,8 @@ import {
   Trash2,
   History,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Truck
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
@@ -40,6 +41,7 @@ const POManagement = () => {
   const [searchQueries, setSearchQueries] = useState({
     inward: "",
     inward_invoice: "",
+    dispatch: "",
     outward: ""
   });
   const [pos, setPOs] = useState([]);
@@ -71,12 +73,23 @@ const POManagement = () => {
   // Move Confirmation Modal state
   const [isMoveConfirmOpen, setIsMoveConfirmOpen] = useState(false);
 
+  // Dispatch Modal state
+  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
+  const [selectedPOForDispatch, setSelectedPOForDispatch] = useState(null);
+  const [dispatchForm, setDispatchForm] = useState({ courierName: "", trackingNo: "", dispatchDate: "" });
+  const [dispatchProducts, setDispatchProducts] = useState([]);
+
   // Fetch POs from server
   const fetchPOs = async () => {
     setLoading(true);
     try {
-      const targetType = activeTab === "inward_invoice" ? "inward" : activeTab;
-      const res = await API.get(`/purchase-orders?type=${targetType}`);
+      let url = "/purchase-orders";
+      if (activeTab === "inward" || activeTab === "inward_invoice") {
+        url = "/purchase-orders?type=inward";
+      } else if (activeTab === "outward") {
+        url = "/purchase-orders?type=outward";
+      }
+      const res = await API.get(url);
       setPOs(res.data || []);
     } catch (err) {
       console.error("Error fetching POs:", err);
@@ -89,9 +102,17 @@ const POManagement = () => {
   useEffect(() => {
     if (activeTab === "inward_invoice") {
       setStatusFilter("All");
+    } else if (activeTab === "dispatch") {
+      setStatusFilter("Approved");
     } else {
       setStatusFilter("Pending");
     }
+    setSearchQueries({
+      inward: "",
+      inward_invoice: "",
+      dispatch: "",
+      outward: ""
+    });
     fetchPOs();
   }, [activeTab]);
 
@@ -108,6 +129,8 @@ const POManagement = () => {
     "Partially Fulfilled": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Invoiced": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
     "Invoiced": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    "Partially Dispatched": "bg-orange-100 text-orange-850 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-200 dark:border-orange-900/50",
+    "Dispatched": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50",
   };
 
   const getInwardPOInvoiceStatus = (products) => {
@@ -119,6 +142,39 @@ const POManagement = () => {
     return allBilled ? "Invoiced" : "Partially Invoiced";
   };
 
+  const getDisplayStatus = (po, tab) => {
+    if (tab === "dispatch") {
+      const activeProducts = po.products || [];
+      const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+      if (totalDispatched === totalQty) return "Dispatched";
+      if (totalDispatched === 0) return "Pending";
+      return "Partially Dispatched";
+    }
+    if (tab === "inward_invoice" && po.type === "inward") {
+      const activeProducts = (po.products || []).filter(p => p.selected !== false);
+      if (activeProducts.length === 0) return "Pending";
+      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      if (totalInvoiced === 0) return "Pending";
+      const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+      return allBilled ? "Invoiced" : "Partially Invoiced";
+    }
+    if (tab === "inward" && po.type === "inward" && po.isMovedToInvoice === true) {
+      const activeProducts = (po.products || []).filter(p => p.selected !== false);
+      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+      const hasUnselectedProducts = (po.products || []).some(p => p.selected === false);
+      
+      if ((totalInvoiced > 0 && !isFullyInvoiced) || hasUnselectedProducts) {
+        return "Partially Processed";
+      }
+      if (!isFullyInvoiced) {
+        return "Processed";
+      }
+    }
+    return po.status;
+  };
+
   // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
   const filteredPOs = pos.filter(po => {
     // 1. Tab Specific Filtering
@@ -126,12 +182,38 @@ const POManagement = () => {
       if (po.isMovedToInvoice !== true) return false;
     }
     if (activeTab === "inward") {
-      if (po.isMovedToInvoice === true) return false;
+      if (po.isMovedToInvoice === true) {
+        const activeProducts = (po.products || []).filter(p => p.selected !== false);
+        const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+        if (isFullyInvoiced) return false;
+      }
+    }
+    if (activeTab === "dispatch") {
+      const isEligible = (po.type === "inward" && po.isMovedToInvoice === true) || po.type === "outward";
+      if (!isEligible) return false;
+      const hasInvoiced = (po.products || []).some(p => (p.invoicedQuantity || 0) > 0);
+      if (!hasInvoiced) return false;
     }
 
     // 2. Status Filter
-    if (statusFilter !== "All" && po.status !== statusFilter) {
-      return false;
+    if (activeTab === "dispatch") {
+      const activeProducts = po.products || [];
+      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+      const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+
+      const isPending = totalDispatched < totalInvoiced;
+      const isPartiallyDispatched = totalDispatched > 0 && totalDispatched < totalQty;
+      const isDispatched = totalDispatched === totalQty;
+
+      if (statusFilter === "Pending" && !isPending) return false;
+      if (statusFilter === "Partially Dispatched" && !isPartiallyDispatched) return false;
+      if (statusFilter === "Dispatched" && !isDispatched) return false;
+    } else {
+      const displayStatus = getDisplayStatus(po, activeTab);
+      if (statusFilter !== "All" && displayStatus !== statusFilter) {
+        return false;
+      }
     }
 
     // 3. Search query filter
@@ -170,38 +252,146 @@ const POManagement = () => {
     setSelectedPOForProducts(po);
     setProductSearchQuery("");
     setIsChecklistFullScreen(false);
-    const isInvoiceTab = activeTab === "inward_invoice";
-    const sourceProducts = isInvoiceTab ? po.products.filter(p => p.selected !== false) : po.products;
+    const isInvoicePhase = activeTab === "inward_invoice";
+    const sourceProducts = isInvoicePhase ? po.products.filter(p => p.selected !== false) : po.products;
     setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
       return { 
         ...p,
-        currentInvoiceQty: pending,
-        selected: pending > 0 ? (p.selected !== false) : false
+        currentInvoiceQty: pending > 0 ? 1 : 0,
+        selected: billed > 0 ? true : (pending > 0 ? (p.selected !== false) : false)
       };
     }));
     setIsProductsModalOpen(true);
   };
 
+  const handleOpenDispatchModal = (po) => {
+    setSelectedPOForDispatch(po);
+    setDispatchForm({ courierName: "", trackingNo: "", dispatchDate: new Date().toISOString().split("T")[0] });
+    const itemsToDispatch = po.products.map(p => {
+      const invoiced = p.invoicedQuantity || 0;
+      const dispatched = p.dispatchedQuantity || 0;
+      const remaining = Math.max(0, invoiced - dispatched);
+      return {
+        ...p,
+        remainingToDispatch: remaining,
+        dispatchQty: remaining
+      };
+    });
+    setDispatchProducts(itemsToDispatch);
+    setIsDispatchModalOpen(true);
+  };
+
+  const handleProcessDispatch = async () => {
+    if (!dispatchForm.courierName || !dispatchForm.trackingNo || !dispatchForm.dispatchDate) {
+      toast.error("Courier Name, Tracking No, and Date are required!");
+      return;
+    }
+    const itemsToSend = dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0);
+    if (itemsToSend.length === 0) {
+      toast.error("Please enter a valid dispatch quantity for at least one item!");
+      return;
+    }
+    const hasExceeded = itemsToSend.some(p => p.dispatchQty > p.remainingToDispatch);
+    if (hasExceeded) {
+      toast.error("Dispatch quantity cannot exceed remaining invoiced quantity!");
+      return;
+    }
+    try {
+      const newDispatch = {
+        courierName: dispatchForm.courierName,
+        trackingNo: dispatchForm.trackingNo,
+        dispatchDate: dispatchForm.dispatchDate,
+        products: itemsToSend.map(p => ({
+          productNo: p.productNo,
+          name: p.name,
+          brand: p.brand,
+          quantity: parseInt(p.dispatchQty) || 0
+        }))
+      };
+      const updatedProducts = selectedPOForDispatch.products.map(p => {
+        const matching = itemsToSend.find(b => b.productNo === p.productNo);
+        if (matching) {
+          return {
+            ...p,
+            dispatchedQuantity: (p.dispatchedQuantity || 0) + (parseInt(matching.dispatchQty) || 0)
+          };
+        }
+        return p;
+      });
+      const totalQty = updatedProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+      const totalDispatched = updatedProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+      const newStatus = totalDispatched === totalQty ? "Dispatched" : "Partially Dispatched";
+
+      await API.put(`/purchase-orders/${selectedPOForDispatch._id}`, {
+        products: updatedProducts,
+        status: newStatus,
+        dispatchHistory: [...(selectedPOForDispatch.dispatchHistory || []), newDispatch]
+      });
+      toast.success("Dispatch tracking details updated successfully!");
+      setIsDispatchModalOpen(false);
+      fetchPOs();
+    } catch (err) {
+      console.error("Error updating dispatch:", err);
+      toast.error("Failed to update dispatch tracking details");
+    }
+  };
+
   const handleToggleProduct = (index) => {
     const p = modalProducts[index];
-    const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
-    if (remaining === 0) return;
+    const po = selectedPOForProducts;
+    if (!po) return;
+    const isInvoicePhase = activeTab === "inward_invoice";
+    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
+    const processed = p.invoicedQuantity || 0;
+    const remaining = Math.max(0, p.quantity - processed);
+    const isFullyBilled = isOutward && (processed >= p.quantity);
+    const isFullyProcessedInward = !isOutward && (remaining === 0);
+    const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
+    const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
+    const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
+    const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
+    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+    const isDisabled = isFullyBilled || 
+                       isFullyProcessedInward || 
+                       (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
+                       isSelectedAndMoved;
+
+    if (isDisabled) return;
     const updated = [...modalProducts];
     updated[index].selected = !updated[index].selected;
     setModalProducts(updated);
   };
 
   const handleToggleAllProducts = () => {
-    const availableProducts = modalProducts.filter(p => {
-      const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
-      return remaining > 0;
-    });
+    const po = selectedPOForProducts;
+    if (!po) return;
+    const isInvoicePhase = activeTab === "inward_invoice";
+    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
+
+    const checkIsDisabled = (p) => {
+      const processed = p.invoicedQuantity || 0;
+      const remaining = Math.max(0, p.quantity - processed);
+      const isFullyBilled = isOutward && (processed >= p.quantity);
+      const isFullyProcessedInward = !isOutward && (remaining === 0);
+      const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
+      const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
+      const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
+      const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
+      const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+      return isFullyBilled || 
+             isFullyProcessedInward || 
+             (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
+             isSelectedAndMoved;
+    };
+
+    const availableProducts = modalProducts.filter(p => !checkIsDisabled(p));
+    if (availableProducts.length === 0) return;
+
     const allAvailableSelected = availableProducts.every(p => p.selected);
     const updated = modalProducts.map(p => {
-      const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
-      if (remaining === 0) return { ...p, selected: false };
+      if (checkIsDisabled(p)) return p;
       return { ...p, selected: !allAvailableSelected };
     });
     setModalProducts(updated);
@@ -316,10 +506,11 @@ const POManagement = () => {
     try {
       toast.loading("Generating PDF...", { id: "pdf" });
       
+      const isDispatch = activeTab === "dispatch";
       const hasPI = po.pi && po.pi._id;
-      const endpoint = hasPI 
-        ? `/quotations/${po.pi._id}/pdf` 
-        : `/purchase-orders/${po._id}/pdf`;
+      const endpoint = isDispatch 
+        ? `/purchase-orders/${po._id}/pdf?mode=dispatch` 
+        : (hasPI ? `/quotations/${po.pi._id}/pdf` : `/purchase-orders/${po._id}/pdf`);
 
       const response = await API.get(endpoint, {
         responseType: 'blob'
@@ -503,6 +694,20 @@ const POManagement = () => {
     }
   };
 
+  const getPOProductInvoiceNumbers = (po, productNo) => {
+    if (!po || !po.invoiceHistory) return [];
+    const invs = po.invoiceHistory.filter(inv => 
+      (inv.products || []).some(ip => ip.productNo === productNo)
+    ).map(inv => inv.invoiceNo);
+    return Array.from(new Set(invs));
+  };
+
+  const getProductInvoiceNumbers = (productNo) => {
+    return getPOProductInvoiceNumbers(selectedPOForHistory, productNo);
+  };
+
+  const isInvoicePhase = activeTab === "inward_invoice";
+
   return (
     <div className="p-6 md:p-8 space-y-6 font-sans">
       
@@ -557,6 +762,17 @@ const POManagement = () => {
               Inward Invoice {activeTab === "inward_invoice" ? `(${filteredPOs.length})` : ""}
             </button>
             <button
+              onClick={() => setActiveTab("dispatch")}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                activeTab === "dispatch"
+                  ? "bg-white dark:bg-gray-800 text-amber-600 dark:text-amber-400 shadow-sm border border-gray-100 dark:border-gray-700 font-bold"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+              }`}
+            >
+              <Truck size={16} className={activeTab === "dispatch" ? "text-amber-500" : ""} />
+              Dispatch Management {activeTab === "dispatch" ? `(${filteredPOs.length})` : ""}
+            </button>
+            <button
               onClick={() => setActiveTab("outward")}
               className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                 activeTab === "outward"
@@ -585,10 +801,14 @@ const POManagement = () => {
                     <option value="Partially Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Invoiced</option>
                     <option value="Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Invoiced</option>
                   </>
+                ) : activeTab === "dispatch" ? (
+                  <>
+                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                    <option value="Dispatched" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Dispatched</option>
+                  </>
                 ) : (
                   <>
                     <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                    <option value="Partially Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Pending</option>
                     <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
                     {activeTab === "outward" && (
                       <>
@@ -637,7 +857,7 @@ const POManagement = () => {
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 w-52">PI / Lead Ref</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                    {activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name"}
+                    {activeTab === "dispatch" ? "Client / Vendor Name" : (activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name")}
                   </th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Total Value</th>
@@ -681,8 +901,8 @@ const POManagement = () => {
                       ₹{po.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full ${statusColors[po.status] || "bg-gray-100 text-gray-800"}`}>
-                        {po.status}
+                      <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full ${statusColors[getDisplayStatus(po, activeTab)] || "bg-gray-100 text-gray-800"}`}>
+                        {getDisplayStatus(po, activeTab)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -712,7 +932,7 @@ const POManagement = () => {
                           <Download size={18} />
                         </button>
                         {/* Generate Inward Invoice Button (Inward Invoice tab only) */}
-                        {activeTab === "inward_invoice" && po.products?.filter(p => p.selected !== false).some(p => (p.invoicedQuantity || 0) < p.quantity) && (
+                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true)) && po.products?.filter(p => p.selected !== false).some(p => (p.invoicedQuantity || 0) < p.quantity) && (
                           <button 
                             onClick={() => handleOpenInwardBilling(po)}
                             className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -731,8 +951,18 @@ const POManagement = () => {
                             <FileCheck size={18} />
                           </button>
                         )}
+                        {/* Update Dispatch Tracking Button (Dispatch tab only) */}
+                        {activeTab === "dispatch" && po.products?.some(p => (p.invoicedQuantity || 0) > (p.dispatchedQuantity || 0)) && (
+                          <button 
+                            onClick={() => handleOpenDispatchModal(po)}
+                            className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="Update Tracking Details"
+                          >
+                            <Truck size={18} />
+                          </button>
+                        )}
                         {/* History / Records Icon */}
-                        {((activeTab === "inward_invoice") || (activeTab === "outward" && po.type !== "inward")) && po.invoiceHistory && po.invoiceHistory.length > 0 && (
+                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true) || activeTab === "outward" || activeTab === "dispatch") && ((po.invoiceHistory && po.invoiceHistory.length > 0) || (po.dispatchHistory && po.dispatchHistory.length > 0)) && (
                           <button 
                             onClick={() => {
                               setSelectedPOForHistory(po);
@@ -855,12 +1085,21 @@ const POManagement = () => {
                   })
                   .map((p) => {
                     const idx = p.originalIdx;
+                    const isInvoicePhase = activeTab === "inward_invoice";
                     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
                     const processed = p.invoicedQuantity || 0;
                     const remaining = Math.max(0, p.quantity - processed);
                     const isFullyBilled = isOutward && (processed >= p.quantity);
                     const isFullyProcessedInward = !isOutward && (remaining === 0);
-                    const isDisabled = isFullyBilled || isFullyProcessedInward;
+                    const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
+                    const isMovedToInvoice = !isOutward && selectedPOForProducts?.isMovedToInvoice === true;
+                    const savedProduct = selectedPOForProducts?.products?.find(sp => sp.productNo === p.productNo);
+                    const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
+                    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+                    const isDisabled = isFullyBilled || 
+                                       isFullyProcessedInward || 
+                                       (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
+                                       isSelectedAndMoved;
 
                     return (
                       <div 
@@ -888,9 +1127,17 @@ const POManagement = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-start gap-4">
                             <div className="min-w-0">
-                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                                {p.brand} | {p.productNo}
+                              <span className="inline-block bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-2 py-0.5 rounded-lg text-sm font-bold border border-lime-400/20 shadow-sm max-w-full truncate">
+                                {p.name}
+                              </span>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 flex items-center gap-1.5 flex-wrap">
+                                <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
+                                  {p.brand}
+                                </span>
+                                <span>|</span>
+                                <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-mono font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
+                                  {p.productNo}
+                                </span>
                               </p>
                             </div>
                             <div className="flex flex-col items-end shrink-0">
@@ -942,15 +1189,15 @@ const POManagement = () => {
                                   <span>Bill Now:</span>
                                   <input 
                                     type="number"
-                                    min="0"
+                                    min="1"
                                     max={p.quantity - processed}
                                     disabled={processed >= p.quantity || !p.selected}
-                                    value={p.currentInvoiceQty ?? 0}
+                                    value={p.currentInvoiceQty ?? 1}
                                     onChange={(e) => {
-                                      let newQuantity = parseInt(e.target.value) || 0;
+                                      let newQuantity = parseInt(e.target.value) || 1;
                                       const pending = p.quantity - processed;
                                       if (newQuantity > pending) newQuantity = pending;
-                                      if (newQuantity < 0) newQuantity = 0;
+                                      if (newQuantity < 1) newQuantity = 1;
                                       
                                       const updated = [...modalProducts];
                                       updated[idx].currentInvoiceQty = newQuantity;
@@ -965,20 +1212,20 @@ const POManagement = () => {
                           )}
 
                           {/* Inward Invoice Quantity Input */}
-                          {activeTab === "inward_invoice" && (
+                          {isInvoicePhase && (
                             <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 mt-3 font-medium border-t border-gray-100 dark:border-gray-700/50 pt-2.5" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-2">
                                 <span className="font-bold">Invoice Qty:</span>
                                 <input 
                                   type="number"
-                                  min="0"
+                                  min="1"
                                   max={remaining}
                                   disabled={remaining === 0 || !p.selected}
-                                  value={p.currentInvoiceQty ?? 0}
+                                  value={p.currentInvoiceQty ?? 1}
                                   onChange={(e) => {
-                                    let val = parseInt(e.target.value) || 0;
+                                    let val = parseInt(e.target.value) || 1;
                                     if (val > remaining) val = remaining;
-                                    if (val < 0) val = 0;
+                                    if (val < 1) val = 1;
                                     const updated = [...modalProducts];
                                     updated[idx].currentInvoiceQty = val;
                                     setModalProducts(updated);
@@ -1010,7 +1257,7 @@ const POManagement = () => {
                 >
                   Cancel
                 </button>
-                {activeTab !== "inward_invoice" && (
+                {!isInvoicePhase && (
                   <button
                     onClick={handleUpdatePOProducts}
                     className="px-5 py-2.5 bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-blue-500/10 transition cursor-pointer"
@@ -1018,7 +1265,7 @@ const POManagement = () => {
                     Update PO
                   </button>
                 )}
-                {activeTab === "inward_invoice" && (
+                {isInvoicePhase && (
                   <button
                     onClick={handleProceedToInvoiceFromChecklist}
                     className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-purple-500/10 transition cursor-pointer flex items-center gap-1.5"
@@ -1036,91 +1283,115 @@ const POManagement = () => {
       {/* 🔍 View Details Modal */}
       {isDetailModalOpen && selectedPOForDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-gray-900 dark:text-white">Purchase Order Details</h3>
-                <div className="flex flex-col mt-0.5 text-xs text-gray-500 dark:text-gray-400 font-medium">
-                  <p>PO Number: {selectedPOForDetails.poNumber}</p>
-                  <p className="text-lime-600 dark:text-lime-400 font-semibold">PO Date: {selectedPOForDetails.pi?.poDate ? new Date(selectedPOForDetails.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
+                <h3 className="text-xl font-black text-gray-900 dark:text-white">Purchase Order Details</h3>
+                <div className="flex flex-col mt-1.5 text-sm text-gray-500 dark:text-gray-400 font-medium">
+                  <p>PO Number: <span className="font-extrabold text-gray-700 dark:text-gray-300">{selectedPOForDetails.poNumber}</span></p>
+                  <p className="text-lime-600 dark:text-lime-400 font-bold mt-0.5">PO Date: {selectedPOForDetails.pi?.poDate ? new Date(selectedPOForDetails.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
                 </div>
               </div>
               <button 
                 onClick={() => setIsDetailModalOpen(false)}
                 className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[450px]">
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[600px]">
               {/* Meta Info Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl">
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Vendor/Client</p>
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mt-0.5">{selectedPOForDetails.vendorName}</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Vendor/Client</p>
+                  <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1">{selectedPOForDetails.vendorName}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Date</p>
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mt-0.5">{new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Date</p>
+                  <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1">{new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Status</p>
-                  <span className={`inline-block px-3 py-0.5 text-[9px] font-black uppercase rounded-full mt-1 ${statusColors[selectedPOForDetails.status] || "bg-gray-100 text-gray-800"}`}>
-                    {selectedPOForDetails.status}
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider mb-1">Status</p>
+                  <span className={`inline-block px-3.5 py-1 text-xs font-black uppercase rounded-full ${statusColors[getDisplayStatus(selectedPOForDetails, activeTab)] || "bg-gray-100 text-gray-800"}`}>
+                    {getDisplayStatus(selectedPOForDetails, activeTab)}
                   </span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">PI Reference</p>
-                  <p className="text-sm font-bold text-blue-600 dark:text-blue-400 mt-0.5">#{selectedPOForDetails.pi?.quotationNumber || "N/A"}</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">PI Reference</p>
+                  <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-1">#{selectedPOForDetails.pi?.quotationNumber || "N/A"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Type</p>
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mt-0.5 capitalize">{selectedPOForDetails.type} PO</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Type</p>
+                  <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1 capitalize">{selectedPOForDetails.type} PO</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Taxable Value</p>
-                  <p className="text-sm font-black text-gray-900 dark:text-white mt-0.5">₹{(selectedPOForDetails.products || []).filter(p => p.selected).reduce((sum, p) => sum + ((p.quantity || 0) * (p.unitPrice || 0)), 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Taxable Value</p>
+                  <p className="text-lg font-black text-gray-900 dark:text-white mt-1">
+                    ₹{(selectedPOForDetails.products || [])
+                      .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected)
+                      .reduce((sum, p) => sum + ((activeTab === "dispatch" ? (p.invoicedQuantity || 0) : (p.quantity || 0)) * (p.unitPrice || 0)), 0)
+                      .toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </p>
                 </div>
               </div>
 
               {/* Products Table */}
               <div>
-                <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">Included Products ({selectedPOForDetails.products.filter(p => p.selected).length})</h4>
+                <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">
+                  Included Products ({(selectedPOForDetails.products || []).filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected).length})
+                </h4>
                 <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl">
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 dark:bg-gray-700/50">
                       <tr>
-                        <th className="px-4 py-3 text-xs font-black uppercase text-gray-400">Model/Brand</th>
-                        <th className="px-4 py-3 text-xs font-black uppercase text-gray-400">Product Name</th>
-                        <th className="px-4 py-3 text-xs font-black uppercase text-gray-400 text-center">QTY</th>
-                        <th className="px-4 py-3 text-xs font-black uppercase text-gray-400 text-right">Price</th>
-                        <th className="px-4 py-3 text-xs font-black uppercase text-gray-400 text-right">Total</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400">Model/Brand</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400">Product Name</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-center">QTY</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-right">Price</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-right">Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {selectedPOForDetails.products.filter(p => p.selected).map((p, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/20">
-                          <td className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400">
-                            <div className="font-bold text-gray-800 dark:text-gray-200">{p.productNo}</div>
-                            <div>{p.brand}</div>
-                          </td>
-                          <td className="px-4 py-3 text-xs font-bold text-gray-900 dark:text-white max-w-[150px] truncate" title={p.name}>
-                            {p.name}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 text-center font-bold">
-                            {p.quantity}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 text-right font-medium">
-                            ₹{p.unitPrice?.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-900 dark:text-white text-right font-bold">
-                            ₹{p.total?.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
+                      {(selectedPOForDetails.products || [])
+                        .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected)
+                        .map((p, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/20">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">
+                              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                                <div className="inline-block bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-2 py-0.5 rounded-md font-mono font-extrabold text-xs uppercase border border-lime-400/20 shadow-sm">
+                                  {p.productNo}
+                                </div>
+                                {activeTab === "dispatch" && getPOProductInvoiceNumbers(selectedPOForDetails, p.productNo).map((invNo, iIdx) => (
+                                  <span key={iIdx} className="inline-block text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border border-purple-100 dark:border-purple-900 px-2 py-0.5 rounded-md">
+                                    Inv: {invNo}
+                                  </span>
+                                ))}
+                              </div>
+                              <div>
+                                <span className="inline-block bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-2 py-0.5 rounded-md font-bold text-xs uppercase border border-lime-400/20 shadow-sm">
+                                  {p.brand}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm font-extrabold text-gray-900 dark:text-white" title={p.name}>
+                              <span className="inline-block bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-2 py-0.5 rounded-md font-extrabold border border-lime-400/20 shadow-sm">
+                                {p.name}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center font-black">
+                              {activeTab === "dispatch" ? p.invoicedQuantity : p.quantity}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 text-right font-bold">
+                              ₹{p.unitPrice?.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white text-right font-black">
+                              ₹{(activeTab === "dispatch" ? (p.invoicedQuantity || 0) * (p.unitPrice || 0) : (p.total || 0)).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
@@ -1330,71 +1601,237 @@ const POManagement = () => {
         </div>
       )}
 
-      {/* 🕒 Invoice History Modal */}
-      {isHistoryModalOpen && selectedPOForHistory && (
+      {/* 🚚 Update Dispatch Tracking Modal */}
+      {isDispatchModalOpen && selectedPOForDispatch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            {/* Modal Header */}
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-black text-gray-900 dark:text-white">Invoice History</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO Number: {selectedPOForHistory.poNumber}</p>
+                <h3 className="text-lg font-black text-gray-900 dark:text-white">Update Dispatch Tracking</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">PO Number: {selectedPOForDispatch.poNumber}</p>
               </div>
               <button 
-                onClick={() => setIsHistoryModalOpen(false)}
+                onClick={() => setIsDispatchModalOpen(false)}
                 className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[450px] space-y-4">
-              {selectedPOForHistory.invoiceHistory?.length === 0 ? (
-                <div className="text-center py-10 text-gray-400 font-bold uppercase tracking-widest text-xs">No invoices generated yet</div>
-              ) : (
-                selectedPOForHistory.invoiceHistory?.map((inv, i) => (
-                  <div key={i} className="border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
-                    <div className="bg-gray-50 dark:bg-gray-900 px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-                      <div className="flex gap-4">
-                        <div>
-                          <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Invoice No</p>
-                          <p className="text-sm font-bold text-gray-900 dark:text-white">{inv.invoiceNo}</p>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6 overflow-y-auto max-h-[450px]">
+              {/* Courier & Tracking Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Courier / Partner Name</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. BlueDart"
+                    value={dispatchForm.courierName}
+                    onChange={e => setDispatchForm({...dispatchForm, courierName: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Tracking Number / AWB</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. AWB12938192"
+                    value={dispatchForm.trackingNo}
+                    onChange={e => setDispatchForm({...dispatchForm, trackingNo: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Dispatch Date</label>
+                  <input 
+                    type="date"
+                    value={dispatchForm.dispatchDate}
+                    onChange={e => setDispatchForm({...dispatchForm, dispatchDate: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Products List for Dispatch */}
+              <div>
+                <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">Dispatch Quantity Details</h4>
+                <div className="space-y-3">
+                  {dispatchProducts.filter(p => p.remainingToDispatch > 0).map((p, idx) => (
+                    <div 
+                      key={p.productNo}
+                      className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl gap-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
+                            {p.brand}
+                          </span>
+                          <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-mono font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
+                            {p.productNo}
+                          </span>
                         </div>
-                        <div>
-                          <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Date</p>
-                          <p className="text-sm font-bold text-gray-900 dark:text-white">{new Date(inv.date).toLocaleDateString("en-GB")}</p>
+                        <p className="text-xs font-bold text-gray-850 dark:text-gray-200 truncate">{p.name}</p>
+                        <div className="flex gap-4 text-[10px] font-bold text-gray-400 dark:text-gray-500 mt-1">
+                          <span>Total Invoiced: {p.invoicedQuantity || 0}</span>
+                          <span>Already Sent: {p.dispatchedQuantity || 0}</span>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Total</p>
-                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">₹{inv.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+
+                      <div className="flex items-center gap-3 self-end md:self-auto">
+                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Dispatch Qty:</span>
+                        <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-black px-3 py-1 rounded-xl text-xs border border-amber-200 dark:border-amber-900/50 shadow-sm">
+                          {p.remainingToDispatch}
+                        </span>
                       </div>
                     </div>
-                    <div className="p-4 bg-white dark:bg-gray-800">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr>
-                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Product</th>
-                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Qty</th>
-                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Price</th>
-                            <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                          {inv.products.map((p, j) => (
-                            <tr key={j}>
-                              <td className="py-2 text-xs font-bold text-gray-800 dark:text-gray-200">
-                                {p.productNo}
-                                <div className="text-[10px] font-medium text-gray-500 font-normal truncate max-w-[200px]" title={p.name}>{p.name}</div>
-                              </td>
-                              <td className="py-2 text-xs text-center font-bold text-gray-600 dark:text-gray-400">{p.quantity}</td>
-                              <td className="py-2 text-xs text-right font-medium text-gray-500 dark:text-gray-400">₹{p.unitPrice?.toLocaleString()}</td>
-                              <td className="py-2 text-xs text-right font-bold text-gray-900 dark:text-white">₹{p.total?.toLocaleString()}</td>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+              <button
+                onClick={() => setIsDispatchModalOpen(false)}
+                className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleProcessDispatch}
+                className="px-5 py-2.5 bg-gradient-to-tr from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition animate-pulse"
+              >
+                Update Dispatch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🕒 Invoice / Dispatch History Modal */}
+      {isHistoryModalOpen && selectedPOForHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black text-gray-900 dark:text-white">
+                  {activeTab === "dispatch" ? "Dispatch History" : "Invoice History"}
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-bold mt-0.5">PO Number: {selectedPOForHistory.poNumber}</p>
+              </div>
+              <button 
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-xl transition hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[600px] space-y-5">
+              {activeTab === "dispatch" ? (
+                !selectedPOForHistory.dispatchHistory || selectedPOForHistory.dispatchHistory.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 font-bold uppercase tracking-widest text-xs">No dispatches recorded yet</div>
+                ) : (
+                  selectedPOForHistory.dispatchHistory.map((disp, i) => (
+                    <div key={i} className="border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
+                      <div className="bg-gray-50 dark:bg-gray-900 px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                        <div className="flex gap-6">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Courier / Partner</p>
+                            <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{disp.courierName}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Tracking / AWB</p>
+                            <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{disp.trackingNo}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Date</p>
+                            <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{new Date(disp.dispatchDate).toLocaleDateString("en-GB")}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-4 bg-white dark:bg-gray-800">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr>
+                              <th className="pb-2 text-sm font-black text-gray-400 uppercase tracking-widest">Product</th>
+                              <th className="pb-2 text-sm font-black text-gray-400 uppercase tracking-widest text-center">Dispatched Qty</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                            {disp.products.map((p, j) => (
+                              <tr key={j}>
+                                <td className="py-3 text-sm font-medium text-gray-800 dark:text-gray-200">
+                                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                                    <span className="font-extrabold text-gray-900 dark:text-white">{p.productNo}</span>
+                                    {getProductInvoiceNumbers(p.productNo).map((invNo, iIdx) => (
+                                      <span key={iIdx} className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border border-purple-100 dark:border-purple-900 px-2 py-0.5 rounded-md">
+                                        Inv: {invNo}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="text-xs font-bold text-gray-500" title={p.name}>{p.name}</div>
+                                </td>
+                                <td className="py-3 text-sm text-center font-black text-gray-700 dark:text-gray-300">{p.quantity}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))
+                )
+              ) : (
+                !selectedPOForHistory.invoiceHistory || selectedPOForHistory.invoiceHistory.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 font-bold uppercase tracking-widest text-xs">No invoices generated yet</div>
+                ) : (
+                  selectedPOForHistory.invoiceHistory.map((inv, i) => (
+                    <div key={i} className="border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
+                      <div className="bg-gray-50 dark:bg-gray-900 px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                        <div className="flex gap-4">
+                          <div>
+                            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Invoice No</p>
+                            <p className="text-sm font-bold text-gray-900 dark:text-white">{inv.invoiceNo}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Date</p>
+                            <p className="text-sm font-bold text-gray-900 dark:text-white">{new Date(inv.date).toLocaleDateString("en-GB")}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black">Total</p>
+                          <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">₹{inv.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                        </div>
+                      </div>
+                      <div className="p-4 bg-white dark:bg-gray-800">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr>
+                              <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">Product</th>
+                              <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Qty</th>
+                              <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Price</th>
+                              <th className="pb-2 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                            {inv.products.map((p, j) => (
+                              <tr key={j}>
+                                <td className="py-2 text-xs font-bold text-gray-800 dark:text-gray-200">
+                                  {p.productNo}
+                                  <div className="text-[10px] font-medium text-gray-500 font-normal truncate max-w-[200px]" title={p.name}>{p.name}</div>
+                                </td>
+                                <td className="py-2 text-xs text-center font-bold text-gray-600 dark:text-gray-400">{p.quantity}</td>
+                                <td className="py-2 text-xs text-right font-medium text-gray-500 dark:text-gray-400">₹{p.unitPrice?.toLocaleString()}</td>
+                                <td className="py-2 text-xs text-right font-bold text-gray-900 dark:text-white">₹{p.total?.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))
+                )
               )}
             </div>
           </div>

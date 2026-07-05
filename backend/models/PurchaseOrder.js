@@ -65,6 +65,10 @@ const purchaseOrderSchema = new mongoose.Schema({
         currentInvoiceQty: {
             type: Number,
             default: 0
+        },
+        dispatchedQuantity: {
+            type: Number,
+            default: 0
         }
     }],
     createdBy: {
@@ -83,6 +87,21 @@ const purchaseOrderSchema = new mongoose.Schema({
             quantity: Number,
             unitPrice: Number,
             total: Number
+        }],
+        createdAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
+    dispatchHistory: [{
+        courierName: String,
+        trackingNo: String,
+        dispatchDate: Date,
+        products: [{
+            productNo: String,
+            name: String,
+            brand: String,
+            quantity: Number
         }],
         createdAt: {
             type: Date,
