@@ -160,17 +160,8 @@ const POManagement = () => {
       return allBilled ? "Invoiced" : "Partially Invoiced";
     }
     if (tab === "inward" && po.type === "inward" && po.isMovedToInvoice === true) {
-      const activeProducts = (po.products || []).filter(p => p.selected !== false);
-      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-      const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
       const hasUnselectedProducts = (po.products || []).some(p => p.selected === false);
-      
-      if ((totalInvoiced > 0 && !isFullyInvoiced) || hasUnselectedProducts) {
-        return "Partially Processed";
-      }
-      if (!isFullyInvoiced) {
-        return "Processed";
-      }
+      return hasUnselectedProducts ? "Partially Processed" : "Processed";
     }
     return po.status;
   };
@@ -1625,13 +1616,20 @@ const POManagement = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Courier / Partner Name</label>
-                  <input 
-                    type="text"
-                    placeholder="e.g. BlueDart"
+                  <select 
                     value={dispatchForm.courierName}
                     onChange={e => setDispatchForm({...dispatchForm, courierName: e.target.value})}
                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
-                  />
+                  >
+                    <option value="" disabled>Select Courier</option>
+                    <option value="Bluedart">Bluedart</option>
+                    <option value="SafeXpress">SafeXpress</option>
+                    <option value="DTDC">DTDC</option>
+                    <option value="Trackon">Trackon</option>
+                    <option value="Porter">Porter</option>
+                    <option value="Self">Self</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Tracking Number / AWB</label>
