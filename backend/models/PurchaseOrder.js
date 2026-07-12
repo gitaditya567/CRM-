@@ -13,7 +13,28 @@ const purchaseOrderSchema = new mongoose.Schema({
     },
     vendorName: {
         type: String,
-        required: true
+        default: ""
+    },
+    shipper: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Shipper",
+        default: null
+    },
+    deliveryLeadTime: {
+        type: String,
+        default: ""
+    },
+    paymentTerms: {
+        type: String,
+        default: ""
+    },
+    installationCharges: {
+        type: Number,
+        default: 0
+    },
+    freightCartage: {
+        type: Number,
+        default: 0
     },
     leadNumber: {
         type: String,
@@ -40,6 +61,20 @@ const purchaseOrderSchema = new mongoose.Schema({
     isMovedToInvoice: {
         type: Boolean,
         default: false
+    },
+    terms: {
+        deliveryLeadTime: { type: String, default: "" },
+        payment: { type: String, default: "" },
+        warranty: { type: String, default: "" },
+        deliveryTerms: { type: String, default: "" },
+        validity: { type: String, default: "" },
+        remark: { type: String, default: "" }
+    },
+    termDetails: {
+        paymentOption: { type: String, default: "" },
+        warrantyMonths: { type: String, default: "" },
+        warrantyType: { type: String, default: "" },
+        validityDays: { type: String, default: "" }
     },
     products: [{
         product: {

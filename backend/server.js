@@ -44,6 +44,8 @@ app.use("/api/groups", require("./routes/groupRoutes"));
 console.log("Group routes loaded");
 app.use("/api/clients", require("./routes/clientRoutes"));
 console.log("Client routes loaded");
+app.use("/api/shippers", require("./routes/shipperRoutes"));
+console.log("Shipper routes loaded");
 app.use("/api/quotations", require("./routes/quotationRoutes"));
 console.log("Quotation routes loaded");
 app.use("/api/purchase-orders", require("./routes/poRoutes"));

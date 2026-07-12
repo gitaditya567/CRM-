@@ -58,10 +58,10 @@ const quotationSchema = new mongoose.Schema({
     roundOff: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
     terms: {
-        deliveryLeadTime: { type: String, default: "Ex-Stock items are subject to prior sales against subject to Force Majeure Clause." },
+        deliveryLeadTime: { type: String, default: "Stock items are subject to prior sales against subject to Force Majeure Clause." },
         payment: { type: String, default: "100% advance along with Purchase Order." },
         warranty: { type: String, default: "12 months from the date of TeamInspire Invoice for Equipments. (Onsite/OffSite). No warranty on spare parts. Consumables, Wear and tear items, including rubber parts and bulbs, are not covered under warranty." },
-        deliveryTerms: { type: String, default: "Ex-warehouse, Delhi is subject to prior sales and Force Majeure Clause." },
+        deliveryTerms: { type: String, default: "warehouse, Delhi is subject to prior sales and Force Majeure Clause." },
         validity: { type: String, default: "30 Days from the date of PI." },
         remark: { type: String, default: "" }
     },

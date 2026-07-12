@@ -1,275 +1,16 @@
-const PurchaseOrder = require("../models/PurchaseOrder");
-const Quotation = require("../models/Quotation");
-const PDFDocument = require("pdfkit-table");
-const path = require("path");
+const fs = require('fs');
+const path = require('path');
 
-// GET /api/purchase-orders
-exports.getPOs = async (req, res) => {
-    try {
-        const { type } = req.query;
-        let filter = {};
-        if (type) {
-            filter.type = type;
-        }
+const poPath = path.join(__dirname, '..', 'controllers', 'poController.js');
+let poContent = fs.readFileSync(poPath, 'utf8');
 
-        const pos = await PurchaseOrder.find(filter)
-            .populate({
-                path: "pi",
-                populate: {
-                    path: "lead",
-                    select: "leadNumber"
-                }
-            })
-            .populate("createdBy", "name")
-            .populate("shipper")
-            .sort({ createdAt: -1 })
-            .lean();
+const regex = /exports\.generatePDF = async \(req, res\) => \{[\s\S]*?\n\};\n\n\/\/ POST \/api\/purchase-orders\/outward/;
 
-        // Map legalEntityName to clientName
-        const Client = require("../models/Client");
-        const clients = await Client.find({}, "clientName legalEntityName").lean();
-        const nameMap = new Map();
-        clients.forEach(c => {
-            if (c.legalEntityName) {
-                nameMap.set(c.legalEntityName.trim().toLowerCase(), c.clientName);
-            }
-        });
-
-        const formattedPOs = pos.map(po => {
-            let name = po.vendorName;
-            if (name) {
-                const key = name.trim().toLowerCase();
-                if (nameMap.has(key)) {
-                    name = nameMap.get(key);
-                }
-            }
-            return {
-                ...po,
-                vendorName: name
-            };
-        });
-
-        res.json(formattedPOs);
-    } catch (err) {
-        console.error("Get POs Error:", err);
-        res.status(500).json({ message: "Failed to fetch purchase orders" });
-    }
-};
-
-// POST /api/purchase-orders/create-from-pi/:id
-exports.createPOFromPI = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const piDoc = await Quotation.findById(id).populate("lead");
-        if (!piDoc) {
-            return res.status(404).json({ message: "Proforma Invoice (PI) not found" });
-        }
-
-        // Verify it is a PI
-        const isPI = piDoc.quotationNumber && /^PI/i.test(piDoc.quotationNumber);
-        if (!isPI) {
-            return res.status(400).json({ message: "Selected document is not a Proforma Invoice" });
-        }
-
-        // Check if PO already exists for this PI
-        const existingPO = await PurchaseOrder.findOne({ pi: id });
-        if (existingPO) {
-            return res.status(400).json({ message: "Purchase Order already exists for this PI", po: existingPO });
-        }
-
-        // Verify that the client's PO Number is present in the PI
-        const poNumber = piDoc.poNumber ? piDoc.poNumber.trim() : "";
-        if (!poNumber) {
-            return res.status(400).json({ 
-                message: "Client's PO Number is missing in the Proforma Invoice (PI). Please edit the PI and add the Client's PO Number before converting to an Inward PO." 
-            });
-        }
-
-        // Ensure unique PO Number across all POs in PO Management
-        const existingPOWithNum = await PurchaseOrder.findOne({ poNumber });
-        if (existingPOWithNum) {
-            return res.status(400).json({ 
-                message: `A Purchase Order with PO Number "${poNumber}" already exists in PO Management.` 
-            });
-        }
-
-        // Map products
-        const products = piDoc.products.map(p => ({
-            product: p.product,
-            productNo: p.productNo,
-            name: p.name,
-            brand: p.brand,
-            hsnCode: p.hsnCode,
-            quantity: p.quantity,
-            unitPrice: p.unitPrice,
-            gstRate: p.gstRate,
-            total: p.total,
-            selected: true
-        }));
-
-        const Client = require("../models/Client");
-        const clientDoc = await Client.findOne({
-            $or: [
-                { clientName: piDoc.billTo?.name },
-                { legalEntityName: piDoc.billTo?.name },
-                { clientName: piDoc.lead?.name },
-                { legalEntityName: piDoc.lead?.name }
-            ]
-        }).lean();
-
-        const vendorName = clientDoc ? clientDoc.clientName : (piDoc.billTo?.name || piDoc.lead?.name || "Unknown Vendor");
-        const leadNumber = piDoc.lead?.leadNumber || "";
-
-        const newPO = new PurchaseOrder({
-            poNumber,
-            pi: id,
-            vendorName,
-            leadNumber,
-            totalValue: piDoc.grandTotal || 0,
-            status: "Pending",
-            type: "inward",
-            products,
-            createdBy: req.user ? req.user._id : null
-        });
-
-        const savedPO = await newPO.save();
-
-        // Mark the PI as converted
-        piDoc.isConvertedToPO = true;
-        await piDoc.save();
-
-        // Optional: emit socket event if socket is setup
-        const io = req.app.get("io");
-        if (io) {
-            io.emit("poAdded", savedPO);
-            io.emit("quotationUpdated", piDoc); // Broadcast that the PI was updated/converted
-        }
-
-        res.status(201).json(savedPO);
-    } catch (err) {
-        console.error("Create PO from PI Error:", err);
-        res.status(500).json({ message: "Failed to create Purchase Order from PI" });
-    }
-};
-
-// PUT /api/purchase-orders/:id
-exports.updatePO = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { products, status, invoiceHistory, isMovedToInvoice, dispatchHistory, terms, termDetails, shipper, installationCharges, freightCartage, estimatedTotal } = req.body;
-
-        const po = await PurchaseOrder.findById(id);
-        if (!po) {
-            return res.status(404).json({ message: "Purchase Order not found" });
-        }
-
-        let updates = {};
-
-        if (typeof isMovedToInvoice !== "undefined") {
-            updates.isMovedToInvoice = isMovedToInvoice;
-        }
-
-        // Automatic status calculation for Inward POs in the invoice flow
-        let checkProducts = products || po.products;
-        let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
-
-        if (po.type === "inward" && checkMoved) {
-            const activeProducts = (checkProducts || []).filter(p => p.selected !== false);
-            if (activeProducts.length === 0) {
-                updates.status = "Pending";
-            } else {
-                const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-                const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-                const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-
-                if (totalDispatched > 0) {
-                    updates.status = totalDispatched === totalQty ? "Dispatched" : "Partially Dispatched";
-                } else if (totalInvoiced === 0) {
-                    updates.status = "Pending";
-                } else {
-                    const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-                    updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
-                }
-            }
-        } else if (status) {
-            updates.status = status;
-        }
-
-        if (invoiceHistory) {
-            updates.invoiceHistory = invoiceHistory;
-        }
-
-        if (dispatchHistory) {
-            updates.dispatchHistory = dispatchHistory;
-        }
-
-        if (terms !== undefined) updates.terms = terms;
-        if (termDetails !== undefined) updates.termDetails = termDetails;
-        if (shipper !== undefined) updates.shipper = shipper;
-        if (installationCharges !== undefined) updates.installationCharges = installationCharges;
-        if (freightCartage !== undefined) updates.freightCartage = freightCartage;
-        if (estimatedTotal !== undefined) updates.estimatedTotal = estimatedTotal;
-
-        if (products) {
-            updates.products = products;
-            // Recalculate total value for selected items
-            const totalValue = products
-                .filter(p => p.selected)
-                .reduce((sum, p) => sum + (p.total || 0), 0);
-            updates.totalValue = totalValue;
-        }
-
-        const updatedPO = await PurchaseOrder.findByIdAndUpdate(
-            id,
-            { $set: updates },
-            { new: true }
-        ).populate({
-            path: "pi",
-            populate: {
-                path: "lead",
-                select: "leadNumber"
-              }
-        });
-
-        const io = req.app.get("io");
-        if (io) {
-            io.emit("poUpdated", updatedPO);
-        }
-
-        res.json(updatedPO);
-    } catch (err) {
-        console.error("Update PO Error:", err);
-        res.status(500).json({ message: "Failed to update Purchase Order" });
-    }
-};
-
-// DELETE /api/purchase-orders/:id
-exports.deletePO = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const po = await PurchaseOrder.findByIdAndDelete(id);
-        if (!po) {
-            return res.status(404).json({ message: "Purchase Order not found" });
-        }
-
-        const io = req.app.get("io");
-        if (io) {
-            io.emit("poDeleted", id);
-        }
-
-        res.json({ message: "Purchase Order deleted successfully" });
-    } catch (err) {
-        console.error("Delete PO Error:", err);
-        res.status(500).json({ message: "Failed to delete Purchase Order" });
-    }
-};
-
-// GET /api/purchase-orders/:id/pdf
-exports.generatePDF = async (req, res) => {
+const newGeneratePDF = `exports.generatePDF = async (req, res) => {
     try {
         const { id } = req.params;
         const { mode } = req.query;
-        const po = await PurchaseOrder.findById(id).populate("pi").populate("shipper").lean();
+        const po = await PurchaseOrder.findById(id).populate("pi").lean();
         if (!po) {
             return res.status(404).json({ message: "Purchase Order not found" });
         }
@@ -314,8 +55,8 @@ exports.generatePDF = async (req, res) => {
 
         // Set response headers
         res.setHeader("Content-Type", "application/pdf");
-        const filename = `${po.poNumber}.pdf`;
-        res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+        const filename = \`\${po.poNumber}.pdf\`;
+        res.setHeader("Content-Disposition", \`inline; filename="\${filename}"\`);
         doc.pipe(res);
 
         // Helper to draw page border
@@ -366,26 +107,21 @@ exports.generatePDF = async (req, res) => {
         doc.rect(30, startInfoY, 535, infoBlockHeight).stroke();
         doc.moveTo(225, startInfoY).lineTo(225, startInfoY + infoBlockHeight).stroke();
         doc.moveTo(425, startInfoY).lineTo(425, startInfoY + infoBlockHeight).stroke();
-        if (po.type === "outward") {
-            doc.moveTo(425, startInfoY + 40).lineTo(565, startInfoY + 40).stroke();
-        } else {
-            doc.moveTo(425, startInfoY + 20).lineTo(565, startInfoY + 20).stroke();
-            doc.moveTo(425, startInfoY + 40).lineTo(565, startInfoY + 40).stroke();
-            doc.moveTo(425, startInfoY + 60).lineTo(565, startInfoY + 60).stroke();
-        }
+        doc.moveTo(425, startInfoY + 20).lineTo(565, startInfoY + 20).stroke();
+        doc.moveTo(425, startInfoY + 40).lineTo(565, startInfoY + 40).stroke();
+        doc.moveTo(425, startInfoY + 60).lineTo(565, startInfoY + 60).stroke();
         doc.moveTo(485, startInfoY).lineTo(485, startInfoY + infoBlockHeight).stroke();
 
+        doc.fontSize(9).font('Helvetica-Bold').text("VENDOR:", 35, startInfoY + 5);
         if (po.type === "outward" && po.shipper) {
-            doc.fontSize(9).font('Helvetica-Bold').text("SHIPPER NAME:", 35, startInfoY + 5);
             doc.fontSize(8).font('Helvetica-Bold').text(po.shipper.billingName || po.shipper.consigneeName, 35, startInfoY + 15, { width: 185 });
             doc.font('Helvetica').text(po.shipper.address || "", 35, doc.y, { width: 185 });
-            doc.font('Helvetica-Bold').text(`GSTIN: ${po.shipper.gstin || ""}`, 35, startInfoY + 65);
+            doc.font('Helvetica-Bold').text(\`GSTIN: \${po.shipper.gstin || ""}\`, 35, startInfoY + 65);
         } else {
-            doc.fontSize(9).font('Helvetica-Bold').text("VENDOR:", 35, startInfoY + 5);
             doc.fontSize(8).font('Helvetica-Bold').text(po.vendorName, 35, startInfoY + 15, { width: 185 });
             if (po.pi && po.pi.billTo) {
                 doc.font('Helvetica').text(po.pi.billTo.address || "", 35, doc.y, { width: 185 });
-                doc.font('Helvetica-Bold').text(`GSTIN: ${po.pi.billTo.gstin || ""}`, 35, startInfoY + 65);
+                doc.font('Helvetica-Bold').text(\`GSTIN: \${po.pi.billTo.gstin || ""}\`, 35, startInfoY + 65);
             }
         }
 
@@ -401,15 +137,10 @@ exports.generatePDF = async (req, res) => {
         }
 
         doc.fontSize(8).font('Helvetica-Bold');
-        if (po.type === "outward") {
-            doc.fontSize(7).text("Purchase Order No.", 427, startInfoY + 12, { width: 56 }); doc.fontSize(8).font('Helvetica').text(po.poNumber, 488, startInfoY + 16);
-            doc.fontSize(7).font('Helvetica-Bold').text("Purchase Order Date", 427, startInfoY + 52, { width: 56 }); doc.fontSize(8).font('Helvetica').text(new Date(po.date).toLocaleDateString("en-GB"), 488, startInfoY + 56);
-        } else {
-            doc.text("PO No.", 428, startInfoY + 6); doc.font('Helvetica').text(po.poNumber, 488, startInfoY + 6);
-            doc.font('Helvetica-Bold').text("PO Date", 428, startInfoY + 26); doc.font('Helvetica').text(new Date(po.date).toLocaleDateString("en-GB"), 488, startInfoY + 26);
-            doc.font('Helvetica-Bold').text("PI Ref", 428, startInfoY + 46); doc.font('Helvetica').text(po.pi?.quotationNumber || "-", 488, startInfoY + 46);
-            doc.font('Helvetica-Bold').text("Status", 428, startInfoY + 66); doc.font('Helvetica').text(po.status, 488, startInfoY + 66);
-        }
+        doc.text("PO No.", 428, startInfoY + 6); doc.font('Helvetica').text(po.poNumber, 488, startInfoY + 6);
+        doc.font('Helvetica-Bold').text("PO Date", 428, startInfoY + 26); doc.font('Helvetica').text(new Date(po.date).toLocaleDateString("en-GB"), 488, startInfoY + 26);
+        doc.font('Helvetica-Bold').text("PI Ref", 428, startInfoY + 46); doc.font('Helvetica').text(po.pi?.quotationNumber || "-", 488, startInfoY + 46);
+        doc.font('Helvetica-Bold').text("Status", 428, startInfoY + 66); doc.font('Helvetica').text(po.status, 488, startInfoY + 66);
 
         // --- Header Bar ---
         const poHeaderY = startInfoY + infoBlockHeight;
@@ -439,7 +170,7 @@ exports.generatePDF = async (req, res) => {
 
         const table = {
             headers: [
-                { label: "Sl.\nNo.", property: 'sl', width: 20, align: 'center' },
+                { label: "Sl.\\nNo.", property: 'sl', width: 20, align: 'center' },
                 { label: "Brand", property: 'brand', width: 40, align: 'center' },
                 { label: "Model No/Part Code", property: 'model', width: 70, align: 'center' },
                 { label: "Description", property: 'desc', width: 95 },
@@ -447,8 +178,8 @@ exports.generatePDF = async (req, res) => {
                 { label: "UOM", property: 'uom', width: 25, align: 'center' },
                 { label: "QTY", property: 'qty', width: 20, align: 'center' },
                 { label: "Unit Rate (Rs.)", property: 'rate', width: 45, align: 'right' },
-                { label: "Taxable Value\n(Rs.)", property: 'taxable', width: 55, align: 'right' },
-                { label: "GST\nRate (%)", property: 'gstRate', width: 30, align: 'center' },
+                { label: "Taxable Value\\n(Rs.)", property: 'taxable', width: 55, align: 'right' },
+                { label: "GST\\nRate (%)", property: 'gstRate', width: 30, align: 'center' },
                 { label: "GST Value (Rs.)", property: 'gstVal', width: 40, align: 'right' },
                 { label: "Total Value (Rs.)", property: 'total', width: 50, align: 'right' }
             ],
@@ -462,7 +193,7 @@ exports.generatePDF = async (req, res) => {
                         sl: (index + 1).toString(),
                         brand: p.brand || "",
                         model: p.productNo || "",
-                        desc: p.invoiceNo ? `${p.name || ""} (Invoice No: ${p.invoiceNo})` : (p.name || ""),
+                        desc: p.invoiceNo ? \`\${p.name || ""} (Invoice No: \${p.invoiceNo})\` : (p.name || ""),
                         hsn: p.hsnCode || "",
                         uom: p.uom || "PCS",
                         qty: p.quantity?.toString() || "0",
@@ -557,7 +288,7 @@ exports.generatePDF = async (req, res) => {
         doc.font('Helvetica').text(roundOff.toFixed(2), 490, totalsY + 26, { width: 71, align: 'right' });
 
         doc.fontSize(9).font('Helvetica-Bold').text("Grand Total", 375, totalsY + 46, { width: 110, align: 'right' });
-        doc.text(`Rs. ${grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`, 490, totalsY + 46, { width: 71, align: 'right' });
+        doc.text(\`Rs. \${grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}\`, 490, totalsY + 46, { width: 71, align: 'right' });
 
         doc.y = totalsY + 60;
         doc.moveDown(1.5);
@@ -583,8 +314,13 @@ exports.generatePDF = async (req, res) => {
                 { l: "Payment", v: po.terms?.payment || po.paymentTerms || '-' },
                 { l: "Warranty Terms", v: po.terms?.warranty || '-' },
                 { l: "Delivery Terms", v: po.terms?.deliveryTerms || '-' },
+                { l: "Note", v: "Road permit will be as applicable in respective states." },
+                { l: "Validity", v: po.terms?.validity || "30 Days from the date of PI." },
                 { l: "GST", v: "Any GST additional liability arising due to changes in billing location, place of supply and GST applicability after PO shall be to customer's account." },
+                { l: "Packaging", v: "Standard original OEM/Supplier packaging. If Wooden packing is required, will charged seperately on actual basis." },
                 { l: "HS Code", v: "HSN codes and GST rates are subject to Govt/GST rules, regulations, notifications, circulars, court or tribunal judgements, legal interpretation etc and subject to change from time to time/ as applicable without prior notice. Prevailing classification and GST rates at the time of transaction will apply." },
+                { l: "Bank Details", v: "Bank Name: ICICI Bank Ltd, Account Number: 135505500940, Bank Account Name: TeamInspire Business Solutions Pvt Ltd, IFSC/RTGS Number: ICIC0001355" },
+                { l: "Special Note", v: "In-view of the current Global Shipping Scenario, the shipments may be a subject to delay which is out of human control and thus the same shall be covered under the Force Majeure Clause. Price quoted is valid if the order issued for all the quoted items with the same quantity. Any change in quantity/order can be discussed case to case basis." },
                 { l: "Remarks", v: po.terms?.remark || "" }
             ];
 
@@ -657,7 +393,7 @@ exports.generatePDF = async (req, res) => {
         if (doc.y > 730) {
             doc.addPage();
         }
-        const footerY = doc.y + 10;
+        const footerY = Math.max(doc.y, 700);
         doc.fontSize(9).font('Helvetica-Bold').text("For TeamInspire Business Solutions Pvt Ltd", 35, footerY, { align: 'left', width: 300 });
         
         try {
@@ -679,40 +415,9 @@ exports.generatePDF = async (req, res) => {
     }
 };
 
-// POST /api/purchase-orders/outward
-exports.createOutwardPO = async (req, res) => {
-    try {
-        const { shipper, products, installationCharges, freightCartage, estimatedTotal, deliveryLeadTime, paymentTerms } = req.body;
+// POST /api/purchase-orders/outward`;
 
-        // Generate PO Number (e.g. OPO-1)
-        const lastPO = await PurchaseOrder.findOne({ type: "outward" }).sort({ createdAt: -1 });
-        let nextNumber = 1;
-        if (lastPO && lastPO.poNumber && lastPO.poNumber.startsWith("OPO-")) {
-            const numPart = parseInt(lastPO.poNumber.split("-")[1], 10);
-            if (!isNaN(numPart)) {
-                nextNumber = numPart + 1;
-            }
-        }
-        const poNumber = `OPO-${nextNumber}`;
+poContent = poContent.replace(regex, newGeneratePDF);
 
-        const newPO = new PurchaseOrder({
-            poNumber,
-            type: "outward",
-            shipper,
-            products,
-            totalValue: estimatedTotal || 0,
-            installationCharges: installationCharges || 0,
-            freightCartage: freightCartage || 0,
-            deliveryLeadTime: deliveryLeadTime || "",
-            paymentTerms: paymentTerms || "",
-            status: "Pending",
-            createdBy: req.user ? req.user._id : null
-        });
-
-        const savedPO = await newPO.save();
-        res.status(201).json(savedPO);
-    } catch (err) {
-        console.error("Create Outward PO Error:", err);
-        res.status(500).json({ message: "Failed to create outward PO" });
-    }
-};
+fs.writeFileSync(poPath, poContent);
+console.log('Successfully updated poController.js');

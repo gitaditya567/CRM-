@@ -854,7 +854,7 @@ exports.generatePDF = async (req, res) => {
         if (doc.y > 730) {
             doc.addPage();
         }
-        const footerY = Math.max(doc.y, 700);
+        const footerY = doc.y + 10;
         doc.fontSize(9).font('Helvetica-Bold').text("For TeamInspire Business Solutions Pvt Ltd", 35, footerY, { align: 'left', width: 300 });
         
         // Draw the Authorized Signatory Stamp (positioned perfectly below the company name)

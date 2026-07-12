@@ -17,10 +17,12 @@ import {
   History,
   Maximize2,
   Minimize2,
-  Truck
+  Truck,
+  Edit
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
+import CreateOutwardPO from "../components/po/CreateOutwardPO";
 
 const POManagement = () => {
   const userRole = (localStorage.getItem("role") || "").toLowerCase();
@@ -38,6 +40,7 @@ const POManagement = () => {
   }
 
   const [activeTab, setActiveTab] = useState("inward");
+  const [isCreateOutwardOpen, setIsCreateOutwardOpen] = useState(false);
   const [searchQueries, setSearchQueries] = useState({
     inward: "",
     inward_invoice: "",
@@ -46,7 +49,7 @@ const POManagement = () => {
   });
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [statusFilter, setStatusFilter] = useState("All");
 
   // Modal states
   const [isProductsModalOpen, setIsProductsModalOpen] = useState(false);
@@ -54,6 +57,7 @@ const POManagement = () => {
   const [modalProducts, setModalProducts] = useState([]);
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [isChecklistFullScreen, setIsChecklistFullScreen] = useState(false);
+  const [selectedPOToEdit, setSelectedPOToEdit] = useState(null);
 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedPOForDetails, setSelectedPOForDetails] = useState(null);
@@ -169,10 +173,15 @@ const POManagement = () => {
   // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
   const filteredPOs = pos.filter(po => {
     // 1. Tab Specific Filtering
+    if (activeTab === "outward") {
+      if (po.type !== "outward") return false;
+    }
     if (activeTab === "inward_invoice") {
+      if (po.type !== "inward") return false;
       if (po.isMovedToInvoice !== true) return false;
     }
     if (activeTab === "inward") {
+      if (po.type !== "inward") return false;
       if (po.isMovedToInvoice === true) {
         const activeProducts = (po.products || []).filter(p => p.selected !== false);
         const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
@@ -776,43 +785,47 @@ const POManagement = () => {
             </button>
           </div>
 
-          {/* Search bar */}
-          <div className="flex items-center gap-3">
-            {/* Status Filter */}
-            <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5">
-              <select 
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0"
+          {/* Search bar & Actions */}
+          <div className="flex items-center gap-3 flex-wrap md:flex-nowrap">
+            {activeTab === "outward" && (
+              <button
+                onClick={() => setIsCreateOutwardOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition shadow-sm whitespace-nowrap"
               >
-                <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
-                {activeTab === "inward_invoice" ? (
-                  <>
-                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                    <option value="Partially Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Invoiced</option>
-                    <option value="Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Invoiced</option>
-                  </>
-                ) : activeTab === "dispatch" ? (
-                  <>
-                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                    <option value="Dispatched" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Dispatched</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                    <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
-                    {activeTab === "outward" && (
-                      <>
-                        <option value="Approved" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Approved</option>
-                        <option value="Received" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Received</option>
-                        <option value="Sent" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Sent</option>
-                      </>
-                    )}
-                    <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
-                  </>
-                )}
-              </select>
-            </div>
+                <Plus size={16} /> Create Outward PO
+              </button>
+            )}
+            
+            {/* Status Filter */}
+            {activeTab !== "outward" && (
+              <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5">
+                <select 
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0"
+                >
+                  <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
+                  {activeTab === "inward_invoice" ? (
+                    <>
+                      <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                      <option value="Partially Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Invoiced</option>
+                      <option value="Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Invoiced</option>
+                    </>
+                  ) : activeTab === "dispatch" ? (
+                    <>
+                      <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                      <option value="Dispatched" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Dispatched</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
+                      <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
+                      <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            )}
 
             <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-4 py-2.5 w-full md:w-72">
               <Search size={16} className="text-gray-400 mr-2" />
@@ -846,17 +859,30 @@ const POManagement = () => {
               <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 w-52">PI / Lead Ref</th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                    {activeTab === "dispatch" ? "Client / Vendor Name" : (activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name")}
-                  </th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
+                  {activeTab !== "outward" && (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 w-52">PI / Lead Ref</th>
+                  )}
+                  {activeTab !== "outward" ? (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                        {activeTab === "dispatch" ? "Client / Vendor Name" : (activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name")}
+                      </th>
+                  ) : (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Shipper Name</th>
+                  )}
+                  {activeTab !== "outward" && (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
+                  )}
+                  {activeTab === "outward" && (
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Created By</th>
+                  )}
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Total Value</th>
-                  <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Status</th>
+                  {activeTab !== "outward" && (
+                    <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Status</th>
+                  )}
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              <tbody key={activeTab} className="divide-y divide-gray-100 dark:divide-gray-700 animate-fade-in">
                 {filteredPOs.map((po) => (
                   <tr key={po._id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                     <td className="px-6 py-4">
@@ -870,42 +896,72 @@ const POManagement = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-bold text-gray-900 dark:text-white">
-                          {po.pi?.quotationNumber || "-"}
-                        </span>
-                        {(po.leadNumber || po.pi?.lead?.leadNumber) && (
-                          <span className="text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5">
-                            Lead No: {po.leadNumber || po.pi.lead.leadNumber}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
-                      {po.vendorName}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(po.date).toLocaleDateString("en-GB")}
-                    </td>
+                    {activeTab !== "outward" && (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold text-gray-900 dark:text-white">
+                              {po.pi?.quotationNumber || "-"}
+                            </span>
+                            {(po.leadNumber || po.pi?.lead?.leadNumber) && (
+                              <span className="text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5">
+                                Lead No: {po.leadNumber || po.pi.lead.leadNumber}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                    )}
+                    {activeTab !== "outward" ? (
+                        <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
+                          {po.vendorName}
+                        </td>
+                    ) : (
+                        <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
+                          {po.shipper ? (po.shipper.billingName || po.shipper.consigneeName) : "-"}
+                        </td>
+                    )}
+                    {activeTab !== "outward" && (
+                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(po.date).toLocaleDateString("en-GB")}
+                      </td>
+                    )}
+                    {activeTab === "outward" && (
+                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-semibold">
+                        {po.createdBy ? po.createdBy.name : "-"}
+                      </td>
+                    )}
                     <td className="px-6 py-4 text-sm font-bold text-gray-800 dark:text-gray-200">
                       ₹{po.totalValue?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full ${statusColors[getDisplayStatus(po, activeTab)] || "bg-gray-100 text-gray-800"}`}>
-                        {getDisplayStatus(po, activeTab)}
-                      </span>
-                    </td>
+                    {activeTab !== "outward" && (
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full ${statusColors[getDisplayStatus(po, activeTab)] || "bg-gray-100 text-gray-800"}`}>
+                          {getDisplayStatus(po, activeTab)}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {/* View Product Checkbox Icon */}
-                        <button 
-                          onClick={() => handleOpenProductsModal(po)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                          title="View Products for Update"
-                        >
-                          <List size={18} />
-                        </button>
+                        {/* View Product Checkbox Icon / Edit Icon */}
+                        {activeTab === "outward" ? (
+                          <button 
+                            onClick={() => {
+                                setSelectedPOToEdit(po);
+                                setIsCreateOutwardOpen(true);
+                            }}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="Edit Outward PO"
+                          >
+                            <Edit size={18} />
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => handleOpenProductsModal(po)}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="View Products for Update"
+                          >
+                            <List size={18} />
+                          </button>
+                        )}
                         {/* Eye Icon for detail view */}
                         <button 
                           onClick={() => handleOpenDetailModal(po)}
@@ -933,7 +989,7 @@ const POManagement = () => {
                           </button>
                         )}
                         {/* Move to Invoice Icon (Outward only) */}
-                        {activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward" && po.status !== "Processed" && (
+                        {activeTab !== "outward" && activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward" && po.status !== "Processed" && (
                           <button 
                             onClick={() => handleOpenInvoicePrompt(po)}
                             className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1297,23 +1353,31 @@ const POManagement = () => {
               {/* Meta Info Grid */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl">
                 <div>
-                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Vendor/Client</p>
-                  <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1">{selectedPOForDetails.vendorName}</p>
+                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">
+                    {selectedPOForDetails.type === "outward" ? "Shipper Name" : "Vendor/Client"}
+                  </p>
+                  <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1">
+                    {selectedPOForDetails.type === "outward" ? (selectedPOForDetails.shipper?.billingName || "-") : selectedPOForDetails.vendorName}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Date</p>
                   <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1">{new Date(selectedPOForDetails.date).toLocaleDateString("en-GB")}</p>
                 </div>
-                <div>
-                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider mb-1">Status</p>
-                  <span className={`inline-block px-3.5 py-1 text-xs font-black uppercase rounded-full ${statusColors[getDisplayStatus(selectedPOForDetails, activeTab)] || "bg-gray-100 text-gray-800"}`}>
-                    {getDisplayStatus(selectedPOForDetails, activeTab)}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase text-gray-400 tracking-wider">PI Reference</p>
-                  <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-1">#{selectedPOForDetails.pi?.quotationNumber || "N/A"}</p>
-                </div>
+                {selectedPOForDetails.type !== "outward" && (
+                  <div>
+                    <p className="text-xs font-black uppercase text-gray-400 tracking-wider mb-1">Status</p>
+                    <span className={`inline-block px-3.5 py-1 text-xs font-black uppercase rounded-full ${statusColors[getDisplayStatus(selectedPOForDetails, activeTab)] || "bg-gray-100 text-gray-800"}`}>
+                      {getDisplayStatus(selectedPOForDetails, activeTab)}
+                    </span>
+                  </div>
+                )}
+                {selectedPOForDetails.type !== "outward" && (
+                  <div>
+                    <p className="text-xs font-black uppercase text-gray-400 tracking-wider">PI Reference</p>
+                    <p className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-1">#{selectedPOForDetails.pi?.quotationNumber || "N/A"}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Type</p>
                   <p className="text-base font-extrabold text-gray-800 dark:text-gray-200 mt-1 capitalize">{selectedPOForDetails.type} PO</p>
@@ -1874,6 +1938,22 @@ const POManagement = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Outward PO Creation / Edit Modal */}
+      {isCreateOutwardOpen && (
+        <CreateOutwardPO
+          poToEdit={selectedPOToEdit}
+          onClose={() => {
+            setIsCreateOutwardOpen(false);
+            setSelectedPOToEdit(null);
+          }}
+          onSuccess={() => {
+            setIsCreateOutwardOpen(false);
+            setSelectedPOToEdit(null);
+            fetchPOs();
+          }}
+        />
       )}
 
     </div>
