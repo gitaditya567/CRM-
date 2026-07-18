@@ -177,9 +177,9 @@ export default function CreateOutwardPO({ onClose, onSuccess, poToEdit }) {
             gstin: poToEdit?.shipper?.gstin || "" 
         },
         shipTo: { 
-            name: poToEdit?.shipper?.consigneeName || "", 
-            address: poToEdit?.shipper?.address || "", 
-            gstin: poToEdit?.shipper?.gstin || "" 
+            name: poToEdit?.shipper?.consigneeName || "TeamInspire Business Solutions Pvt Ltd", 
+            address: poToEdit?.shipper?.consigneeName ? (poToEdit?.shipper?.address || "") : "D730/29, Street No. 11, Ashok Nagar, Shahdara, Delhi, 110093, India", 
+            gstin: poToEdit?.shipper?.consigneeName ? (poToEdit?.shipper?.gstin || "") : "07AAFCT5822P1ZT" 
         },
         products: poToEdit ? (poToEdit.products || []) : [],
         additionalCharges: { 
@@ -234,9 +234,9 @@ export default function CreateOutwardPO({ onClose, onSuccess, poToEdit }) {
                 gstin: shipper ? shipper.gstin : ""
             },
             shipTo: {
-                name: shipper ? (shipper.consigneeName || "") : "",
-                address: shipper ? shipper.address : "",
-                gstin: shipper ? shipper.gstin : ""
+                name: shipper && shipper.consigneeName ? shipper.consigneeName : "TeamInspire Business Solutions Pvt Ltd",
+                address: shipper && shipper.consigneeName ? (shipper.address || "") : "D730/29, Street No. 11, Ashok Nagar, Shahdara, Delhi, 110093, India",
+                gstin: shipper && shipper.consigneeName ? (shipper.gstin || "") : "07AAFCT5822P1ZT"
             }
         }));
     };
@@ -258,9 +258,9 @@ export default function CreateOutwardPO({ onClose, onSuccess, poToEdit }) {
                     gstin: res.data.gstin || ""
                 },
                 shipTo: {
-                    name: res.data.consigneeName || "",
-                    address: res.data.address,
-                    gstin: res.data.gstin || ""
+                    name: res.data.consigneeName || "TeamInspire Business Solutions Pvt Ltd",
+                    address: res.data.consigneeName ? res.data.address : "D730/29, Street No. 11, Ashok Nagar, Shahdara, Delhi, 110093, India",
+                    gstin: res.data.consigneeName ? res.data.gstin : "07AAFCT5822P1ZT"
                 }
             }));
             
