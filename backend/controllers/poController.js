@@ -163,6 +163,15 @@ exports.updatePO = async (req, res) => {
             return res.status(404).json({ message: "Purchase Order not found" });
         }
 
+        if (po.type === "inward" && products) {
+            const hasSelected = products.some(p => p.selected !== false);
+            if (!hasSelected) {
+                return res.status(400).json({
+                    message: "Alert: Inward PO cannot be updated without selecting at least one item. Please select at least one item."
+                });
+            }
+        }
+
         let updates = {};
 
         if (typeof isMovedToInvoice !== "undefined") {

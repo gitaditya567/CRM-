@@ -404,13 +404,17 @@ const POManagement = () => {
 
     try {
       if (!isOutward) {
+        const anySelected = modalProducts.some(p => p.selected);
+        if (!anySelected) {
+          toast.error("⚠️ Restriction: Cannot update Inward PO without selecting at least one item! Please select at least one item.");
+          return;
+        }
         const isMoved = po.isMovedToInvoice || shouldMoveToInvoice;
         let newStatus;
         if (isMoved) {
           newStatus = getInwardPOInvoiceStatus(modalProducts);
         } else {
           const allSelected = modalProducts.every(p => p.selected);
-          const anySelected = modalProducts.some(p => p.selected);
           newStatus = "Pending";
           if (allSelected) {
             newStatus = "Processed";
@@ -465,6 +469,11 @@ const POManagement = () => {
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
 
     if (!isOutward) {
+      const anySelected = modalProducts.some(p => p.selected);
+      if (!anySelected) {
+        toast.error("⚠️ Restriction: You must select at least one item before updating or proceeding with the Inward PO!");
+        return;
+      }
       setIsMoveConfirmOpen(true);
     } else {
       handleSavePOProducts(false);
