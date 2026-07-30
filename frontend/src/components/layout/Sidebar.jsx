@@ -12,7 +12,8 @@ import {
     PlusCircle,
     History,
     RefreshCw,
-    List
+    List,
+    ExternalLink
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -52,10 +53,6 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
         }
     };
 
-    // ... (rest of the logic remains same, just updating the return block)
-    // I'll skip to the return block for the edit
-    // Wait, I need to make sure I don't break the existing logic.
-    // I'll use multi_replace for safer editing.
     const rolePermissions = JSON.parse(localStorage.getItem("rolePermissions") || "{}");
 
     const links = [];
@@ -64,18 +61,17 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
     const canViewMenu = (menuName, legacyKey) => {
         if (role === 'admin' || role === 'superadmin') return true;
 
-        // Use new menuPermissions if available
         if (rolePermissions?.menuPermissions && rolePermissions.menuPermissions[menuName]) {
             return rolePermissions.menuPermissions[menuName].view === true;
         }
 
-        // Fallback to legacy uiSettings for backward compatibility
         return uiSettings?.sidebar?.[legacyKey] === true;
     };
 
 
     if (isSales || isServices || isStaff) {
         links.push({ name: "Sales Hub", path: "/sales-dashboard", icon: LayoutDashboard });
+        links.push({ name: "Master Dashboard ↗", path: "/master-dashboard", icon: ExternalLink, external: true });
         links.push({ name: "My Leads", path: "/leads?tab=my_leads", icon: Users });
         links.push({ name: "Leads", path: "/leads", icon: Users });
         links.push({ name: "Inventory Search", path: "/search", icon: ShoppingBag });
@@ -87,6 +83,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
     } else {
         if (canViewMenu('Dashboard', 'showDashboard')) {
             links.push({ name: "Dashboard", path: "/dashboard", icon: LayoutDashboard });
+            links.push({ name: "Master Dashboard ↗", path: "/master-dashboard", icon: ExternalLink, external: true });
         }
 
         if (canViewMenu('Leads', 'showLeads')) {
@@ -168,21 +165,34 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
                 </div>
 
                 <nav className="mt-6 px-4 space-y-2">
-                    {links.map((link) => (
-                        <Link
-                            key={link.path}
-                            to={link.path}
-                            className={`
-                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium
-                ${isActive(link.path)
-                                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm"
-                                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}
-              `}
-                        >
-                            <link.icon size={20} />
-                            <span>{link.name}</span>
-                        </Link>
-                    ))}
+                    {links.map((link) => 
+                        link.external ? (
+                            <a
+                                key={link.path}
+                                href={link.path}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium text-[#38BDF8] hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
+                            >
+                                <link.icon size={20} />
+                                <span>{link.name}</span>
+                            </a>
+                        ) : (
+                            <Link
+                                key={link.path}
+                                to={link.path}
+                                className={`
+                    flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium
+                    ${isActive(link.path)
+                                        ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm"
+                                        : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}
+                  `}
+                            >
+                                <link.icon size={20} />
+                                <span>{link.name}</span>
+                            </Link>
+                        )
+                    )}
                 </nav>
 
                 <div className="absolute bottom-0 w-full p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">

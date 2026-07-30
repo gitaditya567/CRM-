@@ -322,6 +322,16 @@ const Dashboard = () => {
         </div>
         
         <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+          <a
+            href="/master-dashboard"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 transition-all transform hover:scale-105 text-xs uppercase tracking-wider"
+          >
+            <ShoppingBag size={16} />
+            Show Master Dashboard ↗
+          </a>
+
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-2xl border border-blue-100 dark:border-blue-800">
               <Clock size={16} className="text-blue-600 dark:text-blue-400" />

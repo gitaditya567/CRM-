@@ -734,9 +734,20 @@ const POManagement = () => {
           </p>
         </div>
         
-        {/* Helper Note */}
-        <div className="text-xs text-gray-400 dark:text-gray-500 max-w-xs md:text-right font-medium">
-          💡 Purchase Orders can be created directly by converting Proforma Invoices (PI) from PI Management.
+        {/* Helper Note & Master Dashboard Button */}
+        <div className="flex items-center gap-4">
+          <a
+            href="/master-dashboard"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 transition-all transform hover:scale-105 text-xs uppercase tracking-wider whitespace-nowrap"
+          >
+            <Maximize2 size={16} />
+            Show Master Dashboard ↗
+          </a>
+          <div className="text-xs text-gray-400 dark:text-gray-500 max-w-xs md:text-right font-medium hidden md:block">
+            💡 Purchase Orders can be created directly by converting Proforma Invoices (PI) from PI Management.
+          </div>
         </div>
       </div>
 

@@ -19,11 +19,12 @@ const ClientSupport = lazy(() => import("./pages/ClientSupport"));
 const POManagement = lazy(() => import("./pages/POManagement"));
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 const DeveloperRequests = lazy(() => import("./pages/DeveloperRequests"));
+const MasterDashboard = lazy(() => import("./pages/MasterDashboard"));
 
 const GlobalLoader = () => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
-    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-600"></div>
-    <p className="mt-4 text-sm font-black uppercase tracking-widest text-gray-400 animate-pulse">Loading TeamInspire...</p>
+  <div className="flex flex-col items-center justify-center min-h-screen bg-[#070F2B] text-white">
+    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
+    <p className="mt-4 text-sm font-black uppercase tracking-widest text-blue-400 animate-pulse">Loading Master Dashboard...</p>
   </div>
 );
 
@@ -31,7 +32,7 @@ const GlobalLoader = () => (
 import DashboardLayout from "./components/layout/DashboardLayout";
 import SecurityAlerts from "./components/common/SecurityAlerts";
 
-// 🔐 Protected Route
+// 🔐 Protected Route with Layout
 const PrivateRoute = ({ children }) => {
   const token = localStorage.getItem("token");
   return token ? (
@@ -39,6 +40,12 @@ const PrivateRoute = ({ children }) => {
       {children}
     </DashboardLayout>
   ) : <Navigate to="/" />;
+};
+
+// 🔐 Raw Protected Route (Standalone Full Screen)
+const RawPrivateRoute = ({ children }) => {
+  const token = localStorage.getItem("token");
+  return token ? children : <Navigate to="/" />;
 };
 
 // 👑 Admin Route
@@ -193,6 +200,16 @@ const App = () => {
                   <PrivateRoute>
                     <POManagement />
                   </PrivateRoute>
+                }
+              />
+
+              {/* Master Dashboard (Full Screen Standalone) */}
+              <Route
+                path="/master-dashboard"
+                element={
+                  <RawPrivateRoute>
+                    <MasterDashboard />
+                  </RawPrivateRoute>
                 }
               />
 
