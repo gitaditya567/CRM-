@@ -14,7 +14,6 @@ import {
     Zap
 } from "lucide-react";
 import StatsCard from "../components/dashboard/StatsCard";
-import RecentActivity from "../components/dashboard/RecentActivity";
 import { io } from "socket.io-client";
 import { API_BASE_URL } from "../api/api";
 
@@ -90,7 +89,7 @@ const SalesDashboard = () => {
                 <div>
                     <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center gap-3">
                         <Zap className="text-yellow-500 fill-yellow-500" size={32} />
-                        Sales Hub (Live Update Test)
+                        Dashboard
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
                         Welcome, <span className="text-blue-600 dark:text-blue-400 font-bold">{localStorage.getItem("name")}</span>! Focus on your goals today.
@@ -145,92 +144,69 @@ const SalesDashboard = () => {
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Recent Pulse */}
-                <div className="lg:col-span-2">
-                    <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 h-full">
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                <Clock size={20} className="text-blue-500" />
-                                Recent Updates
-                            </h3>
-                            <button onClick={() => window.location.href = '/leads'} className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">
-                                View All
-                            </button>
-                        </div>
-                        <RecentActivity 
-                            activities={[
-                                ...(activity?.leads || []).map(l => ({ ...l, type: 'lead', title: l.name, description: `Status: ${l.status}` })),
-                                ...(activity?.quotations || []).map(q => ({ ...q, type: 'quotation', title: `Quote #${q.quotationNumber}`, description: `Total: ₹${q.grandTotal}` }))
-                            ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5)} 
-                        />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Sales Toolkit */}
+                <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Quick Toolkit</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <button 
+                            onClick={() => navigate('/leads?action=add')}
+                            className="flex items-center gap-4 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 hover:scale-[1.02] transition-transform text-left group"
+                        >
+                            <div className="p-3 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30 group-hover:rotate-12 transition-transform">
+                                <PlusCircle size={20} />
+                            </div>
+                            <div>
+                                <p className="font-bold text-gray-900 dark:text-white">Create Lead</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">New opportunity</p>
+                            </div>
+                        </button>
+
+                        <button 
+                            onClick={() => window.location.href = '/search'}
+                            className="flex items-center gap-4 p-4 rounded-2xl bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 hover:scale-[1.02] transition-transform text-left group"
+                        >
+                            <div className="p-3 bg-purple-600 text-white rounded-xl shadow-lg shadow-purple-500/30 group-hover:rotate-12 transition-transform">
+                                <ShoppingBag size={20} />
+                            </div>
+                            <div>
+                                <p className="font-bold text-gray-900 dark:text-white">Inventory</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Check availability</p>
+                            </div>
+                        </button>
+
+                        <button 
+                            onClick={() => navigate('/leads')}
+                            className="flex items-center gap-4 p-4 rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 hover:scale-[1.02] transition-transform text-left group"
+                        >
+                            <div className="p-3 bg-green-600 text-white rounded-xl shadow-lg shadow-green-500/30 group-hover:rotate-12 transition-transform">
+                                <Users size={20} />
+                            </div>
+                            <div>
+                                <p className="font-bold text-gray-900 dark:text-white">Leads</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Track pipeline</p>
+                            </div>
+                        </button>
                     </div>
                 </div>
 
-                {/* Sales Toolkit */}
-                <div className="space-y-6">
-                    <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-                        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Quick Toolkit</h3>
-                        <div className="grid grid-cols-1 gap-4">
-                            <button 
-                                onClick={() => navigate('/leads?action=add')}
-                                className="flex items-center gap-4 p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 hover:scale-[1.02] transition-transform text-left group"
-                            >
-                                <div className="p-3 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30 group-hover:rotate-12 transition-transform">
-                                    <PlusCircle size={20} />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-gray-900 dark:text-white">Create Lead</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">New opportunity</p>
-                                </div>
-                            </button>
-
-                            <button 
-                                onClick={() => window.location.href = '/search'}
-                                className="flex items-center gap-4 p-4 rounded-2xl bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 hover:scale-[1.02] transition-transform text-left group"
-                            >
-                                <div className="p-3 bg-purple-600 text-white rounded-xl shadow-lg shadow-purple-500/30 group-hover:rotate-12 transition-transform">
-                                    <ShoppingBag size={20} />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-gray-900 dark:text-white">Inventory</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Check availability</p>
-                                </div>
-                            </button>
-
-                            <button 
-                                onClick={() => navigate('/leads?tab=quotations')}
-                                className="flex items-center gap-4 p-4 rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 hover:scale-[1.02] transition-transform text-left group"
-                            >
-                                <div className="p-3 bg-green-600 text-white rounded-xl shadow-lg shadow-green-500/30 group-hover:rotate-12 transition-transform">
-                                    <FileText size={20} />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-gray-900 dark:text-white">Quotations</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Manage offers</p>
-                                </div>
-                            </button>
-                        </div>
+                <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden flex flex-col justify-between">
+                    <div className="relative z-10">
+                        <h4 className="font-black text-lg mb-2">Need Help?</h4>
+                        <p className="text-blue-100 text-xs mb-6 font-medium leading-relaxed">
+                            Reach out to our technical team for any support or feature requests.
+                        </p>
+                        <a 
+                            href="https://wa.me/916392041849" 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="inline-block px-6 py-2.5 bg-white text-blue-600 font-black rounded-xl text-sm shadow-lg hover:bg-blue-50 transition-colors"
+                        >
+                            WhatsApp Support
+                        </a>
                     </div>
-
-                    <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
-                        <div className="relative z-10">
-                            <h4 className="font-black text-lg mb-2">Need Help?</h4>
-                            <p className="text-blue-100 text-xs mb-6 font-medium leading-relaxed">
-                                Reach out to our technical team for any support or feature requests.
-                            </p>
-                            <a 
-                                href="https://wa.me/916392041849" 
-                                target="_blank" 
-                                rel="noreferrer"
-                                className="inline-block px-6 py-2.5 bg-white text-blue-600 font-black rounded-xl text-sm shadow-lg hover:bg-blue-50 transition-colors"
-                            >
-                                WhatsApp Support
-                            </a>
-                        </div>
-                        {/* Decorative Circle */}
-                        <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-                    </div>
+                    {/* Decorative Circle */}
+                    <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
                 </div>
             </div>
         </div>

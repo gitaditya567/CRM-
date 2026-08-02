@@ -6,6 +6,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 export default defineConfig({
   plugins: [react(), basicSsl()],
   build: {
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks(id) {

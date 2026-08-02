@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import Sidebar from "./Sidebar";
 import { Menu } from "lucide-react";
-import NotificationToast from "../common/NotificationToast";
 import ScrollingBanner from "./ScrollingBanner";
 import ChatWidget from "../common/ChatWidget";
 
@@ -40,7 +39,6 @@ const DashboardLayout = ({ children }) => {
                 </main>
             </div>
           </div>
-          <NotificationToast />
           <ChatWidget />
         </div>
     );

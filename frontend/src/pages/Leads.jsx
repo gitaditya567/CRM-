@@ -3112,7 +3112,7 @@ const TeamInspire = () => {
     // leadId: optional - if provided, this lead will be pre-selected and added to eligible list
     const openQuotationModal = async (quote = null, leadId = null) => {
         try {
-            const res = await API.get("/leads?limit=1000&excludeQuoted=true");
+            const res = await API.get("/leads?limit=1000");
             let list = res.data.leads || [];
             
             // If editing, make sure the current quotation's lead is included so it displays correctly
@@ -3628,7 +3628,7 @@ const TeamInspire = () => {
         );
     };
 
-    const isSalesView = (userRole?.toLowerCase() === 'sales' || userRole?.toLowerCase() === 'services') && !(new URLSearchParams(location.search).get("action") === "update");
+    const isSalesView = false;
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
@@ -4948,8 +4948,8 @@ const TeamInspire = () => {
                                         className={`w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white ${editingQuotation ? 'opacity-60 cursor-not-allowed bg-gray-200 dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}`}
                                     >
                                         <option value="">Select a Lead...</option>
-                                        {eligibleLeads.filter(l => l.status === 'Qualified' || l.status === 'Won' || (editingQuotation && (l._id === editingQuotation.lead?._id || l._id === editingQuotation.lead))).map(l => (
-                                            <option key={l._id} value={l._id}>{l.leadNumber ? `${l.leadNumber} - ` : ""}{l.name} - {l.group?.name || 'No Group'}</option>
+                                        {eligibleLeads.filter(l => l.status !== 'Lost' || (editingQuotation && (l._id === editingQuotation.lead?._id || l._id === editingQuotation.lead))).map(l => (
+                                            <option key={l._id} value={l._id}>{l.leadNumber ? `${l.leadNumber} - ` : ""}{l.name} - {l.group?.name || 'No Group'} ({l.status})</option>
                                         ))}
                                     </select>
                                 </div>

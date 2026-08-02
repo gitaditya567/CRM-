@@ -80,6 +80,11 @@ const MasterDashboard = () => {
 
   // Calculate Time-Based Greeting & Auto-Hide Popup after 3.5s
   useEffect(() => {
+    const role = localStorage.getItem("role")?.toLowerCase();
+    if (role === "sales") {
+      window.location.href = "/sales-dashboard";
+      return;
+    }
     const hour = new Date().getHours();
     let userStr = "Welcome back, TeamInspire Admin!";
     try {

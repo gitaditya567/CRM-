@@ -31,6 +31,8 @@ const GlobalLoader = () => (
 
 import DashboardLayout from "./components/layout/DashboardLayout";
 import SecurityAlerts from "./components/common/SecurityAlerts";
+import NotificationToast from "./components/common/NotificationToast";
+import SecurityShield from "./components/common/SecurityShield";
 
 // 🔐 Protected Route with Layout
 const PrivateRoute = ({ children }) => {
@@ -54,11 +56,19 @@ const AdminRoute = ({ children }) => {
   return (role === "admin" || role === "superadmin") ? children : <Navigate to="/dashboard" />;
 };
 
+// 🚫 Non-Sales Route (Restricts sales role from Master Dashboard)
+const NonSalesRoute = ({ children }) => {
+  const role = localStorage.getItem("role")?.toLowerCase();
+  return role === "sales" ? <Navigate to="/sales-dashboard" /> : children;
+};
+
 const App = () => {
   return (
     <ThemeProvider>
       <SettingsProvider>
+        <SecurityShield />
         <SecurityAlerts />
+        <NotificationToast />
         <Router>
           <Suspense fallback={<GlobalLoader />}>
             <Routes>
@@ -208,7 +218,9 @@ const App = () => {
                 path="/master-dashboard"
                 element={
                   <RawPrivateRoute>
-                    <MasterDashboard />
+                    <NonSalesRoute>
+                      <MasterDashboard />
+                    </NonSalesRoute>
                   </RawPrivateRoute>
                 }
               />
