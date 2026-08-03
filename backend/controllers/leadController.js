@@ -16,11 +16,11 @@ exports.getLeads = async (req, res) => {
         if (req.user && req.user.role?.toLowerCase() !== "admin" && req.user.role?.toLowerCase() !== "superadmin") {
             const userRole = req.user.role?.toLowerCase();
             if (userRole === "sales" || userRole === "services") {
+                // Sales/Services: only see leads they created OR leads assigned to them
                 filter = {
                     $or: [
                         { assignedTo: req.user._id },
-                        { createdBy: req.user._id },
-                        { source: req.user.name }
+                        { createdBy: req.user._id }
                     ]
                 };
             } else {

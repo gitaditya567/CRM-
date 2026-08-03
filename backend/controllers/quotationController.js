@@ -18,18 +18,15 @@ exports.getQuotations = async (req, res) => {
         if (req.user && req.user.role?.toLowerCase() !== "admin" && req.user.role?.toLowerCase() !== "superadmin") {
             const userRole = req.user.role?.toLowerCase();
             if (userRole === "sales" || userRole === "services") {
+                // Find all leads belonging to this sales person:
+                // - assigned to them, OR created by them
                 const leadIds = await require("../models/Lead").find({
                     $or: [
                         { assignedTo: req.user._id },
-                        { source: req.user.name }
+                        { createdBy: req.user._id }
                     ]
                 }).distinct("_id");
-                filters.push({
-                    $or: [
-                        { createdBy: req.user._id },
-                        { lead: { $in: leadIds } }
-                    ]
-                });
+                filters.push({ lead: { $in: leadIds } });
             } else {
                 const leadIds = await require("../models/Lead").find({
                     $or: [

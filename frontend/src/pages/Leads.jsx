@@ -3113,7 +3113,10 @@ const TeamInspire = () => {
     const openQuotationModal = async (quote = null, leadId = null) => {
         try {
             const res = await API.get("/leads?limit=1000");
-            let list = res.data.leads || [];
+            let allLeads = res.data.leads || [];
+
+            // Only show Qualified leads for new quotation creation
+            let list = allLeads.filter(l => l.status === "Qualified");
             
             // If editing, make sure the current quotation's lead is included so it displays correctly
             if (quote) {
@@ -3124,12 +3127,15 @@ const TeamInspire = () => {
             }
 
             // If a specific leadId is passed (direct qualification flow), ensure it's in the list
-            if (leadId && !list.some(l => l._id === leadId)) {
-                try {
-                    const leadRes = await API.get(`/leads/${leadId}`);
-                    if (leadRes.data) list.unshift(leadRes.data);
-                } catch (e) {
-                    console.warn("Could not fetch lead for quotation pre-fill", e);
+            if (leadId) {
+                const alreadyIn = list.some(l => l._id === leadId);
+                if (!alreadyIn) {
+                    try {
+                        const leadRes = await API.get(`/leads/${leadId}`);
+                        if (leadRes.data) list.unshift(leadRes.data);
+                    } catch (e) {
+                        console.warn("Could not fetch lead for quotation pre-fill", e);
+                    }
                 }
             }
 
@@ -4948,7 +4954,7 @@ const TeamInspire = () => {
                                         className={`w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white ${editingQuotation ? 'opacity-60 cursor-not-allowed bg-gray-200 dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}`}
                                     >
                                         <option value="">Select a Lead...</option>
-                                        {eligibleLeads.filter(l => l.status !== 'Lost' || (editingQuotation && (l._id === editingQuotation.lead?._id || l._id === editingQuotation.lead))).map(l => (
+                                        {eligibleLeads.map(l => (
                                             <option key={l._id} value={l._id}>{l.leadNumber ? `${l.leadNumber} - ` : ""}{l.name} - {l.group?.name || 'No Group'} ({l.status})</option>
                                         ))}
                                     </select>
