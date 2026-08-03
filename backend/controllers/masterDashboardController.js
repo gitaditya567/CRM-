@@ -34,8 +34,8 @@ const getMasterDashboardData = async (req, res) => {
         const userNameMap = new Map();
         users.forEach(u => userNameMap.set(String(u._id), u.name));
 
-        // 3. Fetch POs with population
-        let filter = {};
+        // 3. Fetch POs with population — only Inward POs (exclude Outward)
+        let filter = { type: "inward" };
         if (startDate || endDate) {
             filter.date = {};
             if (startDate) filter.date.$gte = new Date(startDate);
