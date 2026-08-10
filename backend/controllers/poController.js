@@ -192,7 +192,7 @@ exports.updatePO = async (req, res) => {
                 const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
 
                 if (totalDispatched > 0) {
-                    updates.status = totalDispatched === totalQty ? "Dispatched" : "Partially Dispatched";
+                    updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced) ? "Dispatched" : "Pending";
                 } else if (totalInvoiced === 0) {
                     updates.status = "Pending";
                 } else {

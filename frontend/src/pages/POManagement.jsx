@@ -148,12 +148,11 @@ const POManagement = () => {
 
   const getDisplayStatus = (po, tab) => {
     if (tab === "dispatch") {
-      const activeProducts = po.products || [];
-      const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+      const activeProducts = (po.products || []).filter(p => p.selected !== false);
+      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-      if (totalDispatched === totalQty) return "Dispatched";
-      if (totalDispatched === 0) return "Pending";
-      return "Partially Dispatched";
+      if (totalInvoiced > 0 && totalDispatched >= totalInvoiced) return "Dispatched";
+      return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
       const activeProducts = (po.products || []).filter(p => p.selected !== false);
@@ -196,24 +195,9 @@ const POManagement = () => {
     }
 
     // 2. Status Filter
-    if (activeTab === "dispatch") {
-      const activeProducts = po.products || [];
-      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-      const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-
-      const isPending = totalDispatched < totalInvoiced;
-      const isPartiallyDispatched = totalDispatched > 0 && totalDispatched < totalQty;
-      const isDispatched = totalDispatched === totalQty;
-
-      if (statusFilter === "Pending" && !isPending) return false;
-      if (statusFilter === "Partially Dispatched" && !isPartiallyDispatched) return false;
-      if (statusFilter === "Dispatched" && !isDispatched) return false;
-    } else {
-      const displayStatus = getDisplayStatus(po, activeTab);
-      if (statusFilter !== "All" && displayStatus !== statusFilter) {
-        return false;
-      }
+    const displayStatus = getDisplayStatus(po, activeTab);
+    if (statusFilter !== "All" && displayStatus !== statusFilter) {
+      return false;
     }
 
     // 3. Search query filter
@@ -320,9 +304,10 @@ const POManagement = () => {
         }
         return p;
       });
-      const totalQty = updatedProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-      const totalDispatched = updatedProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-      const newStatus = totalDispatched === totalQty ? "Dispatched" : "Partially Dispatched";
+      const activeProducts = updatedProducts.filter(p => p.selected !== false);
+      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+      const newStatus = (totalInvoiced > 0 && totalDispatched >= totalInvoiced) ? "Dispatched" : "Pending";
 
       await API.put(`/purchase-orders/${selectedPOForDispatch._id}`, {
         products: updatedProducts,
@@ -867,16 +852,16 @@ const POManagement = () => {
           </div>
         </div>
 
-        {/* PO Table list */}
-        <div className="overflow-x-auto">
+        {/* PO Table list (Scrollable Frame Container) */}
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] min-h-[400px] rounded-2xl border border-gray-100 dark:border-gray-700/70 shadow-xs bg-white dark:bg-gray-800 relative">
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center">
               <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600"></div>
               <p className="mt-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Loading records...</p>
             </div>
           ) : (
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-100/95 dark:bg-gray-800/95 backdrop-blur-md sticky top-0 z-10 shadow-xs border-b border-gray-200 dark:border-gray-700">
                 <tr>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">PO Number</th>
                   {activeTab !== "outward" && (
@@ -962,7 +947,7 @@ const POManagement = () => {
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
                         {/* View Product Checkbox Icon / Edit Icon */}
-                        {activeTab === "outward" ? (
+                        {activeTab === "outward" && (
                           <button 
                             onClick={() => {
                                 setSelectedPOToEdit(po);
@@ -973,15 +958,16 @@ const POManagement = () => {
                           >
                             <Edit size={18} />
                           </button>
-                        ) : (
-                          <button 
-                            onClick={() => handleOpenProductsModal(po)}
-                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                            title="View Products for Update"
-                          >
-                            <List size={18} />
-                          </button>
                         )}
+                        {/* 
+                        <button 
+                          onClick={() => handleOpenProductsModal(po)}
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                          title="View Products for Update"
+                        >
+                          <List size={18} />
+                        </button>
+                        */}
                         {/* Eye Icon for detail view */}
                         <button 
                           onClick={() => handleOpenDetailModal(po)}
