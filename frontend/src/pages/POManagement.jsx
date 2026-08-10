@@ -946,28 +946,29 @@ const POManagement = () => {
                     )}
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {/* View Product Checkbox Icon / Edit Icon */}
-                        {activeTab === "outward" && (
-                          <button 
-                            onClick={() => {
-                                setSelectedPOToEdit(po);
-                                setIsCreateOutwardOpen(true);
-                            }}
-                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                            title="Edit Outward PO"
-                          >
-                            <Edit size={18} />
-                          </button>
+                        {/* View Product Checkbox Icon / Edit Icon (Disabled in Dispatch Management tab) */}
+                        {activeTab !== "dispatch" && (
+                          activeTab === "outward" ? (
+                            <button 
+                              onClick={() => {
+                                  setSelectedPOToEdit(po);
+                                  setIsCreateOutwardOpen(true);
+                              }}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="Edit Outward PO"
+                            >
+                              <Edit size={18} />
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleOpenProductsModal(po)}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="View Products for Update"
+                            >
+                              <List size={18} />
+                            </button>
+                          )
                         )}
-                        {/* 
-                        <button 
-                          onClick={() => handleOpenProductsModal(po)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                          title="View Products for Update"
-                        >
-                          <List size={18} />
-                        </button>
-                        */}
                         {/* Eye Icon for detail view */}
                         <button 
                           onClick={() => handleOpenDetailModal(po)}
