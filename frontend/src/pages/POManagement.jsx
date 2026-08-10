@@ -104,13 +104,7 @@ const POManagement = () => {
   };
 
   useEffect(() => {
-    if (activeTab === "inward_invoice") {
-      setStatusFilter("All");
-    } else if (activeTab === "dispatch") {
-      setStatusFilter("Approved");
-    } else {
-      setStatusFilter("Pending");
-    }
+    setStatusFilter("All");
     setSearchQueries({
       inward: "",
       inward_invoice: "",
@@ -148,6 +142,7 @@ const POManagement = () => {
 
   const getDisplayStatus = (po, tab) => {
     if (tab === "dispatch") {
+      if (po.status === "Dispatched") return "Dispatched";
       const activeProducts = (po.products || []).filter(p => p.selected !== false);
       const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
@@ -190,8 +185,10 @@ const POManagement = () => {
     if (activeTab === "dispatch") {
       const isEligible = (po.type === "inward" && po.isMovedToInvoice === true) || po.type === "outward";
       if (!isEligible) return false;
-      const hasInvoiced = (po.products || []).some(p => (p.invoicedQuantity || 0) > 0);
-      if (!hasInvoiced) return false;
+      const hasInvoicedOrDispatched = po.status === "Dispatched" ||
+        (po.dispatchHistory && po.dispatchHistory.length > 0) ||
+        (po.products || []).some(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0);
+      if (!hasInvoicedOrDispatched) return false;
     }
 
     // 2. Status Filter
