@@ -25,27 +25,40 @@ exports.getPOs = async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Map legalEntityName to clientName
+        // Map legalEntityName to clientName & extract client contact info (email & phone)
         const Client = require("../models/Client");
-        const clients = await Client.find({}, "clientName legalEntityName").lean();
-        const nameMap = new Map();
+        const clients = await Client.find({}, "clientName legalEntityName contactPerson1 contactPerson2").lean();
+        const clientMap = new Map();
         clients.forEach(c => {
+            const email = c.contactPerson1?.email || c.contactPerson2?.email || "";
+            const phone = c.contactPerson1?.phone || c.contactPerson2?.phone || "";
+            const info = { clientName: c.clientName, email, phone };
             if (c.legalEntityName) {
-                nameMap.set(c.legalEntityName.trim().toLowerCase(), c.clientName);
+                clientMap.set(c.legalEntityName.trim().toLowerCase(), info);
+            }
+            if (c.clientName) {
+                clientMap.set(c.clientName.trim().toLowerCase(), info);
             }
         });
 
         const formattedPOs = pos.map(po => {
             let name = po.vendorName;
+            let email = "";
+            let phone = "";
             if (name) {
                 const key = name.trim().toLowerCase();
-                if (nameMap.has(key)) {
-                    name = nameMap.get(key);
+                if (clientMap.has(key)) {
+                    const info = clientMap.get(key);
+                    name = info.clientName || name;
+                    email = info.email || "";
+                    phone = info.phone || "";
                 }
             }
             return {
                 ...po,
-                vendorName: name
+                vendorName: name,
+                clientEmail: email || po.shipper?.email || po.pi?.lead?.email || "",
+                clientPhone: phone || po.shipper?.contactNo || po.pi?.lead?.phone || po.pi?.lead?.mobile || ""
             };
         });
 

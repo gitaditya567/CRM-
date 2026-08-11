@@ -294,32 +294,50 @@ const POManagement = () => {
       courierName: dispatchForm.courierName || "N/A",
       trackingNo: dispatchForm.trackingNo || "N/A",
       dispatchDate: dispatchForm.dispatchDate || new Date().toISOString().split("T")[0],
+      transportMode: dispatchForm.transportMode || "Road",
       products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
     };
 
-    const recipientEmail = po.shipper?.email || po.pi?.lead?.email || "";
+    // Auto-fetch Client Email (from Client's contactPerson1.email or contactPerson2.email, populated as po.clientEmail)
+    const recipientEmail = po.clientEmail || po.contactPerson1?.email || po.shipper?.email || po.pi?.lead?.email || "";
     const clientName = po.vendorName || po.shipper?.billingName || po.shipper?.consigneeName || "Valued Client";
     const poNo = po.poNumber || "N/A";
     const courier = latestDispatch.courierName || "N/A";
     const tracking = latestDispatch.trackingNo || "N/A";
+    const transportMode = latestDispatch.transportMode || "Road";
     const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
 
-    const itemsText = (latestDispatch.products || []).map(p => `- ${p.name || p.productNo} (Brand: ${p.brand || 'N/A'}, Qty: ${p.quantity || p.dispatchQty || 1})`).join("\n");
+    const tableHeader = "SI.No. | Brand      | Model No/Part Code   | Description                                   | UOM  | Qty Ordered | Qty Delivered | Transport Mode | Transporter Name | Tracking Number";
+    const tableDivider = "---------------------------------------------------------------------------------------------------------------------------------------------------------";
 
-    const defaultSubject = `Dispatch Notification - Purchase Order #${poNo}`;
+    const tableRows = (latestDispatch.products || []).map((p, idx) => {
+      const slNo = String(idx + 1).padEnd(6);
+      const brand = (p.brand || "N/A").padEnd(10);
+      const modelNo = (p.productNo || "N/A").padEnd(20);
+      const desc = (p.name || "N/A").padEnd(45);
+      const uom = (p.uom || p.unit || "Pcs").padEnd(4);
+      const qtyOrdered = String(p.quantity || p.orderedQty || p.dispatchQty || 0).padEnd(11);
+      const qtyDelivered = String(p.dispatchQty || p.quantity || 0).padEnd(13);
+      const mode = transportMode.padEnd(14);
+      const transporter = courier.padEnd(16);
+      const trackNo = tracking;
+
+      return `${slNo} | ${brand} | ${modelNo} | ${desc} | ${uom} | ${qtyOrdered} | ${qtyDelivered} | ${mode} | ${transporter} | ${trackNo}`;
+    }).join("\n");
+
+    const defaultSubject = `Dispatch Details & Tracking - PO #${poNo}`;
     const defaultBody = `Dear ${clientName},
 
 We are pleased to inform you that your order under PO Number #${poNo} has been dispatched.
 
-🚚 Dispatch Details:
-- Courier / Partner: ${courier}
-- Tracking / AWB Number: ${tracking}
-- Dispatch Date: ${dateFormatted}
+🚚 DISPATCH DETAILS TABLE:
+${tableDivider}
+${tableHeader}
+${tableDivider}
+${tableRows}
+${tableDivider}
 
-📦 Dispatched Items:
-${itemsText}
-
-You can track your shipment using the tracking number above.
+Dispatch Date: ${dateFormatted}
 
 Thank you for choosing Team Inspire!
 
@@ -341,10 +359,12 @@ Dispatch & Operations Team`;
       courierName: dispatchForm.courierName || "N/A",
       trackingNo: dispatchForm.trackingNo || "N/A",
       dispatchDate: dispatchForm.dispatchDate || new Date().toISOString().split("T")[0],
+      transportMode: dispatchForm.transportMode || "Road",
       products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
     };
 
-    let phone = po.shipper?.contactNo || po.pi?.lead?.phone || po.pi?.lead?.mobile || "";
+    // Auto-fetch Client Phone (from Client's contactPerson1.phone or contactPerson2.phone, populated as po.clientPhone)
+    let phone = po.clientPhone || po.shipper?.contactNo || po.pi?.lead?.phone || po.pi?.lead?.mobile || "";
     phone = phone.replace(/[^0-9]/g, "");
     if (phone.length === 10) phone = "91" + phone;
 
@@ -352,9 +372,12 @@ Dispatch & Operations Team`;
     const poNo = po.poNumber || "N/A";
     const courier = latestDispatch.courierName || "N/A";
     const tracking = latestDispatch.trackingNo || "N/A";
+    const transportMode = latestDispatch.transportMode || "Road";
     const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
 
-    const itemsText = (latestDispatch.products || []).map(p => `• *${p.name || p.productNo}* (Qty: ${p.quantity || p.dispatchQty || 1})`).join("\n");
+    const itemsText = (latestDispatch.products || []).map((p, idx) => 
+      `${idx + 1}. *${p.brand || ''} ${p.productNo || ''}* - ${p.name || ''} (Qty: ${p.dispatchQty || p.quantity || 1})`
+    ).join("\n");
 
     const defaultMsg = `📦 *DISPATCH NOTIFICATION* 📦
 
@@ -362,7 +385,8 @@ Dear *${clientName}*,
 
 Your order under PO *#${poNo}* has been dispatched!
 
-🚚 *Courier*: ${courier}
+🚚 *Transporter*: ${courier}
+🚛 *Transport Mode*: ${transportMode}
 📌 *Tracking/AWB*: ${tracking}
 📅 *Dispatch Date*: ${dateFormatted}
 
@@ -2261,7 +2285,7 @@ Thank you for choosing Team Inspire!`;
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">To (Client Email)</label>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">To (Client Email - Auto Fetched from Personal Contact)</label>
                 <input 
                   type="email"
                   placeholder="e.g. client@example.com"
@@ -2282,13 +2306,65 @@ Thank you for choosing Team Inspire!`;
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Email Format / Message Body</label>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Email Format / Message Body (Text Table)</label>
                 <textarea 
-                  rows={9}
+                  rows={8}
                   value={dispatchCommData.body || ""}
                   onChange={e => setDispatchCommData({...dispatchCommData, body: e.target.value})}
                   className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-medium outline-none focus:border-blue-500 text-gray-900 dark:text-white leading-relaxed resize-y font-mono"
                 />
+              </div>
+
+              {/* Live HTML Table Preview matching 10 Columns from User's Image */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">Live HTML Table Preview (Matches 10 Columns from Image)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const htmlContent = document.getElementById("dispatch-html-table")?.outerHTML || "";
+                      navigator.clipboard.writeText(htmlContent);
+                      toast.success("HTML Table copied to clipboard!");
+                    }}
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Copy HTML Table
+                  </button>
+                </div>
+                <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 p-2">
+                  <table id="dispatch-html-table" className="w-full text-xs text-left border-collapse border border-gray-300 dark:border-gray-700">
+                    <thead className="bg-gray-100 dark:bg-gray-800 font-bold text-gray-800 dark:text-gray-200">
+                      <tr>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">SI.No.</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Brand</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Model No/Part Code</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Description</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">UOM</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">Qty Ordered</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">Qty Delivered</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Transport Mode</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Transporter Name</th>
+                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Tracking Number</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {(dispatchCommData.dispatch?.products || []).map((p, i) => (
+                        <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-bold">{i + 1}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{p.brand || "N/A"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-semibold text-blue-600 dark:text-blue-400">{p.productNo || "N/A"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-medium">{p.name || "N/A"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">{p.uom || p.unit || "Pcs"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-semibold">{p.quantity || p.orderedQty || p.dispatchQty || 0}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-bold text-emerald-600 dark:text-emerald-400">{p.dispatchQty || p.quantity || 0}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{dispatchCommData.dispatch?.transportMode || "Road"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{dispatchCommData.dispatch?.courierName || "N/A"}</td>
+                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-mono">{dispatchCommData.dispatch?.trackingNo || "N/A"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
