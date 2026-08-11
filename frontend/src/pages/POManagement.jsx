@@ -18,7 +18,15 @@ import {
   Maximize2,
   Minimize2,
   Truck,
-  Edit
+  Edit,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Mail,
+  MessageSquare,
+  Send,
+  ExternalLink
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
@@ -49,7 +57,7 @@ const POManagement = () => {
   });
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("Pending");
 
   // Modal states
   const [isProductsModalOpen, setIsProductsModalOpen] = useState(false);
@@ -83,6 +91,11 @@ const POManagement = () => {
   const [dispatchForm, setDispatchForm] = useState({ courierName: "", trackingNo: "", dispatchDate: "" });
   const [dispatchProducts, setDispatchProducts] = useState([]);
 
+  // Dispatch Email / WhatsApp Communication Modal state
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [dispatchCommData, setDispatchCommData] = useState(null);
+
   // Fetch POs from server
   const fetchPOs = async () => {
     setLoading(true);
@@ -104,7 +117,11 @@ const POManagement = () => {
   };
 
   useEffect(() => {
-    setStatusFilter("All");
+    if (activeTab === "inward" || activeTab === "dispatch" || activeTab === "inward_invoice") {
+      setStatusFilter("Pending");
+    } else {
+      setStatusFilter("All");
+    }
     setSearchQueries({
       inward: "",
       inward_invoice: "",
@@ -212,6 +229,31 @@ const POManagement = () => {
     return matchesPo || matchesPartner || matchesPi || matchesLead;
   });
 
+  // Pagination State & Calculations
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, statusFilter, searchQueries]);
+
+  const totalItems = filteredPOs.length;
+  const effectiveItemsPerPage = itemsPerPage === "All" ? totalItems : Number(itemsPerPage);
+  const totalPages = itemsPerPage === "All" || totalItems === 0 ? 1 : Math.ceil(totalItems / effectiveItemsPerPage);
+  
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [totalPages, currentPage]);
+
+  const indexOfFirstItem = itemsPerPage === "All" ? 0 : (currentPage - 1) * effectiveItemsPerPage;
+  const indexOfLastItem = itemsPerPage === "All" ? totalItems : Math.min(currentPage * effectiveItemsPerPage, totalItems);
+  
+  const paginatedPOs = itemsPerPage === "All" 
+    ? filteredPOs 
+    : filteredPOs.slice(indexOfFirstItem, indexOfLastItem);
+
   const getProductInvoices = (productNo) => {
     if (!selectedPOForProducts || !selectedPOForProducts.invoiceHistory) return [];
     const list = [];
@@ -245,6 +287,97 @@ const POManagement = () => {
       };
     }));
     setIsProductsModalOpen(true);
+  };
+
+  const handleOpenEmailModal = (po, dispatchObj = null) => {
+    const latestDispatch = dispatchObj || (po.dispatchHistory && po.dispatchHistory[po.dispatchHistory.length - 1]) || {
+      courierName: dispatchForm.courierName || "N/A",
+      trackingNo: dispatchForm.trackingNo || "N/A",
+      dispatchDate: dispatchForm.dispatchDate || new Date().toISOString().split("T")[0],
+      products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
+    };
+
+    const recipientEmail = po.shipper?.email || po.pi?.lead?.email || "";
+    const clientName = po.vendorName || po.shipper?.billingName || po.shipper?.consigneeName || "Valued Client";
+    const poNo = po.poNumber || "N/A";
+    const courier = latestDispatch.courierName || "N/A";
+    const tracking = latestDispatch.trackingNo || "N/A";
+    const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
+
+    const itemsText = (latestDispatch.products || []).map(p => `- ${p.name || p.productNo} (Brand: ${p.brand || 'N/A'}, Qty: ${p.quantity || p.dispatchQty || 1})`).join("\n");
+
+    const defaultSubject = `Dispatch Notification - Purchase Order #${poNo}`;
+    const defaultBody = `Dear ${clientName},
+
+We are pleased to inform you that your order under PO Number #${poNo} has been dispatched.
+
+🚚 Dispatch Details:
+- Courier / Partner: ${courier}
+- Tracking / AWB Number: ${tracking}
+- Dispatch Date: ${dateFormatted}
+
+📦 Dispatched Items:
+${itemsText}
+
+You can track your shipment using the tracking number above.
+
+Thank you for choosing Team Inspire!
+
+Best regards,
+Dispatch & Operations Team`;
+
+    setDispatchCommData({
+      po,
+      dispatch: latestDispatch,
+      recipientEmail,
+      subject: defaultSubject,
+      body: defaultBody
+    });
+    setIsEmailModalOpen(true);
+  };
+
+  const handleOpenWhatsAppModal = (po, dispatchObj = null) => {
+    const latestDispatch = dispatchObj || (po.dispatchHistory && po.dispatchHistory[po.dispatchHistory.length - 1]) || {
+      courierName: dispatchForm.courierName || "N/A",
+      trackingNo: dispatchForm.trackingNo || "N/A",
+      dispatchDate: dispatchForm.dispatchDate || new Date().toISOString().split("T")[0],
+      products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
+    };
+
+    let phone = po.shipper?.contactNo || po.pi?.lead?.phone || po.pi?.lead?.mobile || "";
+    phone = phone.replace(/[^0-9]/g, "");
+    if (phone.length === 10) phone = "91" + phone;
+
+    const clientName = po.vendorName || po.shipper?.billingName || po.shipper?.consigneeName || "Valued Client";
+    const poNo = po.poNumber || "N/A";
+    const courier = latestDispatch.courierName || "N/A";
+    const tracking = latestDispatch.trackingNo || "N/A";
+    const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
+
+    const itemsText = (latestDispatch.products || []).map(p => `• *${p.name || p.productNo}* (Qty: ${p.quantity || p.dispatchQty || 1})`).join("\n");
+
+    const defaultMsg = `📦 *DISPATCH NOTIFICATION* 📦
+
+Dear *${clientName}*,
+
+Your order under PO *#${poNo}* has been dispatched!
+
+🚚 *Courier*: ${courier}
+📌 *Tracking/AWB*: ${tracking}
+📅 *Dispatch Date*: ${dateFormatted}
+
+📋 *Dispatched Items*:
+${itemsText}
+
+Thank you for choosing Team Inspire!`;
+
+    setDispatchCommData({
+      po,
+      dispatch: latestDispatch,
+      recipientPhone: phone,
+      whatsappMessage: defaultMsg
+    });
+    setIsWhatsAppModalOpen(true);
   };
 
   const handleOpenDispatchModal = (po) => {
@@ -885,7 +1018,7 @@ const POManagement = () => {
                 </tr>
               </thead>
               <tbody key={activeTab} className="divide-y divide-gray-100 dark:divide-gray-700 animate-fade-in">
-                {filteredPOs.map((po) => (
+                {paginatedPOs.map((po) => (
                   <tr key={po._id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -1002,15 +1135,33 @@ const POManagement = () => {
                             <FileCheck size={18} />
                           </button>
                         )}
-                        {/* Update Dispatch Tracking Button (Dispatch tab only) */}
-                        {activeTab === "dispatch" && po.products?.some(p => (p.invoicedQuantity || 0) > (p.dispatchedQuantity || 0)) && (
-                          <button 
-                            onClick={() => handleOpenDispatchModal(po)}
-                            className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                            title="Update Tracking Details"
-                          >
-                            <Truck size={18} />
-                          </button>
+                        {/* Update Dispatch Tracking Button & Direct Email/WhatsApp (Dispatch tab only) */}
+                        {activeTab === "dispatch" && (
+                          <>
+                            {po.products?.some(p => (p.invoicedQuantity || 0) > (p.dispatchedQuantity || 0)) && (
+                              <button 
+                                onClick={() => handleOpenDispatchModal(po)}
+                                className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                                title="Update Tracking Details"
+                              >
+                                <Truck size={18} />
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => handleOpenEmailModal(po)}
+                              className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="Send Dispatch Email"
+                            >
+                              <Mail size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleOpenWhatsAppModal(po)}
+                              className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="Send Dispatch WhatsApp Notification"
+                            >
+                              <MessageSquare size={18} />
+                            </button>
+                          </>
                         )}
                         {/* History / Records Icon */}
                         {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true) || activeTab === "outward" || activeTab === "dispatch") && ((po.invoiceHistory && po.invoiceHistory.length > 0) || (po.dispatchHistory && po.dispatchHistory.length > 0)) && (
@@ -1048,6 +1199,108 @@ const POManagement = () => {
                 )}
               </tbody>
             </table>
+          )}
+        </div>
+
+        {/* Pagination Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 text-xs text-gray-500 dark:text-gray-400">
+          {/* Left: Entries Info & Items Per Page Selector */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">Show</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  const val = e.target.value === "All" ? "All" : Number(e.target.value);
+                  setItemsPerPage(val);
+                  setCurrentPage(1);
+                }}
+                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-1.5 text-xs font-bold text-gray-700 dark:text-gray-200 outline-none cursor-pointer focus:ring-1 focus:ring-blue-500"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value="All">All</option>
+              </select>
+              <span className="font-medium">entries per page</span>
+            </div>
+            <span className="text-gray-300 dark:text-gray-600 hidden sm:inline">|</span>
+            <span className="font-semibold">
+              Showing <span className="text-gray-900 dark:text-white font-bold">{totalItems === 0 ? 0 : indexOfFirstItem + 1}</span> to{" "}
+              <span className="text-gray-900 dark:text-white font-bold">{indexOfLastItem}</span> of{" "}
+              <span className="text-gray-900 dark:text-white font-bold">{totalItems}</span> entries
+            </span>
+          </div>
+
+          {/* Right: Page Navigation Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition text-gray-600 dark:text-gray-300 cursor-pointer"
+                title="First Page"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition text-gray-600 dark:text-gray-300 cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              {/* Page Numbers */}
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) => {
+                    if (totalPages <= 7) return true;
+                    if (page === 1 || page === totalPages) return true;
+                    if (Math.abs(page - currentPage) <= 1) return true;
+                    return false;
+                  })
+                  .map((page, idx, array) => {
+                    const prevPage = array[idx - 1];
+                    const showEllipsis = prevPage && page - prevPage > 1;
+
+                    return (
+                      <React.Fragment key={page}>
+                        {showEllipsis && <span className="px-1 text-gray-400">...</span>}
+                        <button
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                            currentPage === page
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition text-gray-600 dark:text-gray-300 cursor-pointer"
+                title="Next Page"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition text-gray-600 dark:text-gray-300 cursor-pointer"
+                title="Last Page"
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1758,19 +2011,39 @@ const POManagement = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
-              <button
-                onClick={() => setIsDispatchModalOpen(false)}
-                className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleProcessDispatch}
-                className="px-5 py-2.5 bg-gradient-to-tr from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition animate-pulse"
-              >
-                Update Dispatch
-              </button>
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenEmailModal(selectedPOForDispatch)}
+                  className="px-3.5 py-2 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs font-bold uppercase rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/60 transition flex items-center gap-1.5 cursor-pointer"
+                  title="Prepare & Send Email"
+                >
+                  <Mail size={15} /> Send Email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenWhatsAppModal(selectedPOForDispatch)}
+                  className="px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-bold uppercase rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition flex items-center gap-1.5 cursor-pointer"
+                  title="Prepare & Send WhatsApp Message"
+                >
+                  <MessageSquare size={15} /> WhatsApp
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsDispatchModalOpen(false)}
+                  className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleProcessDispatch}
+                  className="px-5 py-2.5 bg-gradient-to-tr from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+                >
+                  Update Dispatch
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1815,6 +2088,22 @@ const POManagement = () => {
                             <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Date</p>
                             <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{new Date(disp.dispatchDate).toLocaleDateString("en-GB")}</p>
                           </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenEmailModal(selectedPOForHistory, disp)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs font-bold rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                            title="Send Email for this Dispatch"
+                          >
+                            <Mail size={14} /> Mail
+                          </button>
+                          <button
+                            onClick={() => handleOpenWhatsAppModal(selectedPOForHistory, disp)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-bold rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition cursor-pointer"
+                            title="Send WhatsApp Notification for this Dispatch"
+                          >
+                            <MessageSquare size={14} /> WhatsApp
+                          </button>
                         </div>
                       </div>
                       <div className="p-4 bg-white dark:bg-gray-800">
@@ -1939,6 +2228,176 @@ const POManagement = () => {
               >
                 Yes, Move to Invoice
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📧 Dispatch Email Modal */}
+      {isEmailModalOpen && dispatchCommData && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            {/* Modal Header */}
+            <div className="px-6 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Mail size={22} />
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-wider">Send Dispatch Email</h3>
+                  <p className="text-xs text-blue-100 font-medium">PO: {dispatchCommData.po?.poNumber}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsEmailModalOpen(false)}
+                className="p-2 text-white/80 hover:text-white rounded-xl transition hover:bg-white/10 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto">
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3 rounded-2xl text-xs text-blue-800 dark:text-blue-300 font-medium">
+                💡 Dispatch email format is pre-filled. You can edit the recipient address, subject, or message body anytime.
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">To (Client Email)</label>
+                <input 
+                  type="email"
+                  placeholder="e.g. client@example.com"
+                  value={dispatchCommData.recipientEmail || ""}
+                  onChange={e => setDispatchCommData({...dispatchCommData, recipientEmail: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Subject</label>
+                <input 
+                  type="text"
+                  value={dispatchCommData.subject || ""}
+                  onChange={e => setDispatchCommData({...dispatchCommData, subject: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Email Format / Message Body</label>
+                <textarea 
+                  rows={9}
+                  value={dispatchCommData.body || ""}
+                  onChange={e => setDispatchCommData({...dispatchCommData, body: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-medium outline-none focus:border-blue-500 text-gray-900 dark:text-white leading-relaxed resize-y font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
+              <span className="text-[11px] text-gray-400 font-semibold">Format ready for customization</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsEmailModalOpen(false)}
+                  className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (!dispatchCommData.recipientEmail) {
+                      toast.error("Please enter client email address!");
+                      return;
+                    }
+                    const mailtoUrl = `mailto:${dispatchCommData.recipientEmail}?subject=${encodeURIComponent(dispatchCommData.subject)}&body=${encodeURIComponent(dispatchCommData.body)}`;
+                    window.open(mailtoUrl, "_blank");
+                    toast.success("Dispatch Email template opened!");
+                    setIsEmailModalOpen(false);
+                  }}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer font-bold"
+                >
+                  <Send size={15} /> Send Mail
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 💬 Dispatch WhatsApp Modal */}
+      {isWhatsAppModalOpen && dispatchCommData && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+            {/* Modal Header */}
+            <div className="px-6 py-5 bg-gradient-to-r from-emerald-600 to-green-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <MessageSquare size={22} />
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-wider">Send WhatsApp Notification</h3>
+                  <p className="text-xs text-green-100 font-medium">PO: {dispatchCommData.po?.poNumber}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsWhatsAppModalOpen(false)}
+                className="p-2 text-white/80 hover:text-white rounded-xl transition hover:bg-white/10 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto">
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                💬 Direct WhatsApp messaging. Clicking 'Send via WhatsApp' will open WhatsApp Web/App with this text pre-filled.
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Recipient Phone Number (With Country Code e.g. 919876543210)</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. 919876543210"
+                  value={dispatchCommData.recipientPhone || ""}
+                  onChange={e => setDispatchCommData({...dispatchCommData, recipientPhone: e.target.value.replace(/[^0-9]/g, "")})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-emerald-500 text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">WhatsApp Message</label>
+                <textarea 
+                  rows={9}
+                  value={dispatchCommData.whatsappMessage || ""}
+                  onChange={e => setDispatchCommData({...dispatchCommData, whatsappMessage: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-medium outline-none focus:border-emerald-500 text-gray-900 dark:text-white leading-relaxed resize-y font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
+              <span className="text-[11px] text-gray-400 font-semibold">Direct 1-Click WhatsApp integration</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsWhatsAppModalOpen(false)}
+                  className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (!dispatchCommData.recipientPhone) {
+                      toast.error("Please enter client mobile number!");
+                      return;
+                    }
+                    const waUrl = `https://api.whatsapp.com/send?phone=${dispatchCommData.recipientPhone}&text=${encodeURIComponent(dispatchCommData.whatsappMessage)}`;
+                    window.open(waUrl, "_blank");
+                    toast.success("Opening WhatsApp...");
+                    setIsWhatsAppModalOpen(false);
+                  }}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer font-bold"
+                >
+                  <ExternalLink size={15} /> Send via WhatsApp
+                </button>
+              </div>
             </div>
           </div>
         </div>
