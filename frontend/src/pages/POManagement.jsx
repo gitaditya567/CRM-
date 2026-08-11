@@ -289,7 +289,7 @@ const POManagement = () => {
     setIsProductsModalOpen(true);
   };
 
-  const handleOpenEmailModal = (po, dispatchObj = null) => {
+  const handleOpenEmailModal = async (po, dispatchObj = null) => {
     const latestDispatch = dispatchObj || (po.dispatchHistory && po.dispatchHistory[po.dispatchHistory.length - 1]) || {
       courierName: dispatchForm.courierName || "N/A",
       trackingNo: dispatchForm.trackingNo || "N/A",
@@ -298,8 +298,34 @@ const POManagement = () => {
       products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
     };
 
-    // Auto-fetch Client Email (from Client's contactPerson1.email or contactPerson2.email, populated as po.clientEmail)
-    const recipientEmail = po.clientEmail || po.contactPerson1?.email || po.shipper?.email || po.pi?.lead?.email || "";
+    const rawProducts = (dispatchObj && dispatchObj.products && dispatchObj.products.length > 0)
+      ? dispatchObj.products
+      : (po.dispatchHistory && po.dispatchHistory.length > 0 && po.dispatchHistory[po.dispatchHistory.length - 1].products?.length > 0)
+        ? po.dispatchHistory[po.dispatchHistory.length - 1].products
+        : (dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0).length > 0)
+          ? dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
+          : (po.products || []);
+
+    const productsList = rawProducts;
+
+    // Auto-fetch Client Email (from Client's contactPerson1.email or API fallback)
+    let recipientEmail = po.clientEmail || po.contactPerson1?.email || po.shipper?.email || po.pi?.lead?.email || "";
+    if (!recipientEmail && po.vendorName) {
+      try {
+        const res = await API.get(`/clients?search=${encodeURIComponent(po.vendorName)}`);
+        const clientList = res.data?.clients || res.data || [];
+        const matchedClient = clientList.find(c => 
+          c.clientName?.trim().toLowerCase() === po.vendorName.trim().toLowerCase() ||
+          c.legalEntityName?.trim().toLowerCase() === po.vendorName.trim().toLowerCase()
+        );
+        if (matchedClient) {
+          recipientEmail = matchedClient.contactPerson1?.email || matchedClient.contactPerson2?.email || "";
+        }
+      } catch (e) {
+        console.log("Client email search fallback error:", e);
+      }
+    }
+
     const clientName = po.vendorName || po.shipper?.billingName || po.shipper?.consigneeName || "Valued Client";
     const poNo = po.poNumber || "N/A";
     const courier = latestDispatch.courierName || "N/A";
@@ -310,14 +336,14 @@ const POManagement = () => {
     const tableHeader = "SI.No. | Brand      | Model No/Part Code   | Description                                   | UOM  | Qty Ordered | Qty Delivered | Transport Mode | Transporter Name | Tracking Number";
     const tableDivider = "---------------------------------------------------------------------------------------------------------------------------------------------------------";
 
-    const tableRows = (latestDispatch.products || []).map((p, idx) => {
+    const tableRows = (productsList || []).map((p, idx) => {
       const slNo = String(idx + 1).padEnd(6);
       const brand = (p.brand || "N/A").padEnd(10);
       const modelNo = (p.productNo || "N/A").padEnd(20);
       const desc = (p.name || "N/A").padEnd(45);
       const uom = (p.uom || p.unit || "Pcs").padEnd(4);
-      const qtyOrdered = String(p.quantity || p.orderedQty || p.dispatchQty || 0).padEnd(11);
-      const qtyDelivered = String(p.dispatchQty || p.quantity || 0).padEnd(13);
+      const qtyOrdered = String(p.quantity || p.orderedQty || 0).padEnd(11);
+      const qtyDelivered = String(p.dispatchQty || p.dispatchedQuantity || p.quantity || 0).padEnd(13);
       const mode = transportMode.padEnd(14);
       const transporter = courier.padEnd(16);
       const trackNo = tracking;
@@ -346,7 +372,10 @@ Dispatch & Operations Team`;
 
     setDispatchCommData({
       po,
-      dispatch: latestDispatch,
+      dispatch: {
+        ...latestDispatch,
+        products: productsList
+      },
       recipientEmail,
       subject: defaultSubject,
       body: defaultBody
@@ -354,7 +383,7 @@ Dispatch & Operations Team`;
     setIsEmailModalOpen(true);
   };
 
-  const handleOpenWhatsAppModal = (po, dispatchObj = null) => {
+  const handleOpenWhatsAppModal = async (po, dispatchObj = null) => {
     const latestDispatch = dispatchObj || (po.dispatchHistory && po.dispatchHistory[po.dispatchHistory.length - 1]) || {
       courierName: dispatchForm.courierName || "N/A",
       trackingNo: dispatchForm.trackingNo || "N/A",
@@ -363,8 +392,34 @@ Dispatch & Operations Team`;
       products: dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
     };
 
-    // Auto-fetch Client Phone (from Client's contactPerson1.phone or contactPerson2.phone, populated as po.clientPhone)
+    const rawProducts = (dispatchObj && dispatchObj.products && dispatchObj.products.length > 0)
+      ? dispatchObj.products
+      : (po.dispatchHistory && po.dispatchHistory.length > 0 && po.dispatchHistory[po.dispatchHistory.length - 1].products?.length > 0)
+        ? po.dispatchHistory[po.dispatchHistory.length - 1].products
+        : (dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0).length > 0)
+          ? dispatchProducts.filter(p => (parseInt(p.dispatchQty) || 0) > 0)
+          : (po.products || []);
+
+    const productsList = rawProducts;
+
+    // Auto-fetch Client Phone (from Client's contactPerson1.phone or API fallback)
     let phone = po.clientPhone || po.shipper?.contactNo || po.pi?.lead?.phone || po.pi?.lead?.mobile || "";
+    if (!phone && po.vendorName) {
+      try {
+        const res = await API.get(`/clients?search=${encodeURIComponent(po.vendorName)}`);
+        const clientList = res.data?.clients || res.data || [];
+        const matchedClient = clientList.find(c => 
+          c.clientName?.trim().toLowerCase() === po.vendorName.trim().toLowerCase() ||
+          c.legalEntityName?.trim().toLowerCase() === po.vendorName.trim().toLowerCase()
+        );
+        if (matchedClient) {
+          phone = matchedClient.contactPerson1?.phone || matchedClient.contactPerson2?.phone || "";
+        }
+      } catch (e) {
+        console.log("Client phone search fallback error:", e);
+      }
+    }
+
     phone = phone.replace(/[^0-9]/g, "");
     if (phone.length === 10) phone = "91" + phone;
 
@@ -375,8 +430,8 @@ Dispatch & Operations Team`;
     const transportMode = latestDispatch.transportMode || "Road";
     const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
 
-    const itemsText = (latestDispatch.products || []).map((p, idx) => 
-      `${idx + 1}. *${p.brand || ''} ${p.productNo || ''}* - ${p.name || ''} (Qty: ${p.dispatchQty || p.quantity || 1})`
+    const itemsText = (productsList || []).map((p, idx) => 
+      `${idx + 1}. *${p.brand || ''} ${p.productNo || ''}* - ${p.name || ''} (Qty: ${p.dispatchQty || p.dispatchedQuantity || p.quantity || 1})`
     ).join("\n");
 
     const defaultMsg = `📦 *DISPATCH NOTIFICATION* 📦
@@ -397,7 +452,10 @@ Thank you for choosing Team Inspire!`;
 
     setDispatchCommData({
       po,
-      dispatch: latestDispatch,
+      dispatch: {
+        ...latestDispatch,
+        products: productsList
+      },
       recipientPhone: phone,
       whatsappMessage: defaultMsg
     });
