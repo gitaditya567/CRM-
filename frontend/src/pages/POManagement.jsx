@@ -26,11 +26,22 @@ import {
   Mail,
   MessageSquare,
   Send,
-  ExternalLink
+  ExternalLink,
+  Copy
 } from "lucide-react";
 import API from "../api/api";
 import toast from "react-hot-toast";
 import CreateOutwardPO from "../components/po/CreateOutwardPO";
+
+const getCarrierTrackingLink = (courierName) => {
+  if (!courierName) return null;
+  const name = courierName.trim().toLowerCase();
+  if (name.includes("bluedart") || name.includes("blue dart")) return "https://bluedart.com/tracking";
+  if (name.includes("safexpress") || name.includes("safe express")) return "https://www.safexpress.com/";
+  if (name.includes("dtdc")) return "https://www.dtdc.com/track-your-shipment/";
+  if (name.includes("trackon")) return "https://www.trackon.in/home/track";
+  return null;
+};
 
 const POManagement = () => {
   const userRole = (localStorage.getItem("role") || "").toLowerCase();
@@ -332,9 +343,10 @@ const POManagement = () => {
     const tracking = latestDispatch.trackingNo || "N/A";
     const transportMode = latestDispatch.transportMode || "Road";
     const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
+    const trackingUrl = getCarrierTrackingLink(courier);
 
-    const tableHeader = "SI.No. | Brand      | Model No/Part Code   | Description                                   | UOM  | Qty Ordered | Qty Delivered | Transport Mode | Transporter Name | Tracking Number";
-    const tableDivider = "---------------------------------------------------------------------------------------------------------------------------------------------------------";
+    const tableHeader = "Sl.No. | Brand      | Model No/Part Code   | Description                                   | UOM  | Qty Ordered | Qty Delivered";
+    const tableDivider = "---------------------------------------------------------------------------------------------------------";
 
     const tableRows = (productsList || []).map((p, idx) => {
       const slNo = String(idx + 1).padEnd(6);
@@ -344,31 +356,39 @@ const POManagement = () => {
       const uom = (p.uom || p.unit || "Pcs").padEnd(4);
       const qtyOrdered = String(p.quantity || p.orderedQty || 0).padEnd(11);
       const qtyDelivered = String(p.dispatchQty || p.dispatchedQuantity || p.quantity || 0).padEnd(13);
-      const mode = transportMode.padEnd(14);
-      const transporter = courier.padEnd(16);
-      const trackNo = tracking;
 
-      return `${slNo} | ${brand} | ${modelNo} | ${desc} | ${uom} | ${qtyOrdered} | ${qtyDelivered} | ${mode} | ${transporter} | ${trackNo}`;
+      return `${slNo} | ${brand} | ${modelNo} | ${desc} | ${uom} | ${qtyOrdered} | ${qtyDelivered}`;
     }).join("\n");
 
     const defaultSubject = `Dispatch Details & Tracking - PO #${poNo}`;
-    const defaultBody = `Dear ${clientName},
+    const defaultBody = `Dear Sir/Madam,
 
-We are pleased to inform you that your order under PO Number #${poNo} has been dispatched.
+Greetings from TeamInspire !!!
 
-🚚 DISPATCH DETAILS TABLE:
+Good news! Your order has been shipped and is on its way. Here are your dispatch details:
+
+📦 DISPATCHED PRODUCTS:
 ${tableDivider}
 ${tableHeader}
 ${tableDivider}
 ${tableRows}
 ${tableDivider}
 
-Dispatch Date: ${dateFormatted}
+🚚 DISPATCH & TRACKING DETAILS:
+- Transport Mode: ${transportMode}
+- Transporter Name: ${courier}
+- Tracking Number: ${tracking}
+- Tracking Link: ${trackingUrl ? trackingUrl : "N/A"}
+- Dispatch Date: ${dateFormatted}
 
-Thank you for choosing Team Inspire!
+If you have any questions or if there's anything else we can assist you with, please don't hesitate to reach out to our customer support team at cc@teaminspire.co.in
+
+Thank you for choosing TeamInspire. We appreciate your patience, and we hope you enjoy your purchase!
 
 Best regards,
-Dispatch & Operations Team`;
+TeamInspire Business Solutions Pvt Ltd
+
+Please note: This e-mail was sent from a notification-only address that cannot accept incoming e-mail. Please do not reply to this message.`;
 
     setDispatchCommData({
       po,
@@ -377,6 +397,7 @@ Dispatch & Operations Team`;
         products: productsList
       },
       recipientEmail,
+      ccEmail: "",
       subject: defaultSubject,
       body: defaultBody
     });
@@ -429,6 +450,7 @@ Dispatch & Operations Team`;
     const tracking = latestDispatch.trackingNo || "N/A";
     const transportMode = latestDispatch.transportMode || "Road";
     const dateFormatted = latestDispatch.dispatchDate ? new Date(latestDispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A";
+    const trackingUrl = getCarrierTrackingLink(courier);
 
     const itemsText = (productsList || []).map((p, idx) => 
       `${idx + 1}. *${p.brand || ''} ${p.productNo || ''}* - ${p.name || ''} (Qty: ${p.dispatchQty || p.dispatchedQuantity || p.quantity || 1})`
@@ -442,7 +464,7 @@ Your order under PO *#${poNo}* has been dispatched!
 
 🚚 *Transporter*: ${courier}
 🚛 *Transport Mode*: ${transportMode}
-📌 *Tracking/AWB*: ${tracking}
+📌 *Tracking/AWB*: ${tracking}${trackingUrl ? `\n🔗 *Track Here*: ${trackingUrl}` : ""}
 📅 *Dispatch Date*: ${dateFormatted}
 
 📋 *Dispatched Items*:
@@ -2318,7 +2340,7 @@ Thank you for choosing Team Inspire!`;
       {/* 📧 Dispatch Email Modal */}
       {isEmailModalOpen && dispatchCommData && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2337,98 +2359,167 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto">
-              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3 rounded-2xl text-xs text-blue-800 dark:text-blue-300 font-medium">
-                💡 Dispatch email format is pre-filled. You can edit the recipient address, subject, or message body anytime.
+            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3.5 rounded-2xl text-xs text-blue-800 dark:text-blue-300 font-medium">
+                💡 Client email is auto-fetched from Personal Contact. Formatted table is embedded inside the email body below.
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">To (Client Email - Auto Fetched from Personal Contact)</label>
-                <input 
-                  type="email"
-                  placeholder="e.g. client@example.com"
-                  value={dispatchCommData.recipientEmail || ""}
-                  onChange={e => setDispatchCommData({...dispatchCommData, recipientEmail: e.target.value})}
-                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">To (Recipient Email)</label>
+                  <input 
+                    type="email"
+                    placeholder="e.g. client@example.com"
+                    value={dispatchCommData.recipientEmail || ""}
+                    onChange={e => setDispatchCommData({...dispatchCommData, recipientEmail: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">CC (Optional Email)</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. manager@client.com"
+                    value={dispatchCommData.ccEmail || ""}
+                    onChange={e => setDispatchCommData({...dispatchCommData, ccEmail: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Subject</label>
+                  <input 
+                    type="text"
+                    value={dispatchCommData.subject || ""}
+                    onChange={e => setDispatchCommData({...dispatchCommData, subject: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Subject</label>
-                <input 
-                  type="text"
-                  value={dispatchCommData.subject || ""}
-                  onChange={e => setDispatchCommData({...dispatchCommData, subject: e.target.value})}
-                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-blue-500 text-gray-900 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Email Format / Message Body (Text Table)</label>
-                <textarea 
-                  rows={8}
-                  value={dispatchCommData.body || ""}
-                  onChange={e => setDispatchCommData({...dispatchCommData, body: e.target.value})}
-                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-medium outline-none focus:border-blue-500 text-gray-900 dark:text-white leading-relaxed resize-y font-mono"
-                />
-              </div>
-
-              {/* Live HTML Table Preview matching 10 Columns from User's Image */}
+              {/* Email Message Body Container with Embedded Table */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">Live HTML Table Preview (Matches 10 Columns from Image)</label>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">Email Message Body (Professional Formatted Layout)</label>
                   <button
                     type="button"
                     onClick={() => {
-                      const htmlContent = document.getElementById("dispatch-html-table")?.outerHTML || "";
-                      navigator.clipboard.writeText(htmlContent);
-                      toast.success("HTML Table copied to clipboard!");
+                      const bodyElement = document.getElementById("email-body-container");
+                      if (bodyElement) {
+                        const range = document.createRange();
+                        range.selectNode(bodyElement);
+                        window.getSelection().removeAllRanges();
+                        window.getSelection().addRange(range);
+                        document.execCommand("copy");
+                        window.getSelection().removeAllRanges();
+                        toast.success("Email Body & Table copied to clipboard!");
+                      }
                     }}
-                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1"
                   >
-                    Copy HTML Table
+                    <Copy size={13} /> Copy Email Body & Table
                   </button>
                 </div>
-                <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 p-2">
-                  <table id="dispatch-html-table" className="w-full text-xs text-left border-collapse border border-gray-300 dark:border-gray-700">
-                    <thead className="bg-gray-100 dark:bg-gray-800 font-bold text-gray-800 dark:text-gray-200">
-                      <tr>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">SI.No.</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Brand</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Model No/Part Code</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Description</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">UOM</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">Qty Ordered</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">Qty Delivered</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Transport Mode</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Transporter Name</th>
-                        <th className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">Tracking Number</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {(dispatchCommData.dispatch?.products || []).map((p, i) => (
-                        <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-bold">{i + 1}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{p.brand || "N/A"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-semibold text-blue-600 dark:text-blue-400">{p.productNo || "N/A"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-medium">{p.name || "N/A"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center">{p.uom || p.unit || "Pcs"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-semibold">{p.quantity || p.orderedQty || p.dispatchQty || 0}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 text-center font-bold text-emerald-600 dark:text-emerald-400">{p.dispatchQty || p.quantity || 0}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{dispatchCommData.dispatch?.transportMode || "Road"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5">{dispatchCommData.dispatch?.courierName || "N/A"}</td>
-                          <td className="border border-gray-300 dark:border-gray-700 px-2 py-1.5 font-mono">{dispatchCommData.dispatch?.trackingNo || "N/A"}</td>
+
+                <div 
+                  id="email-body-container"
+                  className="w-full bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-700 rounded-2xl p-6 text-xs text-gray-800 dark:text-gray-200 font-sans space-y-4 shadow-sm"
+                >
+                  <p className="font-bold text-sm text-gray-900 dark:text-white">
+                    Dear Sir/Madam,
+                  </p>
+
+                  <p className="font-extrabold text-sm text-red-600 dark:text-red-500">
+                    Greetings from TeamInspire !!!
+                  </p>
+
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
+                    Good news! Your order has been shipped and is on its way. Here are your dispatch details:
+                  </p>
+
+                  {/* Formatted 7-Column Table INSIDE Mail Body */}
+                  <div className="overflow-x-auto my-4">
+                    <table 
+                      style={{ width: "100%", borderCollapse: "collapse", border: "1.5px solid #000000", fontFamily: "Arial, sans-serif", fontSize: "12px", margin: "12px 0" }}
+                      className="w-full text-xs text-left border-collapse border-2 border-gray-800 dark:border-gray-300"
+                    >
+                      <thead className="bg-gray-100 dark:bg-gray-800 font-bold text-gray-900 dark:text-white" style={{ backgroundColor: "#f3f4f6" }}>
+                        <tr className="border-b-2 border-gray-800 dark:border-gray-300">
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-black">Sl.No.</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "left", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-black">Brand</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "left", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-black">Model No/Part Code</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "left", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-black">Description</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-black">UOM</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-black">Qty Ordered</th>
+                          <th style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold", color: "#000000" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-black">Qty Delivered</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800 dark:divide-gray-400">
+                        {(dispatchCommData.dispatch?.products || []).map((p, i) => (
+                          <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-bold">{i + 1}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-medium">{p.brand || "N/A"}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px", fontWeight: "bold", color: "#1d4ed8" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-semibold text-blue-600 dark:text-blue-400">{p.productNo || "N/A"}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 font-medium">{p.name || "N/A"}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center">{p.uom || p.unit || "Pcs"}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-semibold">{p.quantity || p.orderedQty || 0}</td>
+                            <td style={{ border: "1.5px solid #000000", padding: "8px 6px", textAlign: "center", fontWeight: "bold", color: "#047857" }} className="border border-gray-800 dark:border-gray-400 px-2.5 py-2 text-center font-bold text-emerald-600 dark:text-emerald-400">{p.dispatchQty || p.dispatchedQuantity || p.quantity || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Transport & Tracking Details in Text below Table */}
+                  <div className="bg-gray-50 dark:bg-gray-800/60 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 space-y-1.5 text-xs text-gray-800 dark:text-gray-200">
+                    <p><strong>Transport Mode:</strong> {dispatchCommData.dispatch?.transportMode || "Road"}</p>
+                    <p><strong>Transporter Name:</strong> {dispatchCommData.dispatch?.courierName || "N/A"}</p>
+                    <p><strong>Tracking Number:</strong> <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{dispatchCommData.dispatch?.trackingNo || "N/A"}</span></p>
+                    <p>
+                      <strong>Tracking Link:</strong>{" "}
+                      {getCarrierTrackingLink(dispatchCommData.dispatch?.courierName) ? (
+                        <a 
+                          href={getCarrierTrackingLink(dispatchCommData.dispatch?.courierName)} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-blue-600 dark:text-blue-400 font-bold underline hover:text-blue-800 break-all inline-flex items-center gap-1"
+                        >
+                          {getCarrierTrackingLink(dispatchCommData.dispatch?.courierName)} <ExternalLink size={12} />
+                        </a>
+                      ) : (
+                        <span className="text-gray-500 font-medium">N/A</span>
+                      )}
+                    </p>
+                    <p><strong>Dispatch Date:</strong> {dispatchCommData.dispatch?.dispatchDate ? new Date(dispatchCommData.dispatch.dispatchDate).toLocaleDateString("en-GB") : "N/A"}</p>
+                  </div>
+
+                  {/* User Requested Footer Message from Image */}
+                  <div className="space-y-3 text-xs text-gray-700 dark:text-gray-300 pt-3 border-t border-gray-200 dark:border-gray-700 leading-relaxed">
+                    <p>
+                      If you have any questions or if there's anything else we can assist you with, please don't hesitate to reach out to our customer support team at <a href="mailto:cc@teaminspire.co.in" className="text-blue-600 dark:text-blue-400 underline font-semibold">cc@teaminspire.co.in</a>
+                    </p>
+
+                    <p>
+                      Thank you for choosing TeamInspire. We appreciate your patience, and we hope you enjoy your purchase!
+                    </p>
+
+                    <div className="pt-2 font-sans">
+                      <p className="font-bold text-gray-900 dark:text-white">Best regards,</p>
+                      <p className="font-extrabold text-blue-600 dark:text-blue-400">TeamInspire Business Solutions Pvt Ltd</p>
+                    </div>
+
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 italic pt-2 border-t border-gray-100 dark:border-gray-800">
+                      Please note: This e-mail was sent from a notification-only address that cannot accept incoming e-mail. Please do not reply to this message.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-              <span className="text-[11px] text-gray-400 font-semibold">Format ready for customization</span>
+              <span className="text-[11px] text-gray-400 font-semibold">Professional email format ready</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsEmailModalOpen(false)}
@@ -2437,19 +2528,66 @@ Thank you for choosing Team Inspire!`;
                   Cancel
                 </button>
                 <button
+                  onClick={async () => {
+                    if (!dispatchCommData.recipientEmail) {
+                      toast.error("Please enter client email address!");
+                      return;
+                    }
+                    const bodyElement = document.getElementById("email-body-container");
+                    const htmlContent = bodyElement ? bodyElement.innerHTML : "";
+                    try {
+                      const res = await API.post("/purchase-orders/send-email", {
+                        to: dispatchCommData.recipientEmail,
+                        cc: dispatchCommData.ccEmail || undefined,
+                        subject: dispatchCommData.subject,
+                        htmlBody: htmlContent
+                      });
+                      if (res.data?.success) {
+                        toast.success("Dispatch Email triggered directly from server!");
+                        setIsEmailModalOpen(false);
+                      } else {
+                        toast.error(res.data?.message || "Failed to send email");
+                      }
+                    } catch (err) {
+                      console.error("Direct Email Error:", err);
+                      toast.error(err.response?.data?.message || "Failed to send direct email. Check SMTP_PASS in backend/.env!");
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
+                  title="Send directly from server via dispatch@teaminspire.co.in"
+                >
+                  <Send size={15} /> Send Direct Email (SMTP)
+                </button>
+                <button
                   onClick={() => {
                     if (!dispatchCommData.recipientEmail) {
                       toast.error("Please enter client email address!");
                       return;
                     }
-                    const mailtoUrl = `mailto:${dispatchCommData.recipientEmail}?subject=${encodeURIComponent(dispatchCommData.subject)}&body=${encodeURIComponent(dispatchCommData.body)}`;
+                    // Copy rich email content to clipboard
+                    const bodyElement = document.getElementById("email-body-container");
+                    if (bodyElement) {
+                      const range = document.createRange();
+                      range.selectNode(bodyElement);
+                      window.getSelection().removeAllRanges();
+                      window.getSelection().addRange(range);
+                      document.execCommand("copy");
+                      window.getSelection().removeAllRanges();
+                    }
+
+                    // Open mailto app with recipient, CC and subject
+                    const plainTextBody = `Dear Sir/Madam,\n\nGreetings from TeamInspire !!!\n\nGood news! Your order has been shipped and is on its way. Here are your dispatch details:\n\nPlease check the copied HTML table in your clipboard or paste directly into your email body.\n\nBest regards,\nTeamInspire Business Solutions Pvt Ltd`;
+                    let mailtoUrl = `mailto:${dispatchCommData.recipientEmail}?subject=${encodeURIComponent(dispatchCommData.subject)}&body=${encodeURIComponent(plainTextBody)}`;
+                    if (dispatchCommData.ccEmail && dispatchCommData.ccEmail.trim()) {
+                      mailtoUrl += `&cc=${encodeURIComponent(dispatchCommData.ccEmail.trim())}`;
+                    }
                     window.open(mailtoUrl, "_blank");
-                    toast.success("Dispatch Email template opened!");
+                    toast.success("Dispatch Email & Formatted Table copied to clipboard!");
                     setIsEmailModalOpen(false);
                   }}
                   className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer font-bold"
                 >
-                  <Send size={15} /> Send Mail
+                  <Send size={15} /> Send via Mail App
                 </button>
               </div>
             </div>

@@ -738,3 +738,61 @@ exports.createOutwardPO = async (req, res) => {
         res.status(500).json({ message: "Failed to create outward PO" });
     }
 };
+
+// POST /api/purchase-orders/send-email
+exports.sendDispatchEmail = async (req, res) => {
+    try {
+        const { to, cc, subject, htmlBody } = req.body;
+        if (!to || !subject || !htmlBody) {
+            return res.status(400).json({ message: "To email, Subject, and Body are required." });
+        }
+
+        const nodemailer = require("nodemailer");
+        const smtpHost = process.env.SMTP_HOST || "mail.teaminspire.co.in";
+        const smtpPort = parseInt(process.env.SMTP_PORT || "465", 10);
+        const smtpUser = process.env.SMTP_USER || "dispatch@teaminspire.co.in";
+        const smtpPass = process.env.SMTP_PASS;
+
+        if (!smtpPass) {
+            return res.status(400).json({ 
+                message: "SMTP Password not configured in server .env file. Please set SMTP_PASS in backend/.env." 
+            });
+        }
+
+        const transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: {
+                user: smtpUser,
+                pass: smtpPass
+            },
+            tls: {
+                rejectUnauthorized: false
+            }
+        });
+
+        const mailOptions = {
+            from: `"Dispatch TeamInspire" <${smtpUser}>`,
+            to,
+            cc: cc || undefined,
+            subject,
+            html: htmlBody
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log("Dispatch email sent cleanly via SMTP:", info.messageId);
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Email sent successfully!", 
+            messageId: info.messageId 
+        });
+    } catch (err) {
+        console.error("Direct SMTP Send Error:", err);
+        res.status(500).json({ 
+            success: false, 
+            message: err.message || "Failed to send email via SMTP" 
+        });
+    }
+};
