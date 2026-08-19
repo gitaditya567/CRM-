@@ -99,7 +99,7 @@ const POManagement = () => {
   // Dispatch Modal state
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [selectedPOForDispatch, setSelectedPOForDispatch] = useState(null);
-  const [dispatchForm, setDispatchForm] = useState({ courierName: "", trackingNo: "", dispatchDate: "" });
+  const [dispatchForm, setDispatchForm] = useState({ courierName: "", trackingNo: "", dispatchDate: "", transportMode: "Road" });
   const [dispatchProducts, setDispatchProducts] = useState([]);
 
   // Dispatch Email / WhatsApp Communication Modal state
@@ -486,7 +486,7 @@ Thank you for choosing Team Inspire!`;
 
   const handleOpenDispatchModal = (po) => {
     setSelectedPOForDispatch(po);
-    setDispatchForm({ courierName: "", trackingNo: "", dispatchDate: new Date().toISOString().split("T")[0] });
+    setDispatchForm({ courierName: "", trackingNo: "", dispatchDate: new Date().toISOString().split("T")[0], transportMode: "Road" });
     const itemsToDispatch = po.products.map(p => {
       const invoiced = p.invoicedQuantity || 0;
       const dispatched = p.dispatchedQuantity || 0;
@@ -520,6 +520,7 @@ Thank you for choosing Team Inspire!`;
       const newDispatch = {
         courierName: dispatchForm.courierName,
         trackingNo: dispatchForm.trackingNo,
+        transportMode: dispatchForm.transportMode || "Road",
         dispatchDate: dispatchForm.dispatchDate,
         products: itemsToSend.map(p => ({
           productNo: p.productNo,
@@ -2020,7 +2021,7 @@ Thank you for choosing Team Inspire!`;
       {/* 🚚 Update Dispatch Tracking Modal */}
       {isDispatchModalOpen && selectedPOForDispatch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
               <div>
@@ -2037,14 +2038,27 @@ Thank you for choosing Team Inspire!`;
 
             {/* Modal Body */}
             <div className="p-6 space-y-6 overflow-y-auto max-h-[450px]">
-              {/* Courier & Tracking Inputs */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Courier, Tracking, Date & Transport Mode Inputs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Transport Mode</label>
+                  <select 
+                    value={dispatchForm.transportMode || "Road"}
+                    onChange={e => setDispatchForm({...dispatchForm, transportMode: e.target.value})}
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                  >
+                    <option value="Road">Road</option>
+                    <option value="Air">Air</option>
+                    <option value="Rail">Rail</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Courier / Partner Name</label>
                   <select 
                     value={dispatchForm.courierName}
                     onChange={e => setDispatchForm({...dispatchForm, courierName: e.target.value})}
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
                   >
                     <option value="" disabled>Select Courier</option>
                     <option value="Bluedart">Bluedart</option>
@@ -2063,7 +2077,7 @@ Thank you for choosing Team Inspire!`;
                     placeholder="e.g. AWB12938192"
                     value={dispatchForm.trackingNo}
                     onChange={e => setDispatchForm({...dispatchForm, trackingNo: e.target.value})}
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
@@ -2072,7 +2086,7 @@ Thank you for choosing Team Inspire!`;
                     type="date"
                     value={dispatchForm.dispatchDate}
                     onChange={e => setDispatchForm({...dispatchForm, dispatchDate: e.target.value})}
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm font-medium outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -2179,7 +2193,11 @@ Thank you for choosing Team Inspire!`;
                   selectedPOForHistory.dispatchHistory.map((disp, i) => (
                     <div key={i} className="border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
                       <div className="bg-gray-50 dark:bg-gray-900 px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
-                        <div className="flex gap-6">
+                        <div className="flex gap-6 flex-wrap">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Transport Mode</p>
+                            <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{disp.transportMode || "Road"}</p>
+                          </div>
                           <div>
                             <p className="text-xs text-gray-400 uppercase tracking-widest font-black">Courier / Partner</p>
                             <p className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{disp.courierName}</p>

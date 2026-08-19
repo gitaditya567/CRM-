@@ -131,6 +131,10 @@ const purchaseOrderSchema = new mongoose.Schema({
     dispatchHistory: [{
         courierName: String,
         trackingNo: String,
+        transportMode: {
+            type: String,
+            default: "Road"
+        },
         dispatchDate: Date,
         products: [{
             productNo: String,
