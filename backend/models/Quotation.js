@@ -20,6 +20,7 @@ const quotationSchema = new mongoose.Schema({
         name: String, // Snapshot
         description: String, // Snapshot
         brand: String, // Snapshot
+        type: { type: String, default: "" }, // Snapshot (Equipment / Spare Part)
         hsnCode: String,
         uom: String,
         quantity: {

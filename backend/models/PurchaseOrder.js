@@ -84,6 +84,10 @@ const purchaseOrderSchema = new mongoose.Schema({
         productNo: String,
         name: String,
         brand: String,
+        type: {
+            type: String,
+            default: ""
+        },
         hsnCode: String,
         quantity: Number,
         unitPrice: Number,

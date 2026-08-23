@@ -69,6 +69,9 @@ const POManagement = () => {
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("Pending");
+  const [brandFilter, setBrandFilter] = useState("All");
+  const [productTypeFilter, setProductTypeFilter] = useState("All");
+  const [allBrandsList, setAllBrandsList] = useState([]);
 
   // Modal states
   const [isProductsModalOpen, setIsProductsModalOpen] = useState(false);
@@ -107,6 +110,31 @@ const POManagement = () => {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [dispatchCommData, setDispatchCommData] = useState(null);
 
+  // Fetch product meta (brands list)
+  const fetchMetaBrands = async () => {
+    try {
+      const res = await API.get("/products/meta");
+      if (res.data && res.data.brands) {
+        setAllBrandsList(res.data.brands.filter(Boolean));
+      }
+    } catch (err) {
+      console.error("Error fetching product meta brands:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMetaBrands();
+  }, []);
+
+  // Dynamically compute list of all brands (from backend meta + all POs in memory)
+  const dynamicBrands = React.useMemo(() => {
+    const fromPOs = (pos || []).flatMap(po => 
+      (po.products || []).map(p => (p.brand || p.product?.brand || "").trim())
+    ).filter(Boolean);
+    const set = new Set([...allBrandsList, ...fromPOs]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allBrandsList, pos]);
+
   // Fetch POs from server
   const fetchPOs = async () => {
     setLoading(true);
@@ -133,6 +161,8 @@ const POManagement = () => {
     } else {
       setStatusFilter("All");
     }
+    setBrandFilter("All");
+    setProductTypeFilter("All");
     setSearchQueries({
       inward: "",
       inward_invoice: "",
@@ -225,7 +255,32 @@ const POManagement = () => {
       return false;
     }
 
-    // 3. Search query filter
+    // 3. Brand Filter
+    if (brandFilter !== "All") {
+      const matchesBrand = (po.products || []).some(p => {
+        const b = (p.brand || p.product?.brand || "").trim().toLowerCase();
+        return b === brandFilter.trim().toLowerCase();
+      });
+      if (!matchesBrand) return false;
+    }
+
+    // 4. Item / Product Type Filter (Equipment / Spare Part)
+    if (productTypeFilter !== "All") {
+      const target = productTypeFilter.trim().toLowerCase();
+      const matchesType = (po.products || []).some(p => {
+        const t = (p.type || p.product?.type || "").trim().toLowerCase();
+        if (target.includes("equip")) {
+          return t.includes("equip");
+        }
+        if (target.includes("spare")) {
+          return t.includes("spare") || (!t && !p.product?.type);
+        }
+        return t === target;
+      });
+      if (!matchesType) return false;
+    }
+
+    // 5. Search query filter
     const query = (searchQueries[activeTab] || "").toLowerCase();
     const matchesPo = po.poNumber?.toLowerCase().includes(query);
     const partnerName = po.vendorName || "";
@@ -240,15 +295,87 @@ const POManagement = () => {
     return matchesPo || matchesPartner || matchesPi || matchesLead;
   });
 
+  const getDispatchDateObj = (po) => {
+    // 1. If dispatched, return latest dispatch date
+    if (po.dispatchHistory && po.dispatchHistory.length > 0) {
+      const lastDispatch = po.dispatchHistory[po.dispatchHistory.length - 1];
+      const d = new Date(lastDispatch.dispatchDate || lastDispatch.createdAt);
+      if (!isNaN(d.getTime())) return d;
+    }
+    // 2. If invoiced, return latest invoice date
+    if (po.invoiceHistory && po.invoiceHistory.length > 0) {
+      const lastInv = po.invoiceHistory[po.invoiceHistory.length - 1];
+      const d = new Date(lastInv.date || lastInv.createdAt);
+      if (!isNaN(d.getTime())) return d;
+    }
+    // 3. When moved to invoice / updated
+    if (po.updatedAt) {
+      const d = new Date(po.updatedAt);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (po.createdAt) {
+      const d = new Date(po.createdAt);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date(po.date);
+  };
+
+  const getDispatchDisplayDate = (po) => {
+    const d = getDispatchDateObj(po);
+    return isNaN(d.getTime()) ? "-" : d.toLocaleDateString("en-GB");
+  };
+
+  const getDispatchTimestamp = (po) => {
+    const d = getDispatchDateObj(po);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  };
+
+  const getInwardInvoiceTimestamp = (po) => {
+    let maxTime = 0;
+    if (po.invoiceHistory && po.invoiceHistory.length > 0) {
+      po.invoiceHistory.forEach(inv => {
+        const t = new Date(inv.createdAt || inv.date).getTime();
+        if (!isNaN(t) && t > maxTime) maxTime = t;
+      });
+    }
+    const updated = po.updatedAt ? new Date(po.updatedAt).getTime() : 0;
+    if (!isNaN(updated) && updated > maxTime) maxTime = updated;
+
+    const created = po.createdAt ? new Date(po.createdAt).getTime() : 0;
+    if (!isNaN(created) && created > maxTime) maxTime = created;
+
+    return maxTime;
+  };
+
+  // Sort filtered POs based on tab so latest items always appear at the top
+  const sortedPOs = [...filteredPOs].sort((a, b) => {
+    if (activeTab === "dispatch") {
+      const timeA = getDispatchTimestamp(a);
+      const timeB = getDispatchTimestamp(b);
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.poNumber || "").localeCompare(a.poNumber || "", undefined, { numeric: true, sensitivity: 'base' });
+    }
+    if (activeTab === "inward_invoice") {
+      const timeA = getInwardInvoiceTimestamp(a);
+      const timeB = getInwardInvoiceTimestamp(b);
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.poNumber || "").localeCompare(a.poNumber || "", undefined, { numeric: true, sensitivity: 'base' });
+    }
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (a.date ? new Date(a.date).getTime() : 0);
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (b.date ? new Date(b.date).getTime() : 0);
+    if (timeB !== timeA) return timeB - timeA;
+    return (b.poNumber || "").localeCompare(a.poNumber || "", undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   // Pagination State & Calculations
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, statusFilter, searchQueries]);
+  }, [activeTab, statusFilter, brandFilter, productTypeFilter, searchQueries]);
 
-  const totalItems = filteredPOs.length;
+  const totalItems = sortedPOs.length;
   const effectiveItemsPerPage = itemsPerPage === "All" ? totalItems : Number(itemsPerPage);
   const totalPages = itemsPerPage === "All" || totalItems === 0 ? 1 : Math.ceil(totalItems / effectiveItemsPerPage);
   
@@ -262,8 +389,8 @@ const POManagement = () => {
   const indexOfLastItem = itemsPerPage === "All" ? totalItems : Math.min(currentPage * effectiveItemsPerPage, totalItems);
   
   const paginatedPOs = itemsPerPage === "All" 
-    ? filteredPOs 
-    : filteredPOs.slice(indexOfFirstItem, indexOfLastItem);
+    ? sortedPOs 
+    : sortedPOs.slice(indexOfFirstItem, indexOfLastItem);
 
   const getProductInvoices = (productNo) => {
     if (!selectedPOForProducts || !selectedPOForProducts.invoiceHistory) return [];
@@ -1038,11 +1165,12 @@ Thank you for choosing Team Inspire!`;
             
             {/* Status Filter */}
             {activeTab !== "outward" && (
-              <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5">
+              <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5 shadow-xs">
                 <select 
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0"
+                  title="Filter by Status"
                 >
                   <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
                   {activeTab === "inward_invoice" ? (
@@ -1067,8 +1195,39 @@ Thank you for choosing Team Inspire!`;
               </div>
             )}
 
-            <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-4 py-2.5 w-full md:w-72">
-              <Search size={16} className="text-gray-400 mr-2" />
+            {/* Brand Filter */}
+            <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5 shadow-xs">
+              <select 
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0 max-w-[130px]"
+                title="Filter by Brand"
+              >
+                <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Brands</option>
+                {dynamicBrands.map((b) => (
+                  <option key={b} value={b} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Item Type (Equipment & Spare Parts) Filter */}
+            <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-3 py-2.5 shadow-xs">
+              <select 
+                value={productTypeFilter}
+                onChange={(e) => setProductTypeFilter(e.target.value)}
+                className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white cursor-pointer font-bold focus:ring-0 max-w-[140px]"
+                title="Filter by Equipment / Spare Parts"
+              >
+                <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Item Types</option>
+                <option value="Equipment" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Equipment</option>
+                <option value="Spare Part" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Spare Parts</option>
+              </select>
+            </div>
+
+            <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-4 py-2.5 w-full md:w-60 shadow-xs">
+              <Search size={16} className="text-gray-400 mr-2 shrink-0" />
               <input 
                 type="text" 
                 placeholder="Search POs..." 
@@ -1078,9 +1237,12 @@ Thank you for choosing Team Inspire!`;
               />
             </div>
             <button 
-              onClick={fetchPOs}
+              onClick={() => {
+                fetchPOs();
+                fetchMetaBrands();
+              }}
               className="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition shadow-sm cursor-pointer"
-              title="Refresh POs"
+              title="Refresh POs and Brands"
             >
               <Filter size={16} />
             </button>
@@ -1110,7 +1272,9 @@ Thank you for choosing Team Inspire!`;
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Shipper Name</th>
                   )}
                   {activeTab !== "outward" && (
-                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Date</th>
+                      <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                        {activeTab === "dispatch" ? "Dispatch Date" : (activeTab === "inward_invoice" ? "Invoice Date" : "Date")}
+                      </th>
                   )}
                   {activeTab === "outward" && (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Created By</th>
@@ -1152,16 +1316,73 @@ Thank you for choosing Team Inspire!`;
                     )}
                     {activeTab !== "outward" ? (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
-                          {po.vendorName}
+                          <div>{po.vendorName}</div>
+                          {po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1">
+                              {Array.from(new Set(po.products.map(p => p.brand || p.product?.brand).filter(Boolean))).slice(0, 3).map((b, bIdx) => (
+                                <span key={bIdx} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                                  {b}
+                                </span>
+                              ))}
+                              {Array.from(new Set(po.products.map(p => p.type || p.product?.type || "Spare Part").filter(Boolean))).map((t, tIdx) => (
+                                <span key={tIdx} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                  t.toLowerCase().includes("equip")
+                                    ? "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+                                    : "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                }`}>
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                     ) : (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
-                          {po.shipper ? (po.shipper.billingName || po.shipper.consigneeName) : "-"}
+                          <div>{po.shipper ? (po.shipper.billingName || po.shipper.consigneeName) : "-"}</div>
+                          {po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1">
+                              {Array.from(new Set(po.products.map(p => p.brand || p.product?.brand).filter(Boolean))).slice(0, 3).map((b, bIdx) => (
+                                <span key={bIdx} className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                                  {b}
+                                </span>
+                              ))}
+                              {Array.from(new Set(po.products.map(p => p.type || p.product?.type || "Spare Part").filter(Boolean))).map((t, tIdx) => (
+                                <span key={tIdx} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                  t.toLowerCase().includes("equip")
+                                    ? "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+                                    : "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                }`}>
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                     )}
                     {activeTab !== "outward" && (
-                      <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(po.date).toLocaleDateString("en-GB")}
+                      <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                        {(() => {
+                          if (activeTab === "dispatch") {
+                            return (
+                              <div className="flex flex-col">
+                                <span className="font-bold text-gray-900 dark:text-white">
+                                  {getDispatchDisplayDate(po)}
+                                </span>
+                                {po.dispatchHistory && po.dispatchHistory.length > 0 && (
+                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                    Dispatched: {new Date(po.dispatchHistory[po.dispatchHistory.length - 1].dispatchDate || po.dispatchHistory[po.dispatchHistory.length - 1].createdAt).toLocaleDateString("en-GB")}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
+                          if (activeTab === "inward_invoice") {
+                            const latestInv = po.invoiceHistory && po.invoiceHistory.length > 0 ? po.invoiceHistory[po.invoiceHistory.length - 1] : null;
+                            const invDate = latestInv ? new Date(latestInv.date || latestInv.createdAt).toLocaleDateString("en-GB") : new Date(po.date).toLocaleDateString("en-GB");
+                            return <span className="font-bold text-gray-900 dark:text-white">{invDate}</span>;
+                          }
+                          return <span>{new Date(po.date).toLocaleDateString("en-GB")}</span>;
+                        })()}
                       </td>
                     )}
                     {activeTab === "outward" && (
@@ -1541,7 +1762,15 @@ Thank you for choosing Team Inspire!`;
                               </span>
                               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 flex items-center gap-1.5 flex-wrap">
                                 <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
-                                  {p.brand}
+                                  {p.brand || "Generic"}
+                                </span>
+                                <span>|</span>
+                                <span className={`px-1.5 py-0.5 rounded-md font-bold text-[10px] uppercase border shadow-sm ${
+                                  (p.type || p.product?.type || "").toLowerCase().includes("equip")
+                                    ? "bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
+                                    : "bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800"
+                                }`}>
+                                  {p.type || p.product?.type || "Spare Part"}
                                 </span>
                                 <span>|</span>
                                 <span className="bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-1.5 py-0.5 rounded-md font-mono font-bold text-[10px] uppercase border border-lime-400/20 shadow-sm">
@@ -1787,9 +2016,16 @@ Thank you for choosing Team Inspire!`;
                                   </span>
                                 ))}
                               </div>
-                              <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="inline-block bg-lime-300 dark:bg-lime-950/60 text-lime-900 dark:text-lime-300 px-2 py-0.5 rounded-md font-bold text-xs uppercase border border-lime-400/20 shadow-sm">
-                                  {p.brand}
+                                  {p.brand || "Generic"}
+                                </span>
+                                <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs uppercase border shadow-sm ${
+                                  (p.type || p.product?.type || "").toLowerCase().includes("equip")
+                                    ? "bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
+                                    : "bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800"
+                                }`}>
+                                  {p.type || p.product?.type || "Spare Part"}
                                 </span>
                               </div>
                             </td>

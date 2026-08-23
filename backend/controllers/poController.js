@@ -22,6 +22,7 @@ exports.getPOs = async (req, res) => {
             })
             .populate("createdBy", "name")
             .populate("shipper")
+            .populate("products.product", "name productNo brand type")
             .sort({ createdAt: -1 })
             .lean();
 
@@ -112,6 +113,7 @@ exports.createPOFromPI = async (req, res) => {
             productNo: p.productNo,
             name: p.name,
             brand: p.brand,
+            type: p.type || p.product?.type || "",
             hsnCode: p.hsnCode,
             quantity: p.quantity,
             unitPrice: p.unitPrice,

@@ -173,6 +173,7 @@ const calculateQuotationTotals = async (products, additionalCharges) => {
             name: p.name || dbProd.name || "Unknown Product",
             description: p.description || dbProd.description || "",
             brand: p.brand || dbProd.brand || "",
+            type: p.type || dbProd.type || "Spare Part",
             hsnCode: p.hsnCode || dbProd.hsnCode || "",
             uom: p.uom || dbProd.uom || "PCS",
             quantity,

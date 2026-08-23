@@ -309,6 +309,7 @@ export default function CreateOutwardPO({ onClose, onSuccess, poToEdit }) {
                         productNo: value.productNo,
                         name: value.name,
                         brand: value.brand,
+                        type: value.type || "Spare Part",
                         hsnCode: value.hsnCode || "",
                         uom: value.uom || "Nos",
                         unitPrice: value.retailPriceINR || 0,
