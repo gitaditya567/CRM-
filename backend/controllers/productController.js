@@ -2,6 +2,9 @@ const XLSX = require("xlsx");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const UploadHistory = require("../models/UploadHistory");
+const StockLedger = require("../models/StockLedger");
+const PurchaseOrder = require("../models/PurchaseOrder");
+const Quotation = require("../models/Quotation");
 const { getCache, setCache, clearCachePrefix } = require("../utils/cache");
 
 /* ========= UPLOAD EXCEL ========= */
@@ -166,6 +169,7 @@ exports.createProduct = async (req, res) => {
       description,
       brand,
       hsnCode,
+      uom,
       currency,
       priceUSD,
       dealerPriceINR,
@@ -183,6 +187,7 @@ exports.createProduct = async (req, res) => {
       description: description || "",
       brand,
       hsnCode,
+      uom: uom || "PCS",
       currency,
       priceUSD: Number(priceUSD) || 0,
       dealerPriceINR: Number(dealerPriceINR) || 0,
@@ -211,16 +216,39 @@ exports.createProduct = async (req, res) => {
 exports.getRecentProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
+    const { search, brand, type } = req.query;
 
-    const products = await Product.find()
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-    
-    const total = await Product.countDocuments();
+    const filter = {};
+
+    if (type && type !== "All") {
+      filter.type = type;
+    }
+
+    if (brand && brand !== "All") {
+      filter.brand = brand;
+    }
+
+    if (search && search.trim()) {
+      const escapeRegex = (text) => text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const regex = new RegExp(escapeRegex(search.trim()), "i");
+      filter.$or = [
+        { productNo: regex },
+        { name: regex },
+        { description: regex },
+        { brand: regex }
+      ];
+    }
+
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Product.countDocuments(filter)
+    ]);
 
     res.json({
       products,
@@ -378,3 +406,231 @@ exports.getAllProducts = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch products" });
   }
 };
+
+/* ========= ADD STOCK TO PRODUCT (STOCK IN WITH LEDGER) ========= */
+exports.addStockToProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { piNo, invoiceNo, date, quantity, unitPrice, supplier, remarks } = req.body;
+
+    const numQty = Number(quantity);
+    if (!numQty || numQty <= 0) {
+      return res.status(400).json({ message: "A valid positive quantity is required" });
+    }
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    // Atomically increment product quantity
+    const updatedProduct = await Product.findByIdAndUpdate(
+      id,
+      { $inc: { quantity: numQty } },
+      { new: true }
+    );
+
+    // Create Stock Ledger Entry
+    const ledgerEntry = new StockLedger({
+      product: updatedProduct._id,
+      productNo: updatedProduct.productNo,
+      brand: updatedProduct.brand || "",
+      entryType: "IN",
+      piNo: (piNo || "").trim(),
+      invoiceNo: (invoiceNo || "").trim(),
+      date: date ? new Date(date) : new Date(),
+      quantity: numQty,
+      unitPrice: Number(unitPrice) || 0,
+      balanceAfter: updatedProduct.quantity,
+      supplier: (supplier || "").trim(),
+      remarks: (remarks || "").trim(),
+      createdBy: req.user ? req.user.id : null,
+    });
+
+    await ledgerEntry.save();
+
+    clearCachePrefix("product_");
+    clearCachePrefix("dashboard_");
+
+    res.status(201).json({
+      message: "Stock added successfully!",
+      product: updatedProduct,
+      ledgerEntry
+    });
+  } catch (err) {
+    console.error("Add Stock Error:", err);
+    res.status(500).json({ message: "Failed to add stock", error: err.message });
+  }
+};
+
+/* ========= GET LIVE STOCK METRICS ========= */
+exports.getProductLiveStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { brand, name, productNo } = req.query;
+    let product;
+
+    // Check if passed parameter is ObjectId
+    if (id && id !== "by-query" && id.match(/^[0-9a-fA-F]{24}$/)) {
+      product = await Product.findById(id).lean();
+    }
+    
+    // Check by productNo route parameter
+    if (!product && id && id !== "by-query") {
+      const escapeRegex = (text) => text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      product = await Product.findOne({ productNo: new RegExp(`^${escapeRegex(id)}$`, "i") }).lean();
+    }
+
+    // Check by brand + productNo / name query params if provided
+    if (!product && (productNo || name || brand)) {
+      const escapeRegex = (text) => text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      const conditions = [];
+
+      if (brand) {
+        conditions.push({ brand: new RegExp(`^${escapeRegex(brand.trim())}$`, "i") });
+      }
+
+      if (productNo && name) {
+        conditions.push({
+          $or: [
+            { productNo: new RegExp(`^${escapeRegex(productNo.trim())}$`, "i") },
+            { name: new RegExp(`^${escapeRegex(name.trim())}$`, "i") }
+          ]
+        });
+      } else if (productNo) {
+        conditions.push({ productNo: new RegExp(`^${escapeRegex(productNo.trim())}$`, "i") });
+      } else if (name) {
+        conditions.push({ name: new RegExp(`^${escapeRegex(name.trim())}$`, "i") });
+      }
+
+      if (conditions.length > 0) {
+        product = await Product.findOne({ $and: conditions }).lean();
+      }
+    }
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const pNo = product.productNo;
+    const onHand = Number(product.quantity) || 0;
+
+    // Reserved stock in confirmed POs (converted from PI or created as Outward POs) not yet fully dispatched
+    const activeConfirmedPOs = await PurchaseOrder.find({
+      status: { $nin: ["Dispatched", "Completed", "Cancelled"] },
+      $or: [
+        { "products.product": product._id },
+        { "products.productNo": pNo }
+      ]
+    }).select("products status type pi").lean();
+
+    let reserved = 0;
+    activeConfirmedPOs.forEach(po => {
+      (po.products || []).forEach(item => {
+        if (item.selected === false) return;
+        const matches = (item.product && String(item.product) === String(product._id)) ||
+                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
+        if (matches) {
+          const itemQty = Number(item.quantity) || 0;
+          const dispatched = Number(item.dispatchedQuantity) || 0;
+          reserved += Math.max(0, itemQty - dispatched);
+        }
+      });
+    });
+
+    // Incoming stock: Orders placed to Suppliers/Vendors (Outward POs) not yet received
+    const activeSupplierPOs = await PurchaseOrder.find({
+      type: "outward",
+      status: { $nin: ["Completed", "Received", "Cancelled"] },
+      $or: [
+        { "products.product": product._id },
+        { "products.productNo": pNo }
+      ]
+    }).select("products status").lean();
+
+    let incoming = 0;
+    activeSupplierPOs.forEach(po => {
+      (po.products || []).forEach(item => {
+        if (item.selected === false) return;
+        const matches = (item.product && String(item.product) === String(product._id)) ||
+                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
+        if (matches) {
+          incoming += Number(item.quantity) || 0;
+        }
+      });
+    });
+
+    // In open quotes (Draft / Sent quotes that are NOT yet converted to PO)
+    const openQuotes = await Quotation.find({
+      status: { $in: ["Draft", "Sent"] },
+      isConvertedToPO: { $ne: true },
+      $or: [
+        { "products.product": product._id },
+        { "products.productNo": pNo }
+      ]
+    }).select("products status isConvertedToPO").lean();
+
+    let inOpenQuotes = 0;
+    openQuotes.forEach(q => {
+      (q.products || []).forEach(item => {
+        const matches = (item.product && String(item.product) === String(product._id)) ||
+                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
+        if (matches) {
+          inOpenQuotes += Number(item.quantity) || 0;
+        }
+      });
+    });
+
+    const availableToSell = onHand - reserved;
+
+    res.json({
+      product: {
+        _id: product._id,
+        name: product.name || product.description || "N/A",
+        description: product.description || "",
+        brand: product.brand || "Generic",
+        productNo: product.productNo,
+        uom: product.uom || "Nos",
+        type: product.type || "Spare Part",
+        priceUSD: product.priceUSD || 0,
+        dealerPriceINR: product.dealerPriceINR || 0,
+        retailPriceINR: product.retailPriceINR || 0,
+        quantity: onHand
+      },
+      onHand,
+      reserved,
+      incoming,
+      inOpenQuotes,
+      availableToSell,
+      uom: product.uom || "Nos"
+    });
+  } catch (err) {
+    console.error("Live Stock Error:", err);
+    res.status(500).json({ message: "Failed to fetch live stock", error: err.message });
+  }
+};
+
+/* ========= GET PRODUCT STOCK LEDGER ========= */
+exports.getProductLedger = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    let productFilter = {};
+    if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      productFilter = { product: id };
+    } else {
+      productFilter = { productNo: id };
+    }
+
+    const ledger = await StockLedger.find(productFilter)
+      .sort({ date: -1, createdAt: -1 })
+      .populate("createdBy", "name email")
+      .lean();
+
+    res.json(ledger);
+  } catch (err) {
+    console.error("Fetch Ledger Error:", err);
+    res.status(500).json({ message: "Failed to fetch stock ledger", error: err.message });
+  }
+};
+

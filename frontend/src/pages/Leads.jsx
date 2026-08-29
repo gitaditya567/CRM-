@@ -237,9 +237,9 @@ const ClientTableView = React.memo(({
 
     return (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-            <div className="overflow-x-auto">
-                <table className="w-full">
-                    <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600">
+            <div className="overflow-auto custom-scrollbar max-h-[600px]">
+                <table className="w-full min-w-[1100px]">
+                    <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600 sticky top-0 z-10 backdrop-blur-md">
                         <tr>
                             <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Client Info</th>
                             <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
@@ -375,9 +375,9 @@ const QuotationTableView = React.memo(({
 
     return (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-            <div className="overflow-x-auto">
-                <table className="w-full">
-                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700">
+            <div className="overflow-auto custom-scrollbar max-h-[600px]">
+                <table className="w-full min-w-[1200px]">
+                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 sticky top-0 z-10 backdrop-blur-md">
                         <tr>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">{isPIView ? "PI Info" : "Quotation Info"}</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Lead / Client</th>
@@ -595,9 +595,9 @@ const GroupTableView = React.memo(({
 
     return (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-            <div className="overflow-x-auto">
+            <div className="overflow-auto custom-scrollbar max-h-[600px]">
                 <table className="w-full">
-                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700">
+                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 sticky top-0 z-10 backdrop-blur-md">
                         <tr>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Group Category</th>
                             <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Population</th>
@@ -679,10 +679,10 @@ const TableView = React.memo(({
     onConvertToQuotation
 }) => (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
-        <div className="overflow-x-auto">
-            <table className="w-full">
+        <div className="overflow-auto custom-scrollbar max-h-[600px]">
+            <table className="w-full min-w-[1200px]">
                 {/* ... existing table code ... */}
-                <thead className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                <thead className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0 z-10 backdrop-blur-md">
                     <tr>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Lead No</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
@@ -690,7 +690,7 @@ const TableView = React.memo(({
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Created By</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Assigned To</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky right-0 bg-gray-100 dark:bg-gray-700 z-10 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)]">Actions</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky right-0 bg-gray-100 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)]">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -3436,7 +3436,7 @@ const TeamInspire = () => {
         );
 
         return (
-            <div className="max-w-[1600px] mx-auto p-4 md:p-12 space-y-10">
+            <div className="max-w-full mx-auto p-4 md:p-8 space-y-10">
                 {/* Sales Pulse Header */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 bg-white dark:bg-gray-800 p-8 rounded-[2.5rem] shadow-2xl border border-gray-50 dark:border-gray-700/50">
                     <div className="flex items-center gap-6">

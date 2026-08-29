@@ -37,3 +37,28 @@ html, body, #root {
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
 }
+
+/* Custom scrollbar class to override global scrollbar hiding */
+.custom-scrollbar {
+    -ms-overflow-style: auto !important;
+    scrollbar-width: thin !important;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    display: block !important;
+    width: 6px !important;
+    height: 6px !important;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent !important;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1 !important;
+    border-radius: 3px !important;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #475569 !important;
+}

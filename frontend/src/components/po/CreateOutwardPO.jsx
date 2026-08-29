@@ -74,7 +74,7 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Search
                 </button>
             )}
             {isOpen && results.length > 0 && (
-                <div className="absolute z-50 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg mt-1">
+                <div className="absolute z-50 w-full max-h-60 overflow-y-auto custom-scrollbar bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg mt-1">
                     {results.map(p => (
                         <div
                             key={p._id}
@@ -403,7 +403,7 @@ export default function CreateOutwardPO({ onClose, onSuccess, poToEdit }) {
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0">
-                    <div className="flex-1 p-6 overflow-y-auto space-y-6">
+                    <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6">
                         
                         {/* Header Info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

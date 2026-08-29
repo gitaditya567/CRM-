@@ -1249,8 +1249,8 @@ Thank you for choosing Team Inspire!`;
           </div>
         </div>
 
-        {/* PO Table list (Scrollable Frame Container) */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] min-h-[400px] rounded-2xl border border-gray-100 dark:border-gray-700/70 shadow-xs bg-white dark:bg-gray-800 relative">
+        {/* PO Table list */}
+        <div className="overflow-auto custom-scrollbar max-h-[600px] rounded-2xl border border-gray-100 dark:border-gray-700/70 shadow-xs bg-white dark:bg-gray-800 relative">
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center">
               <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600"></div>
@@ -1668,7 +1668,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className={`p-6 overflow-y-auto space-y-4 ${isChecklistFullScreen ? "flex-1 max-h-none" : "max-h-[650px] md:max-h-[70vh]"}`}>
+            <div className={`p-6 overflow-y-auto custom-scrollbar space-y-4 ${isChecklistFullScreen ? "flex-1 max-h-none" : "max-h-[650px] md:max-h-[70vh]"}`}>
               {/* Product Search Bar */}
               <div className="relative flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 py-3 w-full">
                 <Search size={18} className="text-gray-400 mr-2 shrink-0" />
@@ -1940,7 +1940,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[600px]">
+            <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar max-h-[600px]">
               {/* Meta Info Grid */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl">
                 <div>
@@ -1989,7 +1989,7 @@ Thank you for choosing Team Inspire!`;
                 <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">
                   Included Products ({(selectedPOForDetails.products || []).filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected).length})
                 </h4>
-                <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl">
+                <div className="overflow-x-auto custom-scrollbar border border-gray-100 dark:border-gray-800 rounded-2xl">
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 dark:bg-gray-700/50">
                       <tr>
@@ -2092,7 +2092,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 max-h-[480px] overflow-y-auto space-y-4">
+            <div className="p-6 max-h-[480px] overflow-y-auto custom-scrollbar space-y-4">
               <div className="text-xs text-gray-500 dark:text-gray-400 font-medium bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900 p-3.5 rounded-2xl">
                 💡 Select products and enter the quantity to bill for this invoice. Remaining items can be billed in future invoices until quantity reaches 0.
               </div>
@@ -2273,7 +2273,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[450px]">
+            <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar max-h-[450px]">
               {/* Courier, Tracking, Date & Transport Mode Inputs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
@@ -2421,7 +2421,7 @@ Thank you for choosing Team Inspire!`;
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[600px] space-y-5">
+            <div className="p-6 overflow-y-auto custom-scrollbar max-h-[600px] space-y-5">
               {activeTab === "dispatch" ? (
                 !selectedPOForHistory.dispatchHistory || selectedPOForHistory.dispatchHistory.length === 0 ? (
                   <div className="text-center py-10 text-gray-400 font-bold uppercase tracking-widest text-xs">No dispatches recorded yet</div>
@@ -2613,7 +2613,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar">
               <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3.5 rounded-2xl text-xs text-blue-800 dark:text-blue-300 font-medium">
                 💡 Client email is auto-fetched from Personal Contact. Formatted table is embedded inside the email body below.
               </div>
@@ -2871,7 +2871,7 @@ Thank you for choosing Team Inspire!`;
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
               <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 font-medium">
                 💬 Direct WhatsApp messaging. Clicking 'Send via WhatsApp' will open WhatsApp Web/App with this text pre-filled.
               </div>

@@ -1,7 +1,23 @@
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
 const multer = require("multer");
-const { uploadProducts, searchProduct, getUploadHistory, deleteUploadHistory, createProduct, getRecentProducts, deleteProduct, getProductMeta, deleteBrand, getProductById, updateProduct, getAllProducts } = require("../controllers/productController");
+const { 
+  uploadProducts, 
+  searchProduct, 
+  getUploadHistory, 
+  deleteUploadHistory, 
+  createProduct, 
+  getRecentProducts, 
+  deleteProduct, 
+  getProductMeta, 
+  deleteBrand, 
+  getProductById, 
+  updateProduct, 
+  getAllProducts,
+  addStockToProduct,
+  getProductLiveStock,
+  getProductLedger
+} = require("../controllers/productController");
 
 const router = express.Router();
 
@@ -29,6 +45,15 @@ router.get("/history", protect, getUploadHistory);
 // DELETE /api/products/history/:id (Delete Upload History)
 router.delete("/history/:id", protect, deleteUploadHistory);
 
+// POST /api/products/:id/add-stock (Add Stock & Record in Ledger)
+router.post("/:id/add-stock", protect, addStockToProduct);
+
+// GET /api/products/:id/live-stock (Get Live Stock Metrics)
+router.get("/:id/live-stock", protect, getProductLiveStock);
+
+// GET /api/products/:id/ledger (Get Product Stock Ledger)
+router.get("/:id/ledger", protect, getProductLedger);
+
 // GET /api/products/:id (Get Single Product)
 router.get("/:id", protect, getProductById);
 
@@ -45,3 +70,4 @@ router.delete("/brand/:brandName", protect, deleteBrand);
 router.get("/search/:productNo", protect, searchProduct);
 
 module.exports = router;
+
