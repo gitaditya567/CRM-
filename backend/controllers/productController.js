@@ -527,7 +527,6 @@ exports.getProductLiveStock = async (req, res) => {
     let reserved = 0;
     activeConfirmedPOs.forEach(po => {
       (po.products || []).forEach(item => {
-        if (item.selected === false) return;
         const matches = (item.product && String(item.product) === String(product._id)) ||
                         (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
         if (matches) {
@@ -551,7 +550,6 @@ exports.getProductLiveStock = async (req, res) => {
     let incoming = 0;
     activeSupplierPOs.forEach(po => {
       (po.products || []).forEach(item => {
-        if (item.selected === false) return;
         const matches = (item.product && String(item.product) === String(product._id)) ||
                         (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
         if (matches) {

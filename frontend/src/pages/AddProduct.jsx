@@ -973,11 +973,6 @@ const AddProduct = () => {
                                 {/* Calculation Formula Footer */}
                                 <div className="border border-dashed border-gray-700/80 rounded-xl py-3 px-4 text-center text-xs font-mono text-gray-400 bg-gray-900/40">
                                     {activeOnHand} on hand – {activeReserved} reserved = <span className={activeAvailable < 0 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>{activeAvailable >= 0 ? `+${activeAvailable}` : activeAvailable} available</span>
-                                    {activeAvailable < 0 && (
-                                        <span className="block text-[11px] text-amber-400 font-semibold mt-1 font-sans">
-                                            ({Math.abs(activeAvailable)} {activeUOM} more parts order krne hai)
-                                        </span>
-                                    )}
                                 </div>
 
                                 {/* Quick Actions */}

@@ -190,7 +190,7 @@ const POManagement = () => {
   };
 
   const getInwardPOInvoiceStatus = (products) => {
-    const activeProducts = (products || []).filter(p => p.selected !== false);
+    const activeProducts = products || [];
     if (activeProducts.length === 0) return "Pending";
     const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
     if (totalInvoiced === 0) return "Pending";
@@ -201,14 +201,14 @@ const POManagement = () => {
   const getDisplayStatus = (po, tab) => {
     if (tab === "dispatch") {
       if (po.status === "Dispatched") return "Dispatched";
-      const activeProducts = (po.products || []).filter(p => p.selected !== false);
+      const activeProducts = po.products || [];
       const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
       if (totalInvoiced > 0 && totalDispatched >= totalInvoiced) return "Dispatched";
       return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
-      const activeProducts = (po.products || []).filter(p => p.selected !== false);
+      const activeProducts = po.products || [];
       if (activeProducts.length === 0) return "Pending";
       const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       if (totalInvoiced === 0) return "Pending";
@@ -216,8 +216,7 @@ const POManagement = () => {
       return allBilled ? "Invoiced" : "Partially Invoiced";
     }
     if (tab === "inward" && po.type === "inward" && po.isMovedToInvoice === true) {
-      const hasUnselectedProducts = (po.products || []).some(p => p.selected === false);
-      return hasUnselectedProducts ? "Partially Processed" : "Processed";
+      return "Processed";
     }
     return po.status;
   };
@@ -235,9 +234,9 @@ const POManagement = () => {
     if (activeTab === "inward") {
       if (po.type !== "inward") return false;
       if (po.isMovedToInvoice === true) {
-        const activeProducts = (po.products || []).filter(p => p.selected !== false);
+        const activeProducts = po.products || [];
         const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-        if (isFullyInvoiced) return false;
+        if (isFullyInvoiced && statusFilter !== "All" && statusFilter !== "Invoiced" && statusFilter !== "Processed") return false;
       }
     }
     if (activeTab === "dispatch") {
@@ -414,14 +413,14 @@ const POManagement = () => {
     setProductSearchQuery("");
     setIsChecklistFullScreen(false);
     const isInvoicePhase = activeTab === "inward_invoice";
-    const sourceProducts = isInvoicePhase ? po.products.filter(p => p.selected !== false) : po.products;
+    const sourceProducts = po.products;
     setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
       return { 
         ...p,
         currentInvoiceQty: pending > 0 ? 1 : 0,
-        selected: billed > 0 ? true : (pending > 0 ? (p.selected !== false) : false)
+        selected: billed > 0 ? true : (pending > 0 ? true : false)
       };
     }));
     setIsProductsModalOpen(true);

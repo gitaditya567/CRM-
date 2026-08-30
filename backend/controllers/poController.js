@@ -153,6 +153,51 @@ exports.createPOFromPI = async (req, res) => {
         piDoc.isConvertedToPO = true;
         await piDoc.save();
 
+        // Deduct stock for products and record in StockLedger
+        try {
+            const Product = require("../models/Product");
+            const StockLedger = require("../models/StockLedger");
+            const { clearCachePrefix } = require("../utils/cache");
+
+            for (const p of piDoc.products) {
+                const qtyToSubtract = Number(p.quantity) || 0;
+                if (qtyToSubtract <= 0) continue;
+
+                let productDoc = await Product.findById(p.product);
+                if (!productDoc && p.productNo) {
+                    productDoc = await Product.findOne({ productNo: p.productNo });
+                }
+
+                if (productDoc) {
+                    // Decrease stock (prevent negative stock)
+                    productDoc.quantity = Math.max(0, (productDoc.quantity || 0) - qtyToSubtract);
+                    const updatedProduct = await productDoc.save();
+
+                    // Create StockLedger OUT entry
+                    const ledgerEntry = new StockLedger({
+                        product: updatedProduct._id,
+                        productNo: updatedProduct.productNo,
+                        brand: updatedProduct.brand,
+                        entryType: "OUT",
+                        piNo: piDoc.quotationNumber,
+                        poNo: poNumber,
+                        date: new Date(),
+                        quantity: qtyToSubtract,
+                        unitPrice: p.unitPrice || 0,
+                        balanceAfter: updatedProduct.quantity,
+                        remarks: `Subtracted stock upon PI conversion to Inward PO`
+                    });
+                    await ledgerEntry.save();
+                }
+            }
+
+            // Clear product and dashboard caches
+            clearCachePrefix("product_");
+            clearCachePrefix("dashboard_");
+        } catch (stockErr) {
+            console.error("Error deducting stock in createPOFromPI:", stockErr);
+        }
+
         // Optional: emit socket event if socket is setup
         const io = req.app.get("io");
         if (io) {
@@ -198,7 +243,7 @@ exports.updatePO = async (req, res) => {
         let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
 
         if (po.type === "inward" && checkMoved) {
-            const activeProducts = (checkProducts || []).filter(p => p.selected !== false);
+            const activeProducts = checkProducts || po.products;
             if (activeProducts.length === 0) {
                 updates.status = "Pending";
             } else {
@@ -207,7 +252,7 @@ exports.updatePO = async (req, res) => {
                 const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
 
                 if (totalDispatched > 0) {
-                    updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced) ? "Dispatched" : "Pending";
+                    updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced && totalDispatched >= totalQty) ? "Dispatched" : "Pending";
                 } else if (totalInvoiced === 0) {
                     updates.status = "Pending";
                 } else {
@@ -235,6 +280,87 @@ exports.updatePO = async (req, res) => {
         if (estimatedTotal !== undefined) updates.estimatedTotal = estimatedTotal;
 
         if (products) {
+            // Stock reconciliation for Inward PO
+            if (po.type === "inward") {
+                try {
+                    const Product = require("../models/Product");
+                    const StockLedger = require("../models/StockLedger");
+                    const { clearCachePrefix } = require("../utils/cache");
+
+                    for (const p of products) {
+                        const existingProduct = po.products.find(ep => 
+                            (ep.product && String(ep.product) === String(p.product)) ||
+                            (ep.productNo && ep.productNo === p.productNo)
+                        );
+
+                        const wasSelected = existingProduct ? existingProduct.selected !== false : false;
+                        const isSelectedNow = p.selected !== false;
+
+                        if (!wasSelected && isSelectedNow) {
+                            // Newly selected! Deduct stock
+                            const qtyToSubtract = Number(p.quantity) || 0;
+                            if (qtyToSubtract > 0) {
+                                let productDoc = await Product.findById(p.product);
+                                if (!productDoc && p.productNo) {
+                                    productDoc = await Product.findOne({ productNo: p.productNo });
+                                }
+                                if (productDoc) {
+                                    productDoc.quantity = Math.max(0, (productDoc.quantity || 0) - qtyToSubtract);
+                                    const updatedProduct = await productDoc.save();
+
+                                    const ledgerEntry = new StockLedger({
+                                        product: updatedProduct._id,
+                                        productNo: updatedProduct.productNo,
+                                        brand: updatedProduct.brand,
+                                        entryType: "OUT",
+                                        piNo: po.pi?.quotationNumber || "",
+                                        poNo: po.poNumber,
+                                        date: new Date(),
+                                        quantity: qtyToSubtract,
+                                        unitPrice: p.unitPrice || 0,
+                                        balanceAfter: updatedProduct.quantity,
+                                        remarks: `Subtracted stock upon item selection update in Inward PO`
+                                    });
+                                    await ledgerEntry.save();
+                                }
+                            }
+                        } else if (wasSelected && !isSelectedNow) {
+                            // Deselected! Revert stock (add back)
+                            const qtyToAdd = Number(p.quantity) || 0;
+                            if (qtyToAdd > 0) {
+                                let productDoc = await Product.findById(p.product);
+                                if (!productDoc && p.productNo) {
+                                    productDoc = await Product.findOne({ productNo: p.productNo });
+                                }
+                                if (productDoc) {
+                                    productDoc.quantity = (productDoc.quantity || 0) + qtyToAdd;
+                                    const updatedProduct = await productDoc.save();
+
+                                    const ledgerEntry = new StockLedger({
+                                        product: updatedProduct._id,
+                                        productNo: updatedProduct.productNo,
+                                        brand: updatedProduct.brand,
+                                        entryType: "IN",
+                                        piNo: po.pi?.quotationNumber || "",
+                                        poNo: po.poNumber,
+                                        date: new Date(),
+                                        quantity: qtyToAdd,
+                                        unitPrice: p.unitPrice || 0,
+                                        balanceAfter: updatedProduct.quantity,
+                                        remarks: `Reverted stock upon item deselection in Inward PO`
+                                    });
+                                    await ledgerEntry.save();
+                                }
+                            }
+                        }
+                    }
+                    clearCachePrefix("product_");
+                    clearCachePrefix("dashboard_");
+                } catch (cErr) {
+                    console.error("Reconciliation error in updatePO:", cErr);
+                }
+            }
+
             updates.products = products;
             // Recalculate total value for selected items
             const totalValue = products

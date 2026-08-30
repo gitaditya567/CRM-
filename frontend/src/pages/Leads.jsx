@@ -3146,13 +3146,14 @@ const TeamInspire = () => {
 
         if (quote) {
             setEditingQuotation(quote);
+            const mappedProducts = quote.products?.map(p => ({
+                ...p,
+                product: p.product?._id || p.product || ""
+            })) || [];
             setQuotationFormData({
                 lead: quote.lead?._id || quote.lead || "",
                 leadNumber: quote.lead?.leadNumber || "",
-                products: quote.products?.map(p => ({
-                    ...p,
-                    product: p.product?._id || p.product || ""
-                })) || [],
+                products: mappedProducts,
                 validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString().split('T')[0] : "",
                 terms: {
                     deliveryLeadTime: quote.terms?.deliveryLeadTime || "Stock items are subject to prior sales against subject to Force Majeure Clause.",
@@ -3175,13 +3176,15 @@ const TeamInspire = () => {
                 poDate: quote.poDate ? new Date(quote.poDate).toISOString().split('T')[0] : "",
                 poComment: quote.poComment || ""
             });
+            fetchLiveStockForQuoteProducts(mappedProducts);
         } else {
             setEditingQuotation(null);
             // If leadId is provided (direct qualification flow), preserve the lead pre-selection
             // Otherwise reset to empty form
+            const defaultProducts = leadId ? (quotationFormData.products || []) : [];
             setQuotationFormData(prev => ({
                 lead: leadId || prev.lead || "",
-                products: leadId ? (prev.products || []) : [],
+                products: defaultProducts,
                 validUntil: leadId ? (prev.validUntil || "") : "",
                 terms: {
                     deliveryLeadTime: "Stock items are subject to prior sales against subject to Force Majeure Clause.",
@@ -3201,6 +3204,9 @@ const TeamInspire = () => {
                 shipTo: leadId ? (prev.shipTo || { name: "", address: "", gstin: "" }) : { name: "", address: "", gstin: "" },
                 additionalCharges: { installation: 0, freight: 0 }
             }));
+            if (defaultProducts.length > 0) {
+                fetchLiveStockForQuoteProducts(defaultProducts);
+            }
         }
         setIsQuotationModalOpen(true);
     };
@@ -3315,6 +3321,40 @@ const TeamInspire = () => {
         }));
     };
 
+    const fetchLiveStockForItem = async (index, productId) => {
+        if (!productId) return;
+        try {
+            const res = await API.get(`/products/${productId}/live-stock`);
+            if (res.data) {
+                const { onHand, reserved, availableToSell } = res.data;
+                setQuotationFormData(prev => {
+                    const updated = prev.products.map((item, i) => {
+                        if (i === index && (item.product?._id || item.product) === productId) {
+                            return {
+                                ...item,
+                                liveStock: { onHand, reserved, availableToSell }
+                            };
+                        }
+                        return item;
+                    });
+                    return { ...prev, products: updated };
+                });
+            }
+        } catch (err) {
+            console.error("Error fetching live stock for item:", err);
+        }
+    };
+
+    const fetchLiveStockForQuoteProducts = async (productsList) => {
+        if (!productsList || !Array.isArray(productsList)) return;
+        productsList.forEach((p, index) => {
+            const productId = p.product?._id || p.product;
+            if (productId) {
+                fetchLiveStockForItem(index, productId);
+            }
+        });
+    };
+
     const handleQuotationItemChange = (index, field, value) => {
         setQuotationFormData(prev => {
             const updatedProducts = prev.products.map((item, i) => {
@@ -3337,6 +3377,9 @@ const TeamInspire = () => {
                             unitPrice = product.priceUSD || product.dealerPriceINR || 0;
                         }
 
+                        // Fetch live stock for this product
+                        fetchLiveStockForItem(index, product._id);
+
                         return {
                             ...item,
                             product: product._id,
@@ -3346,10 +3389,23 @@ const TeamInspire = () => {
                             brand: product.brand,
                             hsnCode: product.hsnCode || "",
                             uom: product.uom || "PCS",
-                            gstRate: product.gstRate || 18
+                            gstRate: product.gstRate || 18,
+                            liveStock: null
+                        };
+                    } else {
+                        return {
+                            ...item,
+                            product: "",
+                            unitPrice: 0,
+                            name: "",
+                            productNo: "",
+                            brand: "",
+                            hsnCode: "",
+                            uom: "PCS",
+                            gstRate: 18,
+                            liveStock: null
                         };
                     }
-                    return item;
                 }
 
                 // Explicit, static property updates to bypass scanner dynamic bracket warnings
@@ -5062,7 +5118,23 @@ const TeamInspire = () => {
 
                                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
                                                     <div className="md:col-span-2">
-                                                        <label className="text-xs font-semibold text-gray-500 uppercase">Product (Auto-fill)</label>
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <label className="text-xs font-semibold text-gray-500 uppercase">Product (Auto-fill)</label>
+                                                            {item.product && !item.liveStock && (
+                                                                <span className="text-[10px] text-gray-400 animate-pulse font-bold">
+                                                                    Fetching live stock...
+                                                                </span>
+                                                            )}
+                                                            {item.liveStock && (
+                                                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                                                    item.liveStock.availableToSell < 0 
+                                                                        ? "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400" 
+                                                                        : "bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400"
+                                                                }`}>
+                                                                    Available to Sell: {item.liveStock.availableToSell > 0 ? `+${item.liveStock.availableToSell}` : item.liveStock.availableToSell}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <ProductSearchSelect
                                                             value={item.product}
                                                             onChange={(productObj) => handleQuotationItemChange(index, "product_obj", productObj)}
