@@ -169,8 +169,8 @@ exports.createPOFromPI = async (req, res) => {
                 }
 
                 if (productDoc) {
-                    // Decrease stock (prevent negative stock)
-                    productDoc.quantity = Math.max(0, (productDoc.quantity || 0) - qtyToSubtract);
+                    // Decrease stock (allow negative stock)
+                    productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
                     const updatedProduct = await productDoc.save();
 
                     // Create StockLedger OUT entry
@@ -305,7 +305,7 @@ exports.updatePO = async (req, res) => {
                                     productDoc = await Product.findOne({ productNo: p.productNo });
                                 }
                                 if (productDoc) {
-                                    productDoc.quantity = Math.max(0, (productDoc.quantity || 0) - qtyToSubtract);
+                                    productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
                                     const updatedProduct = await productDoc.save();
 
                                     const ledgerEntry = new StockLedger({

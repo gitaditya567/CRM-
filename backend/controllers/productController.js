@@ -579,7 +579,7 @@ exports.getProductLiveStock = async (req, res) => {
       });
     });
 
-    const availableToSell = onHand - reserved;
+    const availableToSell = onHand;
 
     res.json({
       product: {
