@@ -156,7 +156,7 @@ const Permissions = () => {
     if (loading) return <div className="flex justify-center items-center h-screen"><Skeleton type="table" count={1} /></div>;
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-6 font-sans">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-6">
             <div className="max-w-7xl mx-auto">
                 <div className="flex justify-between items-end border-b border-gray-200 dark:border-gray-700 pb-4 mb-6">
                     <div>

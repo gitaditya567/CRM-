@@ -154,7 +154,7 @@ const DeveloperRequests = () => {
   });
 
   return (
-    <div className="p-6 md:p-8 space-y-6 font-sans">
+    <div className="p-6 md:p-8 space-y-6">
       
       {/* Header section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">

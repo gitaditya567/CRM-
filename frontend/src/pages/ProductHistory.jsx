@@ -101,7 +101,7 @@ const ProductHistory = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 py-6 px-4 md:px-8 font-sans">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 py-6 px-4 md:px-8">
             <div className="w-full space-y-6">
 
                 {/* Header & Stats Banner */}

@@ -514,71 +514,6 @@ exports.getProductLiveStock = async (req, res) => {
 
     const pNo = product.productNo;
     const onHand = Number(product.quantity) || 0;
-
-    // Reserved stock in confirmed POs (converted from PI or created as Outward POs) not yet fully dispatched
-    const activeConfirmedPOs = await PurchaseOrder.find({
-      status: { $nin: ["Dispatched", "Completed", "Cancelled"] },
-      $or: [
-        { "products.product": product._id },
-        { "products.productNo": pNo }
-      ]
-    }).select("products status type pi").lean();
-
-    let reserved = 0;
-    activeConfirmedPOs.forEach(po => {
-      (po.products || []).forEach(item => {
-        const matches = (item.product && String(item.product) === String(product._id)) ||
-                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
-        if (matches) {
-          const itemQty = Number(item.quantity) || 0;
-          const dispatched = Number(item.dispatchedQuantity) || 0;
-          reserved += Math.max(0, itemQty - dispatched);
-        }
-      });
-    });
-
-    // Incoming stock: Orders placed to Suppliers/Vendors (Outward POs) not yet received
-    const activeSupplierPOs = await PurchaseOrder.find({
-      type: "outward",
-      status: { $nin: ["Completed", "Received", "Cancelled"] },
-      $or: [
-        { "products.product": product._id },
-        { "products.productNo": pNo }
-      ]
-    }).select("products status").lean();
-
-    let incoming = 0;
-    activeSupplierPOs.forEach(po => {
-      (po.products || []).forEach(item => {
-        const matches = (item.product && String(item.product) === String(product._id)) ||
-                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
-        if (matches) {
-          incoming += Number(item.quantity) || 0;
-        }
-      });
-    });
-
-    // In open quotes (Draft / Sent quotes that are NOT yet converted to PO)
-    const openQuotes = await Quotation.find({
-      status: { $in: ["Draft", "Sent"] },
-      isConvertedToPO: { $ne: true },
-      $or: [
-        { "products.product": product._id },
-        { "products.productNo": pNo }
-      ]
-    }).select("products status isConvertedToPO").lean();
-
-    let inOpenQuotes = 0;
-    openQuotes.forEach(q => {
-      (q.products || []).forEach(item => {
-        const matches = (item.product && String(item.product) === String(product._id)) ||
-                        (item.productNo && item.productNo.trim().toLowerCase() === pNo.trim().toLowerCase());
-        if (matches) {
-          inOpenQuotes += Number(item.quantity) || 0;
-        }
-      });
-    });
-
     const availableToSell = onHand;
 
     res.json({
@@ -596,9 +531,6 @@ exports.getProductLiveStock = async (req, res) => {
         quantity: onHand
       },
       onHand,
-      reserved,
-      incoming,
-      inOpenQuotes,
       availableToSell,
       uom: product.uom || "Nos"
     });

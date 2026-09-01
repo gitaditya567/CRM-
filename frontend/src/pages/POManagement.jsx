@@ -49,7 +49,7 @@ const POManagement = () => {
 
   if (!isAdmin) {
     return (
-      <div className="p-6 md:p-8 text-center py-20 font-sans bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-155 dark:border-gray-700 max-w-md mx-auto mt-20">
+      <div className="p-6 md:p-8 text-center py-20 bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-155 dark:border-gray-700 max-w-md mx-auto mt-20">
         <h1 className="text-2xl font-black text-red-600 dark:text-red-400 uppercase tracking-wider">Permission Denied</h1>
         <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mt-2 uppercase tracking-wide">
           Only administrators and superadministrators are allowed to access this module.
@@ -830,12 +830,42 @@ Thank you for choosing Team Inspire!`;
     handleOpenProductsModal(po);
   };
 
-  const handleProceedToInvoiceFromChecklist = () => {
+  const handleProceedToInvoiceFromChecklist = async () => {
     const itemsToBill = modalProducts.filter(p => p.selected && (parseInt(p.currentInvoiceQty) || 0) > 0);
     if (itemsToBill.length === 0) {
       toast.error("Please select at least one product and enter an Invoice Quantity > 0!");
       return;
     }
+
+    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
+
+    if (!isOutward) {
+      try {
+        const outOfStock = [];
+        for (const item of itemsToBill) {
+          if (item.product) {
+            const productId = typeof item.product === "object" ? item.product._id : item.product;
+            const res = await API.get(`/products/${productId}/live-stock`);
+            const stock = res.data.onHand || 0;
+            if (stock <= 0) {
+              outOfStock.push({ name: item.name || item.productNo, stock });
+            }
+          }
+        }
+        if (outOfStock.length > 0) {
+          const alertMsg = outOfStock.length === 1
+            ? `Cannot create invoice: Product "${outOfStock[0].name}" is out of stock (Current stock: ${outOfStock[0].stock}). Please add stock.`
+            : `Cannot create invoice: Multiple products out of stock. Please check inventory.`;
+          toast.error(alertMsg, { duration: 6000 });
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to check live stock before invoicing", err);
+        toast.error("Failed to validate stock. Please try again.");
+        return;
+      }
+    }
+
     setSelectedPOForInvoice(selectedPOForProducts);
     setSelectedPOForBilling(null);
     setInvoiceForm({ invoiceNo: "", date: new Date().toISOString().split("T")[0] });
@@ -1064,7 +1094,7 @@ Thank you for choosing Team Inspire!`;
   const isInvoicePhase = activeTab === "inward_invoice";
 
   return (
-    <div className="p-6 md:p-8 space-y-6 font-sans">
+    <div className="p-6 md:p-8 space-y-6">
       
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -2677,7 +2707,7 @@ Thank you for choosing Team Inspire!`;
 
                 <div 
                   id="email-body-container"
-                  className="w-full bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-700 rounded-2xl p-6 text-xs text-gray-800 dark:text-gray-200 font-sans space-y-4 shadow-sm"
+                  className="w-full bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-700 rounded-2xl p-6 text-xs text-gray-800 dark:text-gray-200 space-y-4 shadow-sm"
                 >
                   <p className="font-bold text-sm text-gray-900 dark:text-white">
                     Dear Sir/Madam,
@@ -2757,7 +2787,7 @@ Thank you for choosing Team Inspire!`;
                       Thank you for choosing TeamInspire. We appreciate your patience, and we hope you enjoy your purchase!
                     </p>
 
-                    <div className="pt-2 font-sans">
+                    <div className="pt-2">
                       <p className="font-bold text-gray-900 dark:text-white">Best regards,</p>
                       <p className="font-extrabold text-blue-600 dark:text-blue-400">TeamInspire Business Solutions Pvt Ltd</p>
                     </div>

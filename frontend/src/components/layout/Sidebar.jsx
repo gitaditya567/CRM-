@@ -20,7 +20,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { useNavigate } from "react-router-dom";
 import API from "../../api/api";
 
-const Sidebar = ({ isOpen, toggleSidebar }) => {
+const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
     const role = (localStorage.getItem("role") || "").toLowerCase();
     const userId = localStorage.getItem("userId");
     const isSales = role === 'sales';
@@ -151,7 +151,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
             <aside
                 className={`
           fixed top-0 left-0 z-50 h-screen w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform
-          ${isOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 transition-transform duration-300 ease-in-out
+          ${isOpen ? "translate-x-0" : "-translate-x-full"} ${isHidden ? "md:-translate-x-full" : "md:translate-x-0"} transition-transform duration-300 ease-in-out
         `}
             >
                 <div className="flex items-center justify-between p-6">
@@ -161,6 +161,17 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
                     <button onClick={toggleSidebar} className="md:hidden text-gray-500 hover:text-gray-700 dark:text-gray-400">
                         <X size={24} />
                     </button>
+                    {setHidden && (
+                        <button 
+                            onClick={() => setHidden(true)} 
+                            className="hidden md:flex p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all"
+                            title="Hide Sidebar"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                            </svg>
+                        </button>
+                    )}
                 </div>
 
                 <nav className="mt-6 px-4 space-y-2">

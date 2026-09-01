@@ -429,10 +429,7 @@ const AddProduct = () => {
     const activeProductNo = formData.productNo || selectedProduct?.productNo || liveStock?.product?.productNo || "Part Code";
     const activeUOM = formData.uom || selectedProduct?.uom || liveStock?.product?.uom || "Nos";
     const activeOnHand = liveStock ? liveStock.onHand : (selectedProduct?.quantity || 0);
-    const activeReserved = liveStock ? liveStock.reserved : 0;
-    const activeIncoming = liveStock ? liveStock.incoming : 0;
-    const activeInOpenQuotes = liveStock ? liveStock.inOpenQuotes : 0;
-    const activeAvailable = liveStock ? liveStock.availableToSell : (activeOnHand - activeReserved);
+    const activeAvailable = activeOnHand;
 
     const filteredLedger = ledgerData.filter(entry => {
         if (!ledgerSearch.trim()) return true;
@@ -899,11 +896,11 @@ const AddProduct = () => {
                                     </p>
                                 </div>
 
-                                {/* Main Card: AVAILABLE TO SELL / SHORTAGE */}
+                                {/* Main Card: CURRENT STOCK */}
                                 <div className={`${activeAvailable < 0 ? 'bg-[#2a1015] border-red-500/50' : 'bg-[#0d2818] border-emerald-500/40'} border rounded-xl p-5 shadow-inner transition-colors`}>
                                     <div className="flex justify-between items-center mb-1">
                                         <span className={`block text-[11px] font-extrabold uppercase tracking-wider ${activeAvailable < 0 ? 'text-red-400' : 'text-emerald-400/90'}`}>
-                                            AVAILABLE TO SELL
+                                            CURRENT STOCK
                                         </span>
                                         {activeAvailable < 0 && (
                                             <span className="text-[10px] bg-red-500/25 text-red-300 border border-red-500/40 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider animate-pulse">
@@ -913,7 +910,7 @@ const AddProduct = () => {
                                     </div>
                                     <div className="flex items-baseline gap-2">
                                         <span className={`text-4xl md:text-5xl font-black tracking-tight ${activeAvailable < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                                            {activeAvailable >= 0 ? `+${activeAvailable}` : activeAvailable}
+                                            {activeAvailable}
                                         </span>
                                         <span className={`text-sm font-semibold ${activeAvailable < 0 ? 'text-red-300' : 'text-emerald-300'}`}>
                                             {activeUOM}
@@ -924,55 +921,6 @@ const AddProduct = () => {
                                             ⚠️ Shortage: {Math.abs(activeAvailable)} {activeUOM} more parts order required!
                                         </p>
                                     )}
-                                </div>
-
-                                {/* 2x2 Metric Grid */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    {/* ON HAND */}
-                                    <div className="bg-[#151c2e] border border-gray-800 rounded-xl p-3.5">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                                            ON HAND
-                                        </span>
-                                        <span className="text-2xl font-bold text-white tracking-tight">
-                                            {activeOnHand}
-                                        </span>
-                                    </div>
-
-                                    {/* RESERVED */}
-                                    <div className="bg-[#151c2e] border border-gray-800 rounded-xl p-3.5">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1 flex items-center justify-between">
-                                            RESERVED
-                                            {activeReserved > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>}
-                                        </span>
-                                        <span className="text-2xl font-bold text-white tracking-tight">
-                                            {activeReserved}
-                                        </span>
-                                    </div>
-
-                                    {/* INCOMING */}
-                                    <div className="bg-[#151c2e] border border-gray-800 rounded-xl p-3.5">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                                            INCOMING
-                                        </span>
-                                        <span className="text-2xl font-bold text-white tracking-tight">
-                                            {activeIncoming}
-                                        </span>
-                                    </div>
-
-                                    {/* IN OPEN QUOTES */}
-                                    <div className="bg-[#151c2e] border border-gray-800 rounded-xl p-3.5">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                                            IN OPEN QUOTES
-                                        </span>
-                                        <span className="text-2xl font-bold text-white tracking-tight">
-                                            {activeInOpenQuotes}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* Calculation Formula Footer */}
-                                <div className="border border-dashed border-gray-700/80 rounded-xl py-3 px-4 text-center text-xs font-mono text-gray-400 bg-gray-900/40">
-                                    {activeOnHand} on hand – {activeReserved} reserved = <span className={activeAvailable < 0 ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>{activeAvailable >= 0 ? `+${activeAvailable}` : activeAvailable} available</span>
                                 </div>
 
                                 {/* Quick Actions */}

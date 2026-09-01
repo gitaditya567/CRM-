@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText } from "lucide-react";
+import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText, Search, Filter, Calendar, SlidersHorizontal, X, Briefcase, Grid, FileSpreadsheet } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
 
@@ -238,15 +238,15 @@ const ClientTableView = React.memo(({
     return (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
             <div className="overflow-auto custom-scrollbar max-h-[600px]">
-                <table className="w-full min-w-[1100px]">
-                    <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600 sticky top-0 z-10 backdrop-blur-md">
+                <table className="w-full min-w-[1100px] border-separate border-spacing-0">
+                    <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                         <tr>
-                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Client Info</th>
-                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
-                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Contact Person</th>
-                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Location</th>
-                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Leads</th>
-                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Client Info</th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Group</th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Contact Person</th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Location</th>
+                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Leads</th>
+                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky top-0 right-0 bg-gray-50 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] rounded-tr-2xl">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -262,16 +262,16 @@ const ClientTableView = React.memo(({
                                 ).length;
 
                                 return (
-                                    <tr key={c._id} className="hover:bg-gray-50/80 dark:hover:bg-gray-700/50 transition-colors group">
+                                    <tr key={c._id} className="hover:bg-gray-50/80 dark:hover:bg-gray-700/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer group">
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col">
                                                 <span className="font-bold text-gray-900 dark:text-white text-sm">{c.clientName}</span>
-                                                <span className="text-xs text-gray-500 font-mono">{c.clientId || `#${(currentPage - 1) * 10 + index + 1}`}</span>
+                                                <span className="text-xs text-gray-500 font-mono font-semibold">{c.clientId || `#${(currentPage - 1) * 10 + index + 1}`}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             {c.group ? (
-                                                <span className="px-3 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-full text-xs font-bold">
+                                                <span className="px-3 py-1 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-full text-xs font-black border border-blue-250/20">
                                                     {c.group.name}
                                                 </span>
                                             ) : (
@@ -280,22 +280,22 @@ const ClientTableView = React.memo(({
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col">
-                                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{c.contactPerson1?.name || "N/A"}</span>
-                                                <span className="text-xs text-gray-500">{c.contactPerson1?.phone || "-"}</span>
+                                                <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{c.contactPerson1?.name || "N/A"}</span>
+                                                <span className="text-xs text-gray-500 font-semibold">{c.contactPerson1?.phone || "-"}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col text-sm">
-                                                <span className="text-gray-700 dark:text-gray-300">{c.billingAddress?.city || "-"}</span>
-                                                <span className="text-xs text-gray-500 uppercase">{c.billingAddress?.state || "-"}</span>
+                                                <span className="text-gray-700 dark:text-gray-300 font-bold">{c.billingAddress?.city || "-"}</span>
+                                                <span className="text-xs text-gray-500 uppercase font-bold">{c.billingAddress?.state || "-"}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-xs">
+                                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-black text-xs shadow-sm border border-blue-200/20">
                                                 {clientLeadCount}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-6 py-4 text-center sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50 dark:group-hover:bg-gray-700 transition-all">
                                             <div className="flex justify-center gap-1">
                                                 <button onClick={() => openClientViewModal(c)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all" title="View">
                                                     <Eye size={18} />
@@ -376,15 +376,16 @@ const QuotationTableView = React.memo(({
     return (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
             <div className="overflow-auto custom-scrollbar max-h-[600px]">
-                <table className="w-full min-w-[1200px]">
-                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 sticky top-0 z-10 backdrop-blur-md">
+                <table className="w-full min-w-[1200px] border-separate border-spacing-0">
+                    <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-700">
                         <tr>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">{isPIView ? "PI Info" : "Quotation Info"}</th>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Lead / Client</th>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Financials</th>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Issued Date</th>
-                            {!isPIView && <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Follow-up</th>}
-                            <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-[0.1em]">Actions</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">{isPIView ? "PI Info" : "Quotation Info"}</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Lead / Client</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Financials</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Issued Date</th>
+                            {isPIView && <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Status</th>}
+                            {!isPIView && <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-[0.1em] bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Follow-up</th>}
+                            <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-[0.1em] sticky top-0 right-0 bg-gray-50 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] rounded-tr-3xl">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -394,7 +395,7 @@ const QuotationTableView = React.memo(({
                             <tr><td colSpan={isPIView ? 5 : 6} className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
                         ) : (
                             filteredQuotations.map((q) => (
-                                <tr key={q._id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all group">
+                                <tr key={q._id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/15 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer group">
                                     <td className="px-6 py-5">
                                         <div className="flex flex-col">
                                             <span className="font-black text-gray-900 dark:text-white tracking-tight">#{q.quotationNumber}</span>
@@ -437,6 +438,21 @@ const QuotationTableView = React.memo(({
                                             )}
                                         </div>
                                     </td>
+                                    {isPIView && (
+                                        <td className="px-6 py-5 whitespace-nowrap">
+                                            {q.isConvertedToPO ? (
+                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black uppercase rounded-full bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-300 border border-green-200/20 shadow-sm">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                                    <span>Inward PO Created</span>
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black uppercase rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300 border border-amber-200/20 shadow-sm">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                                    <span>Pending PO</span>
+                                                </span>
+                                            )}
+                                        </td>
+                                    )}
                                     {!isPIView && (
                                         <td className="px-6 py-5 text-sm text-gray-500 dark:text-gray-400">
                                             {q.followUps && q.followUps.length > 0 ? (
@@ -457,7 +473,7 @@ const QuotationTableView = React.memo(({
                                             )}
                                         </td>
                                     )}
-                                    <td className="px-6 py-5 text-center">
+                                    <td className="px-6 py-5 text-center sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50 dark:group-hover:bg-gray-750 transition-all">
                                         <div className="flex justify-center gap-2">
                                             <button 
                                                 onClick={() => printQuotation(q)} 
@@ -520,10 +536,10 @@ const QuotationTableView = React.memo(({
                                                     <RefreshCw size={18} />
                                                 </button>
                                             )}
-                                            {q.quotationNumber?.startsWith("PI") && onMoveToPO && (
+                                            {q.quotationNumber?.startsWith("PI") && onMoveToPO && !q.isConvertedToPO && (
                                                 <button 
                                                     onClick={() => onMoveToPO(q)} 
-                                                    className="p-2.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-all shadow-sm bg-white dark:bg-gray-800 flex items-center justify-center" 
+                                                    className="p-2.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-xl transition-all shadow-sm bg-white dark:bg-gray-800 flex items-center justify-center hover:scale-105 active:scale-95" 
                                                     title="Move to Inward PO"
                                                 >
                                                     <ArrowDownLeft size={18} className="text-amber-500" />
@@ -596,12 +612,12 @@ const GroupTableView = React.memo(({
     return (
         <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
             <div className="overflow-auto custom-scrollbar max-h-[600px]">
-                <table className="w-full">
-                    <thead className="bg-gray-50/50 dark:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 sticky top-0 z-10 backdrop-blur-md">
+                <table className="w-full border-separate border-spacing-0">
+                    <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-700">
                         <tr>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Group Category</th>
-                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest">Population</th>
-                            <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-widest">Actions</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Group Category</th>
+                            <th className="px-6 py-5 text-left text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">Population</th>
+                            <th className="px-6 py-5 text-center text-xs font-black text-gray-400 uppercase tracking-widest sticky top-0 right-0 bg-gray-50 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] rounded-tr-3xl">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -611,7 +627,7 @@ const GroupTableView = React.memo(({
                             paginatedGroups.map((g) => {
                                 const groupLeadCount = leads.filter(l => (l.group?._id === g._id || l.group === g._id)).length;
                                 return (
-                                    <tr key={g._id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all group">
+                                    <tr key={g._id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/15 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer group">
                                         <td className="px-6 py-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black text-lg">
@@ -631,7 +647,7 @@ const GroupTableView = React.memo(({
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-5 text-center">
+                                        <td className="px-6 py-5 text-center sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50 dark:group-hover:bg-gray-750 transition-all">
                                             <div className="flex justify-center gap-2">
                                                 <button onClick={() => openGroupModal(g)} className="p-3 text-gray-400 hover:text-blue-600 hover:bg-white dark:hover:bg-gray-800 rounded-xl transition-all shadow-sm border border-transparent hover:border-blue-100">
                                                     <Pencil size={18} />
@@ -680,17 +696,16 @@ const TableView = React.memo(({
 }) => (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-100 dark:border-gray-700">
         <div className="overflow-auto custom-scrollbar max-h-[600px]">
-            <table className="w-full min-w-[1200px]">
-                {/* ... existing table code ... */}
-                <thead className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0 z-10 backdrop-blur-md">
+            <table className="w-full min-w-[1200px] border-separate border-spacing-0">
+                <thead className="bg-gray-100 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <tr>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Lead No</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Group</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Created By</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Assigned To</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky right-0 bg-gray-100 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)]">Actions</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Lead No</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Name</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Group</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Created By</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">Assigned To</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky top-0 right-0 bg-gray-100 dark:bg-gray-700 z-20 border-l border-gray-200 dark:border-gray-600 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] rounded-tr-2xl">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -720,8 +735,16 @@ const TableView = React.memo(({
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${getStatusColor(l.status)}`}>
-                                        {l.status}
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-black uppercase rounded-full shadow-sm border border-current/10 ${getStatusColor(l.status)}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${
+                                            l.status === 'Won' ? 'bg-green-500 animate-pulse' :
+                                            l.status === 'Lost' ? 'bg-red-500' :
+                                            l.status === 'New' ? 'bg-blue-500' :
+                                            l.status === 'Contacted' ? 'bg-yellow-500' :
+                                            l.status === 'Qualified' ? 'bg-purple-500' :
+                                            'bg-indigo-500'
+                                        }`}></span>
+                                        <span>{l.status}</span>
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
@@ -729,16 +752,16 @@ const TableView = React.memo(({
                                         {l.name}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 font-semibold">
                                     {l.group?.name || "-"}
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                                     {l.source || "-"}
                                 </td>
-                                <td className="px-6 py-4 text-sm text-gray-900 dark:text-white font-medium whitespace-nowrap">
-                                    {l.assignedTo?.name || <span className="text-gray-400 dark:text-gray-600 italic">Unassigned</span>}
+                                <td className="px-6 py-4 text-sm text-gray-900 dark:text-white font-bold whitespace-nowrap">
+                                    {l.assignedTo?.name || <span className="text-gray-400 dark:text-gray-600 italic font-medium">Unassigned</span>}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50/80 dark:group-hover:bg-gray-700/50 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap text-center text-sm sticky right-0 bg-white dark:bg-gray-800 z-10 border-l border-gray-100 dark:border-gray-700 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] group-hover:bg-gray-50/85 dark:group-hover:bg-gray-700/60 transition-all">
                                     <div className="flex items-center justify-center gap-2">
                                         <button onClick={() => openViewModal(l)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all" title="View Details">
                                             <Eye size={18} />
@@ -977,6 +1000,8 @@ const TeamInspire = () => {
     const [searchProformaQuery, setSearchProformaQuery] = useState("");
     const [products, setProducts] = useState([]);
     const [isQuotationModalOpen, setIsQuotationModalOpen] = useState(false);
+    const [isQuotationModalMaximized, setIsQuotationModalMaximized] = useState(false);
+    const [isQuotationRightPaneOpen, setIsQuotationRightPaneOpen] = useState(true);
     const [editingQuotation, setEditingQuotation] = useState(null);
     const [activeQuotationLead, setActiveQuotationLead] = useState(null);
     const [isSubmittingQuotation, setIsSubmittingQuotation] = useState(false);
@@ -3257,6 +3282,8 @@ const TeamInspire = () => {
         setIsQuotationModalOpen(false);
         setEditingQuotation(null);
         setActiveQuotationLead(null);
+        setIsQuotationModalMaximized(false);
+        setIsQuotationRightPaneOpen(true);
     };
 
     const handleConvertToPI = async (q) => {
@@ -3319,6 +3346,43 @@ const TeamInspire = () => {
             ...prev,
             products: prev.products.filter((_, i) => i !== index)
         }));
+    };
+
+    const handleResetFilters = () => {
+        if (activeTab === 'leads' || activeTab === 'my_leads') {
+            if (activeTab === 'my_leads') {
+                setMyLeadsFilterType('all');
+                setMyLeadsStaffFilter('all');
+                setMyLeadsStartDate('');
+                setMyLeadsEndDate('');
+                setMyLeadsStatusFilter('all');
+                setMyLeadsFollowUpFilter('all');
+                setSearchMyLeadQuery('');
+            } else {
+                setLeadFilterType('all');
+                setStaffFilter('all');
+                setLeadStartDate('');
+                setLeadEndDate('');
+                setLeadStatusFilter('all');
+                setLeadFollowUpFilter('all');
+                setSearchLeadQuery('');
+            }
+        } else if (activeTab === 'clients') {
+            setSearchClientGroup('');
+            setSearchClientAllotment('');
+            setSearchClientQuery('');
+        } else if (activeTab === 'groups') {
+            setSearchGroupQuery('');
+        } else if (activeTab === 'quotations') {
+            setSearchQuotationQuery('');
+            setQuotationStaffFilter('all');
+            setQuotationFollowUpFilter('all');
+        } else if (activeTab === 'proformas') {
+            setSearchProformaQuery('');
+            setProformaStaffFilter('all');
+            setProformaFollowUpFilter('all');
+        }
+        toast.success("Filters reset successfully!");
     };
 
     const fetchLiveStockForItem = async (index, productId) => {
@@ -3697,8 +3761,8 @@ const TeamInspire = () => {
             {isSalesView ? (
                 <UnifiedSalesDashboard />
             ) : (
-                <div className="p-6 md:p-12">
-                    <div className="max-w-7xl mx-auto space-y-8">
+                <div className="p-4 md:p-8">
+                    <div className="max-w-full mx-auto space-y-8">
 
                     {/* Header */}
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
@@ -3741,30 +3805,38 @@ const TeamInspire = () => {
 
                     {/* Tabs */}
                     {activeTab !== 'my_leads' && (
-                        <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
+                        <div className="flex flex-wrap gap-2 bg-gray-150/80 dark:bg-gray-800/80 backdrop-blur-md p-1.5 rounded-2xl w-fit border border-gray-200/50 dark:border-gray-700/50 shadow-sm transition-all duration-300">
                             {[
-                                "leads",
-                                (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin" || userRole === "superadmin") && !(userRole?.toLowerCase() === 'sales' || userRole?.toLowerCase() === 'services') ? "clients" : null,
-                                (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin" || userRole === "superadmin") ? "groups" : null,
-                                "quotations",
-                                "proformas"
-                            ].filter(Boolean).map((tab) => (
-                                <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab)}
-                                    className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all flex items-center gap-2 ${activeTab === tab
-                                        ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-white shadow-sm"
-                                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
+                                { id: "leads", label: "View All Leads", icon: List, count: totalLeads },
+                                { id: "clients", label: "View All Clients", icon: Users, count: totalClients, permission: (rolePermissions?.modulePermissions?.['View All Clients']?.view || userRole === "admin" || userRole === "superadmin") && !(userRole?.toLowerCase() === 'sales' || userRole?.toLowerCase() === 'services') },
+                                { id: "groups", label: "Manage Groups", icon: Briefcase, count: groups.length, permission: (rolePermissions?.modulePermissions?.['Manage Groups']?.view || userRole === "admin" || userRole === "superadmin") },
+                                { id: "quotations", label: "Quotation Management", icon: FileText, count: totalQuotations },
+                                { id: "proformas", label: "PI Management", icon: CreditCard, count: totalProformas }
+                            ].filter(t => typeof t.permission === 'undefined' || t.permission).map((t) => {
+                                const TabIcon = t.icon;
+                                const isSelected = activeTab === t.id;
+                                return (
+                                    <button
+                                        key={t.id}
+                                        onClick={() => setActiveTab(t.id)}
+                                        className={`px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-300 flex items-center gap-2.5 cursor-pointer transform hover:scale-[1.02] active:scale-[0.98] ${
+                                            isSelected
+                                                ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-white shadow-md border border-gray-200/30 dark:border-gray-600/30"
+                                                : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-250/50 dark:hover:bg-gray-700/30"
                                         }`}
-                                >
-                                    <span>
-                                        {tab === "my_leads" ? "My Leads" : tab === "leads" ? "View All Leads" : tab === "clients" ? "View All Clients" : tab === "groups" ? "Manage Groups" : tab === "quotations" ? "Quotation Management" : tab === "proformas" ? "PI Management" : ""}
-                                    </span>
-                                    <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${activeTab === tab ? "bg-blue-100 text-blue-600" : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"}`}>
-                                        {tab === "leads" ? totalLeads : tab === "clients" ? totalClients : tab === "groups" ? groups.length : tab === "quotations" ? totalQuotations : tab === "proformas" ? totalProformas : 0}
-                                    </span>
-                                </button>
-                            ))}
+                                    >
+                                        <TabIcon size={15} className={isSelected ? "text-blue-500 dark:text-blue-400" : "text-gray-400"} />
+                                        <span>{t.label}</span>
+                                        <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full transition-colors duration-300 ${
+                                            isSelected 
+                                                ? "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400" 
+                                                : "bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300"
+                                        }`}>
+                                            {t.count}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
 
@@ -3772,70 +3844,130 @@ const TeamInspire = () => {
 
                     {(activeTab === "leads" || activeTab === "my_leads") && (
                         <div>
-                            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-                                <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                    {activeTab === 'my_leads' ? "My Leads" : "All Potential Leads"}
-                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
-                                        {totalLeads}
-                                    </span>
-                                </h3>
-                                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-start sm:justify-end">
-                                    <select
-                                        value={activeTab === 'my_leads' ? myLeadsFilterType : leadFilterType}
-                                        onChange={(e) => activeTab === 'my_leads' ? setMyLeadsFilterType(e.target.value) : setLeadFilterType(e.target.value)}
-                                        className="px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all font-semibold"
-                                    >
-                                        {activeTab === 'my_leads' ? (
-                                            <>
-                                                <option value="all">All My Leads</option>
-                                                <option value="created">Created by Me</option>
-                                                <option value="assigned">Assigned to Me</option>
-                                                <option value="assignedByMe">Assigned by Me</option>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <option value="all">All Leads</option>
-                                                <option value="created">Created by Me</option>
-                                                <option value="assigned">Assigned to Me</option>
-                                                <option value="assignedByMe">Assigned by Me</option>
-                                            </>
-                                        )}
-                                    </select>
-                                    
-                                    {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['View All Leads']?.view) && (
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
+                                        {activeTab === 'my_leads' ? "My Personal Leads" : "Leads Registry"}
+                                        <span className="px-2.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-black rounded-full">
+                                            {totalLeads}
+                                        </span>
+                                    </h3>
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs font-semibold mt-1">
+                                        Monitor customer qualifications, source metrics, and assign staff owners.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleResetFilters}
+                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer active:scale-95 border border-gray-200/50 dark:border-gray-600/50"
+                                >
+                                    <RefreshCw size={12} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            </div>
+
+                            {/* Filters Grid */}
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                                {/* Lead Type */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Lead Type</label>
+                                    <div className="relative">
+                                        <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
-                                            value={activeTab === 'my_leads' ? myLeadsStaffFilter : staffFilter}
-                                            onChange={(e) => activeTab === 'my_leads' ? setMyLeadsStaffFilter(e.target.value) : setStaffFilter(e.target.value)}
-                                            className="px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all font-semibold max-w-[150px] truncate"
+                                            value={activeTab === 'my_leads' ? myLeadsFilterType : leadFilterType}
+                                            onChange={(e) => activeTab === 'my_leads' ? setMyLeadsFilterType(e.target.value) : setLeadFilterType(e.target.value)}
+                                            className="w-full pl-8 pr-7 py-2 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
-                                            <option value="all">All Staff</option>
-                                            {users.map(u => (
-                                                <option key={u._id} value={u._id}>{u.name}</option>
-                                            ))}
+                                            {activeTab === 'my_leads' ? (
+                                                <>
+                                                    <option value="all">All My Leads</option>
+                                                    <option value="created">Created by Me</option>
+                                                    <option value="assigned">Assigned to Me</option>
+                                                    <option value="assignedByMe">Assigned by Me</option>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <option value="all">All Leads</option>
+                                                    <option value="created">Created by Me</option>
+                                                    <option value="assigned">Assigned to Me</option>
+                                                    <option value="assignedByMe">Assigned by Me</option>
+                                                </>
+                                            )}
                                         </select>
-                                    )}
-                                    <div className="flex items-center gap-2">
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
+                                    </div>
+                                </div>
+
+                                {/* Staff Filter */}
+                                {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['View All Leads']?.view) ? (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                            <select
+                                                value={activeTab === 'my_leads' ? myLeadsStaffFilter : staffFilter}
+                                                onChange={(e) => activeTab === 'my_leads' ? setMyLeadsStaffFilter(e.target.value) : setStaffFilter(e.target.value)}
+                                                className="w-full pl-8 pr-7 py-2 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer truncate text-ellipsis overflow-hidden"
+                                            >
+                                                <option value="all">All Staff</option>
+                                                {users.map(u => (
+                                                    <option key={u._id} value={u._id}>{u.name}</option>
+                                                ))}
+                                            </select>
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={currentUserName || "Self"}
+                                                disabled
+                                                className="w-full pl-8 pr-3 py-2 text-xs font-bold rounded-xl bg-gray-100 dark:bg-gray-800 border border-transparent outline-none text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Date range inputs */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Start Date</label>
+                                    <div className="relative">
+                                        <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <input
                                             type="date"
                                             value={activeTab === 'my_leads' ? myLeadsStartDate : leadStartDate}
                                             onChange={(e) => activeTab === 'my_leads' ? setMyLeadsStartDate(e.target.value) : setLeadStartDate(e.target.value)}
-                                            className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all"
-                                            title="Start Date"
+                                            className="w-full pl-8 pr-3 py-2 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all cursor-pointer"
                                         />
-                                        <span className="text-gray-400 text-sm">to</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">End Date</label>
+                                    <div className="relative">
+                                        <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <input
                                             type="date"
                                             value={activeTab === 'my_leads' ? myLeadsEndDate : leadEndDate}
                                             onChange={(e) => activeTab === 'my_leads' ? setMyLeadsEndDate(e.target.value) : setLeadEndDate(e.target.value)}
-                                            className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all"
-                                            title="End Date"
+                                            className="w-full pl-8 pr-3 py-2 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all cursor-pointer"
                                         />
                                     </div>
-                                    <select
-                                        value={activeTab === 'my_leads' ? myLeadsStatusFilter : leadStatusFilter}
-                                        onChange={(e) => activeTab === 'my_leads' ? setMyLeadsStatusFilter(e.target.value) : setLeadStatusFilter(e.target.value)}
-                                        className="px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all font-semibold"
-                                    >
+                                </div>
+
+                                {/* Status */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Lead Status</label>
+                                    <div className="relative">
+                                        <SlidersHorizontal size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                        <select
+                                            value={activeTab === 'my_leads' ? myLeadsStatusFilter : leadStatusFilter}
+                                            onChange={(e) => activeTab === 'my_leads' ? setMyLeadsStatusFilter(e.target.value) : setLeadStatusFilter(e.target.value)}
+                                            className="w-full pl-8 pr-7 py-2 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
+                                        >
                                             <option value="all">All Status</option>
                                             <option value="New">New</option>
                                             <option value="Qualified">Qualified</option>
@@ -3845,39 +3977,50 @@ const TeamInspire = () => {
                                             <option value="Won">Won</option>
                                             <option value="Lost">Lost</option>
                                         </select>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
+                                    </div>
+                                </div>
+
+                                {/* Follow Up */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Follow-up</label>
+                                    <div className="relative">
+                                        <Clock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
                                             value={activeTab === 'my_leads' ? myLeadsFollowUpFilter : leadFollowUpFilter}
                                             onChange={(e) => activeTab === 'my_leads' ? setMyLeadsFollowUpFilter(e.target.value) : setLeadFollowUpFilter(e.target.value)}
-                                            className="px-4 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all font-semibold"
+                                            className="w-full pl-8 pr-7 py-2 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
                                             <option value="all">All Follow-ups</option>
                                             <option value="true">With Follow-up</option>
                                             <option value="false">Without Follow-up</option>
                                         </select>
-                                        <div className="relative flex items-center">
-                                            <input
-                                                type="text"
-                                                placeholder={(activeTab === 'my_leads' ? (isMyLeadsSearchExpanded || searchMyLeadQuery) : (isLeadsSearchExpanded || searchLeadQuery)) ? "Search Leads..." : ""}
-                                                value={activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery}
-                                                onChange={(e) => activeTab === 'my_leads' ? setSearchMyLeadQuery(e.target.value) : setSearchLeadQuery(e.target.value)}
-                                                onFocus={() => activeTab === 'my_leads' ? setIsMyLeadsSearchExpanded(true) : setIsLeadsSearchExpanded(true)}
-                                                onBlur={() => {
-                                                    const val = activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery;
-                                                    if (!val) {
-                                                        if (activeTab === 'my_leads') setIsMyLeadsSearchExpanded(false);
-                                                        else setIsLeadsSearchExpanded(false);
-                                                    }
-                                                }}
-                                                className={`h-10 pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 outline-none dark:text-white shadow-sm transition-all duration-300 ease-in-out ${
-                                                    (activeTab === 'my_leads' ? (isMyLeadsSearchExpanded || searchMyLeadQuery) : (isLeadsSearchExpanded || searchLeadQuery))
-                                                        ? "w-48 sm:w-64 opacity-100"
-                                                        : "w-10 pl-10 pr-0 opacity-60 cursor-pointer hover:opacity-100"
-                                                }`}
-                                            />
-                                            <span className="absolute left-3 pointer-events-none text-gray-400">🔍</span>
-                                        </div>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Search Panel */}
+                            <div className="bg-white dark:bg-gray-800 px-5 py-4 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 flex items-center justify-between gap-4 mb-6">
+                                <div className="relative flex items-center w-full max-w-md group">
+                                    <Search size={14} className="absolute left-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search by Lead Number, Customer Name or source..."
+                                        value={activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery}
+                                        onChange={(e) => activeTab === 'my_leads' ? setSearchMyLeadQuery(e.target.value) : setSearchLeadQuery(e.target.value)}
+                                        className="w-full pl-9 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all"
+                                    />
+                                    {((activeTab === 'my_leads' ? searchMyLeadQuery : searchLeadQuery)) && (
+                                        <button
+                                            onClick={() => activeTab === 'my_leads' ? setSearchMyLeadQuery("") : setSearchLeadQuery("")}
+                                            className="absolute right-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                             <TableView 
                                 data={leads} 
                                 type="Leads" 
@@ -3904,52 +4047,87 @@ const TeamInspire = () => {
                     )}
 
                     {activeTab === "clients" && (
-                        <div className="animate-fade-in">
-                            <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                                <div className="space-y-1">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                        <div className="animate-fade-in transition-all duration-300">
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
                                         Client Portfolio
-                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                        <span className="px-2.5 py-0.5 bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 text-xs font-black rounded-full">
                                             {totalClients}
                                         </span>
                                     </h3>
-                                    <p className="text-gray-500 dark:text-gray-400 font-medium">Manage and monitor all active business relationships.</p>
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs font-semibold mt-1">
+                                        Manage and monitor all active business relationships, legal details and contacts.
+                                    </p>
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                                    <div className="relative group">
+                                <button
+                                    onClick={handleResetFilters}
+                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer active:scale-95 border border-gray-200/50 dark:border-gray-600/50"
+                                >
+                                    <RefreshCw size={12} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            </div>
+
+                            {/* Filters & Search Panel */}
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                {/* Group Select */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Client Group</label>
+                                    <div className="relative">
+                                        <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
                                             value={searchClientGroup}
                                             onChange={(e) => setSearchClientGroup(e.target.value)}
-                                            className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                            className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
                                             <option value="">All Groups</option>
                                             {groups.map(g => (
                                                 <option key={g._id} value={g.name}>{g.name}</option>
                                             ))}
                                         </select>
-                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                     </div>
-                                    <div className="relative group">
+                                </div>
+
+                                {/* Allotment Status */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Group Status</label>
+                                    <div className="relative">
+                                        <SlidersHorizontal size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
                                             value={searchClientAllotment}
                                             onChange={(e) => setSearchClientAllotment(e.target.value)}
-                                            className="w-full sm:w-44 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                            className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
-                                            <option value="">Group Status</option>
+                                            <option value="">All Statuses</option>
                                             <option value="allotted">Group Allotted</option>
                                             <option value="unallotted">Group Not Allotted</option>
                                         </select>
-                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                     </div>
-                                    <div className="relative w-full sm:w-80 group">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">🔍</span>
+                                </div>
+
+                                {/* Search Bar */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Search Clients</label>
+                                    <div className="relative flex items-center w-full group">
+                                        <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                                         <input
                                             type="text"
                                             placeholder="Search by Name, ID, or Location..."
                                             value={searchClientQuery}
                                             onChange={(e) => setSearchClientQuery(e.target.value)}
-                                            className="w-full pl-12 pr-6 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all shadow-inner"
+                                            className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all"
                                         />
+                                        {searchClientQuery && (
+                                            <button
+                                                onClick={() => setSearchClientQuery("")}
+                                                className="absolute right-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -3978,31 +4156,47 @@ const TeamInspire = () => {
                     )}
 
                     {activeTab === "groups" && (
-                        <div className="animate-fade-in">
-                            <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                                <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                        <div className="animate-fade-in transition-all duration-300">
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
                                         Market Segmentation
-                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                        <span className="px-2.5 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs font-black rounded-full">
                                             {groups.length}
                                         </span>
                                     </h3>
-                                    <div className="flex items-center gap-2 text-gray-500 font-medium">
-                                        <span className="w-2 h-2 bg-indigo-500 rounded-full"></span>
-                                        Organize and categorize your leads by industry or region.
-                                    </div>
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs font-semibold mt-1">
+                                        Organize and categorize your leads by industry vertical, geographic region, or custom source groups.
+                                    </p>
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                                    <div className="relative group">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                                        <input
-                                            type="text"
-                                            placeholder="Find Category..."
-                                            value={searchGroupQuery}
-                                            onChange={(e) => setSearchGroupQuery(e.target.value)}
-                                            className="w-full sm:w-64 pl-12 pr-6 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-indigo-500 outline-none dark:text-white transition-all shadow-inner font-medium"
-                                        />
-                                    </div>
+                                <button
+                                    onClick={handleResetFilters}
+                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer active:scale-95 border border-gray-200/50 dark:border-gray-600/50"
+                                >
+                                    <RefreshCw size={12} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            </div>
+
+                            {/* Filters & Search Panel */}
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 flex items-center justify-between gap-4 mb-6">
+                                <div className="relative flex items-center w-full max-w-md group">
+                                    <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                                    <input
+                                        type="text"
+                                        placeholder="Find Category..."
+                                        value={searchGroupQuery}
+                                        onChange={(e) => setSearchGroupQuery(e.target.value)}
+                                        className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none dark:text-white transition-all"
+                                    />
+                                    {searchGroupQuery && (
+                                        <button
+                                            onClick={() => setSearchGroupQuery("")}
+                                            className="absolute right-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
@@ -4023,65 +4217,111 @@ const TeamInspire = () => {
                     )}
 
                     {activeTab === "quotations" && (
-                        <div className="animate-fade-in">
-                            <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                                <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                        <div className="animate-fade-in transition-all duration-300">
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
                                         Proposal Management
-                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                        <span className="px-2.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-black rounded-full">
                                             {totalQuotations}
                                         </span>
                                     </h3>
-                                    <div className="flex items-center gap-2 text-gray-500 font-medium">
-                                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                                        Track and manage all issued commercial offers.
-                                    </div>
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs font-semibold mt-1">
+                                        Track and manage commercial proposals, pricing quotes, and follow-ups.
+                                    </p>
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                                    <div className="relative group">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">🔍</span>
-                                        <input
-                                            type="text"
-                                            placeholder="Search Proposal ID..."
-                                            value={searchQuotationQuery}
-                                            onChange={(e) => setSearchQuotationQuery(e.target.value)}
-                                            className="w-full sm:w-72 pl-12 pr-6 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all shadow-inner font-medium"
-                                        />
-                                    </div>
-                                    
-                                    {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['Quotation Management']?.view) && (
-                                        <div className="relative group">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleResetFilters}
+                                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer active:scale-95 border border-gray-200/50 dark:border-gray-600/50"
+                                    >
+                                        <RefreshCw size={12} />
+                                        <span>Reset Filters</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => openQuotationModal()} 
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95 hover:-translate-y-0.5"
+                                    >
+                                        <span>+</span> New Proposal
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Filters & Search Panel */}
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                {/* Staff filter */}
+                                {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['Quotation Management']?.view) ? (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                             <select
                                                 value={quotationStaffFilter}
                                                 onChange={(e) => setQuotationStaffFilter(e.target.value)}
-                                                className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer max-w-[150px] truncate"
+                                                className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer truncate text-ellipsis overflow-hidden"
                                             >
                                                 <option value="all">All Staff</option>
                                                 {users.map(u => (
                                                     <option key={u._id} value={u._id}>{u.name}</option>
                                                 ))}
                                             </select>
-                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                         </div>
-                                    )}
-                                    <div className="relative group">
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={currentUserName || "Self"}
+                                                disabled
+                                                className="w-full pl-8 pr-3 py-2 text-xs font-bold rounded-xl bg-gray-100 dark:bg-gray-800 border border-transparent outline-none text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Follow Up */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Follow-up</label>
+                                    <div className="relative">
+                                        <Clock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
                                             value={quotationFollowUpFilter}
                                             onChange={(e) => setQuotationFollowUpFilter(e.target.value)}
-                                            className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                            className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
                                             <option value="all">All Follow-ups</option>
                                             <option value="true">With Follow-up</option>
                                             <option value="false">Without Follow-up</option>
                                         </select>
-                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                     </div>
-                                    <button 
-                                        onClick={() => openQuotationModal()} 
-                                        className="px-8 py-3.5 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 hover:-translate-y-1 transition-all active:scale-95 whitespace-nowrap flex items-center gap-2"
-                                    >
-                                        <span>+</span> New Proposal
-                                    </button>
+                                </div>
+
+                                {/* Search Input */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Search Proposals</label>
+                                    <div className="relative flex items-center w-full group">
+                                        <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search by Proposal ID, Name..."
+                                            value={searchQuotationQuery}
+                                            onChange={(e) => setSearchQuotationQuery(e.target.value)}
+                                            className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all"
+                                        />
+                                        {searchQuotationQuery && (
+                                            <button
+                                                onClick={() => setSearchQuotationQuery("")}
+                                                className="absolute right-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                             
@@ -4106,60 +4346,104 @@ const TeamInspire = () => {
                             />
                         </div>
                     )}
- 
+
                     {activeTab === "proformas" && (
-                        <div className="animate-fade-in">
-                            <div className="flex flex-col sm:flex-row justify-between items-end mb-8 gap-6 bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                                <div className="space-y-2">
-                                    <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
+                        <div className="animate-fade-in transition-all duration-300">
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60">
+                                <div>
+                                    <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2.5">
                                         PI Management
-                                        <span className="px-2 py-0.5 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs rounded-full">
+                                        <span className="px-2.5 py-0.5 bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 text-xs font-black rounded-full">
                                             {totalProformas}
                                         </span>
                                     </h3>
-                                    <div className="flex items-center gap-2 text-gray-500 font-medium">
-                                        <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></span>
-                                        Track and manage all converted Proforma Invoices.
-                                    </div>
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs font-semibold mt-1">
+                                        Track and manage all converted Proforma Invoices and customer billing states.
+                                    </p>
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                                    <div className="relative group">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-teal-500 transition-colors">🔍</span>
-                                        <input
-                                            type="text"
-                                            placeholder="Search PI ID..."
-                                            value={searchProformaQuery}
-                                            onChange={(e) => setSearchProformaQuery(e.target.value)}
-                                            className="w-full sm:w-72 pl-12 pr-6 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 outline-none dark:text-white transition-all shadow-inner font-medium"
-                                        />
-                                    </div>
-                                    
-                                    {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['Quotation Management']?.view) && (
-                                        <div className="relative group">
+                                <button
+                                    onClick={handleResetFilters}
+                                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer active:scale-95 border border-gray-200/50 dark:border-gray-600/50"
+                                >
+                                    <RefreshCw size={12} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            </div>
+
+                            {/* Filters & Search Panel */}
+                            <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-150/80 dark:border-gray-700/60 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                {/* Staff filter */}
+                                {(userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'superadmin' || rolePermissions?.modulePermissions?.['Quotation Management']?.view) ? (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                             <select
                                                 value={proformaStaffFilter}
                                                 onChange={(e) => setProformaStaffFilter(e.target.value)}
-                                                className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer max-w-[150px] truncate"
+                                                className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 outline-none dark:text-white transition-all appearance-none cursor-pointer truncate text-ellipsis overflow-hidden"
                                             >
                                                 <option value="all">All Staff</option>
                                                 {users.map(u => (
                                                     <option key={u._id} value={u._id}>{u.name}</option>
                                                 ))}
                                             </select>
-                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
                                         </div>
-                                    )}
-                                    <div className="relative group">
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Staff Owner</label>
+                                        <div className="relative">
+                                            <Users size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={currentUserName || "Self"}
+                                                disabled
+                                                className="w-full pl-8 pr-3 py-2 text-xs font-bold rounded-xl bg-gray-100 dark:bg-gray-800 border border-transparent outline-none text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Follow Up */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Follow-up</label>
+                                    <div className="relative">
+                                        <Clock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                         <select
                                             value={proformaFollowUpFilter}
                                             onChange={(e) => setProformaFollowUpFilter(e.target.value)}
-                                            className="w-full sm:w-48 pl-4 pr-10 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 outline-none dark:text-white transition-all shadow-inner font-medium appearance-none cursor-pointer"
+                                            className="w-full pl-8 pr-7 py-2.5 text-xs font-bold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 outline-none dark:text-white transition-all appearance-none cursor-pointer"
                                         >
                                             <option value="all">All Follow-ups</option>
                                             <option value="true">With Follow-up</option>
                                             <option value="false">Without Follow-up</option>
                                         </select>
-                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">▼</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-[9px]">▼</span>
+                                    </div>
+                                </div>
+
+                                {/* Search Input */}
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider">Search Proformas</label>
+                                    <div className="relative flex items-center w-full group">
+                                        <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-teal-500 transition-colors" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search by PI ID, Name..."
+                                            value={searchProformaQuery}
+                                            onChange={(e) => setSearchProformaQuery(e.target.value)}
+                                            className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 outline-none dark:text-white transition-all"
+                                        />
+                                        {searchProformaQuery && (
+                                            <button
+                                                onClick={() => setSearchProformaQuery("")}
+                                                className="absolute right-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -4970,8 +5254,12 @@ const TeamInspire = () => {
             )}
             {/* Quotation Modal */}
             {isQuotationModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
+                <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-all duration-300 ${isQuotationModalMaximized ? "p-0" : "p-4"}`}>
+                    <div className={`bg-white dark:bg-gray-800 shadow-2xl overflow-hidden flex flex-col transition-all duration-300 ease-in-out ${
+                        isQuotationModalMaximized 
+                            ? "w-screen h-screen max-w-none max-h-screen rounded-none" 
+                            : "w-full max-w-7xl max-h-[90vh] rounded-2xl"
+                    }`}>
                         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-700/50">
                             <div className="flex items-center gap-3">
                                 <span className="text-2xl">📝</span>
@@ -4982,7 +5270,50 @@ const TeamInspire = () => {
                                     }
                                 </h3>
                             </div>
-                            <button onClick={closeQuotationModal} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-2xl">&times;</button>
+                            <div className="flex items-center gap-1.5">
+                                {/* Hide/Unhide Sidebar Details Button */}
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsQuotationRightPaneOpen(!isQuotationRightPaneOpen)}
+                                    className="px-3 py-1.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/25 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold border border-gray-200/50 dark:border-gray-700/50"
+                                    title={isQuotationRightPaneOpen ? "Hide Lead Remarks & PO Details" : "Show Lead Remarks & PO Details"}
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                                    </svg>
+                                    <span className="hidden sm:inline">{isQuotationRightPaneOpen ? "Hide Details" : "Show Details"}</span>
+                                </button>
+
+                                {/* Maximize/Restore Window Button */}
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsQuotationModalMaximized(!isQuotationModalMaximized)}
+                                    className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/25 rounded-xl transition-all border border-gray-200/50 dark:border-gray-700/50"
+                                    title={isQuotationModalMaximized ? "Restore Window Size" : "Maximize Window"}
+                                >
+                                    {isQuotationModalMaximized ? (
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 14h6v6m10-6h-6v6M4 10h6V4m10 6h-6V4" />
+                                        </svg>
+                                    ) : (
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4h4m12 4V4h-4M4 16v4h4m12-4v4h-4" />
+                                        </svg>
+                                    )}
+                                </button>
+
+                                {/* Close Button */}
+                                <button 
+                                    type="button"
+                                    onClick={closeQuotationModal} 
+                                    className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-xl transition-all border border-gray-200/50 dark:border-gray-700/50"
+                                    title="Close Modal"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
 
                         <form onSubmit={handleQuotationSubmit} className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
@@ -5492,8 +5823,13 @@ const TeamInspire = () => {
                             </div>
 
                             {/* Right Pane: Split 60% Remarks / 40% PO Details */}
-                            <div className="w-full lg:w-[420px] xl:w-[460px] border-t lg:border-t-0 lg:border-l border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 flex flex-col overflow-hidden">
-                                {/* === TOP 60%: Lead Remarks History === */}
+                            <div className={`transition-all duration-300 ease-in-out border-t lg:border-t-0 lg:border-l border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 flex flex-col overflow-hidden ${
+                                isQuotationRightPaneOpen 
+                                    ? "w-full lg:w-[420px] xl:w-[460px] opacity-100" 
+                                    : "w-0 lg:w-0 opacity-0 border-none"
+                            }`}>
+                                <div className="w-full lg:w-[420px] xl:w-[460px] h-full flex flex-col overflow-hidden">
+                                    {/* === TOP 60%: Lead Remarks History === */}
                                 <div style={{ flex: '0 0 60%' }} className="flex flex-col overflow-hidden border-b border-gray-200 dark:border-gray-700">
                                     <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center gap-2">
                                         <span>💬</span>
@@ -5627,7 +5963,8 @@ const TeamInspire = () => {
                                     </div>
                                 </div>
                             </div>
-                        </form>
+                        </div>
+                    </form>
                     </div>
                 </div>
             )}

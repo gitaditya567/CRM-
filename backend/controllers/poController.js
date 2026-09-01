@@ -2,6 +2,7 @@ const PurchaseOrder = require("../models/PurchaseOrder");
 const Quotation = require("../models/Quotation");
 const PDFDocument = require("pdfkit-table");
 const path = require("path");
+const mongoose = require("mongoose");
 
 // GET /api/purchase-orders
 exports.getPOs = async (req, res) => {
@@ -72,36 +73,55 @@ exports.getPOs = async (req, res) => {
 
 // POST /api/purchase-orders/create-from-pi/:id
 exports.createPOFromPI = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const { id } = req.params;
-        const piDoc = await Quotation.findById(id).populate("lead");
+        const piDoc = await Quotation.findById(id).populate("lead").session(session);
         if (!piDoc) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(404).json({ message: "Proforma Invoice (PI) not found" });
         }
 
         // Verify it is a PI
         const isPI = piDoc.quotationNumber && /^PI/i.test(piDoc.quotationNumber);
         if (!isPI) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(400).json({ message: "Selected document is not a Proforma Invoice" });
         }
 
-        // Check if PO already exists for this PI
-        const existingPO = await PurchaseOrder.findOne({ pi: id });
+        // Check for duplicate PI conversion
+        if (piDoc.isConvertedToPO) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ message: "This Proforma Invoice has already been converted to an Inward PO." });
+        }
+
+        // Check if PO already exists for this PI (Fallback check)
+        const existingPO = await PurchaseOrder.findOne({ pi: id }).session(session);
         if (existingPO) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(400).json({ message: "Purchase Order already exists for this PI", po: existingPO });
         }
 
         // Verify that the client's PO Number is present in the PI
         const poNumber = piDoc.poNumber ? piDoc.poNumber.trim() : "";
         if (!poNumber) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(400).json({ 
                 message: "Client's PO Number is missing in the Proforma Invoice (PI). Please edit the PI and add the Client's PO Number before converting to an Inward PO." 
             });
         }
 
         // Ensure unique PO Number across all POs in PO Management
-        const existingPOWithNum = await PurchaseOrder.findOne({ poNumber });
+        const existingPOWithNum = await PurchaseOrder.findOne({ poNumber }).session(session);
         if (existingPOWithNum) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(400).json({ 
                 message: `A Purchase Order with PO Number "${poNumber}" already exists in PO Management.` 
             });
@@ -130,7 +150,7 @@ exports.createPOFromPI = async (req, res) => {
                 { clientName: piDoc.lead?.name },
                 { legalEntityName: piDoc.lead?.name }
             ]
-        }).lean();
+        }).session(session).lean();
 
         const vendorName = clientDoc ? clientDoc.clientName : (piDoc.billTo?.name || piDoc.lead?.name || "Unknown Vendor");
         const leadNumber = piDoc.lead?.leadNumber || "";
@@ -147,56 +167,55 @@ exports.createPOFromPI = async (req, res) => {
             createdBy: req.user ? req.user._id : null
         });
 
-        const savedPO = await newPO.save();
+        const savedPO = await newPO.save({ session });
+
+        // Deduct stock for products and record in StockLedger
+        const Product = require("../models/Product");
+        const StockLedger = require("../models/StockLedger");
+        const { clearCachePrefix } = require("../utils/cache");
+
+        for (const p of piDoc.products) {
+            const qtyToSubtract = Number(p.quantity) || 0;
+            if (qtyToSubtract <= 0) continue;
+
+            let productDoc = await Product.findById(p.product).session(session);
+            if (!productDoc && p.productNo) {
+                productDoc = await Product.findOne({ productNo: p.productNo }).session(session);
+            }
+
+            if (productDoc) {
+                // Decrease stock (allow negative stock)
+                productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
+                const updatedProduct = await productDoc.save({ session });
+
+                // Create StockLedger OUT entry
+                const ledgerEntry = new StockLedger({
+                    product: updatedProduct._id,
+                    productNo: updatedProduct.productNo,
+                    brand: updatedProduct.brand,
+                    entryType: "OUT",
+                    piNo: piDoc.quotationNumber,
+                    poNo: poNumber,
+                    date: new Date(),
+                    quantity: qtyToSubtract,
+                    unitPrice: p.unitPrice || 0,
+                    balanceAfter: updatedProduct.quantity,
+                    remarks: `Subtracted stock upon PI conversion to Inward PO`
+                });
+                await ledgerEntry.save({ session });
+            }
+        }
 
         // Mark the PI as converted
         piDoc.isConvertedToPO = true;
-        await piDoc.save();
+        await piDoc.save({ session });
 
-        // Deduct stock for products and record in StockLedger
-        try {
-            const Product = require("../models/Product");
-            const StockLedger = require("../models/StockLedger");
-            const { clearCachePrefix } = require("../utils/cache");
+        await session.commitTransaction();
+        session.endSession();
 
-            for (const p of piDoc.products) {
-                const qtyToSubtract = Number(p.quantity) || 0;
-                if (qtyToSubtract <= 0) continue;
-
-                let productDoc = await Product.findById(p.product);
-                if (!productDoc && p.productNo) {
-                    productDoc = await Product.findOne({ productNo: p.productNo });
-                }
-
-                if (productDoc) {
-                    // Decrease stock (allow negative stock)
-                    productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
-                    const updatedProduct = await productDoc.save();
-
-                    // Create StockLedger OUT entry
-                    const ledgerEntry = new StockLedger({
-                        product: updatedProduct._id,
-                        productNo: updatedProduct.productNo,
-                        brand: updatedProduct.brand,
-                        entryType: "OUT",
-                        piNo: piDoc.quotationNumber,
-                        poNo: poNumber,
-                        date: new Date(),
-                        quantity: qtyToSubtract,
-                        unitPrice: p.unitPrice || 0,
-                        balanceAfter: updatedProduct.quantity,
-                        remarks: `Subtracted stock upon PI conversion to Inward PO`
-                    });
-                    await ledgerEntry.save();
-                }
-            }
-
-            // Clear product and dashboard caches
-            clearCachePrefix("product_");
-            clearCachePrefix("dashboard_");
-        } catch (stockErr) {
-            console.error("Error deducting stock in createPOFromPI:", stockErr);
-        }
+        // Clear product and dashboard caches
+        clearCachePrefix("product_");
+        clearCachePrefix("dashboard_");
 
         // Optional: emit socket event if socket is setup
         const io = req.app.get("io");
@@ -207,6 +226,8 @@ exports.createPOFromPI = async (req, res) => {
 
         res.status(201).json(savedPO);
     } catch (err) {
+        await session.abortTransaction();
+        session.endSession();
         console.error("Create PO from PI Error:", err);
         res.status(500).json({ message: "Failed to create Purchase Order from PI" });
     }
@@ -214,21 +235,72 @@ exports.createPOFromPI = async (req, res) => {
 
 // PUT /api/purchase-orders/:id
 exports.updatePO = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const { id } = req.params;
         const { products, status, invoiceHistory, isMovedToInvoice, dispatchHistory, terms, termDetails, shipper, installationCharges, freightCartage, estimatedTotal } = req.body;
 
-        const po = await PurchaseOrder.findById(id);
+        const po = await PurchaseOrder.findById(id).session(session);
         if (!po) {
+            await session.abortTransaction();
+            session.endSession();
             return res.status(404).json({ message: "Purchase Order not found" });
         }
 
         if (po.type === "inward" && products) {
             const hasSelected = products.some(p => p.selected !== false);
             if (!hasSelected) {
+                await session.abortTransaction();
+                session.endSession();
                 return res.status(400).json({
                     message: "Alert: Inward PO cannot be updated without selecting at least one item. Please select at least one item."
                 });
+            }
+        }
+
+        // Invoice validation (Rule #13-17)
+        const prevInvLen = po.invoiceHistory ? po.invoiceHistory.length : 0;
+        const newInvLen = invoiceHistory ? invoiceHistory.length : prevInvLen;
+        const isCreatingInvoice = (isMovedToInvoice === true) || (newInvLen > prevInvLen);
+
+        if (po.type === "inward" && isCreatingInvoice) {
+            const Product = require("../models/Product");
+            const outOfStockProducts = [];
+            const activeProducts = products || po.products;
+            
+            for (const p of activeProducts) {
+                if (p.selected === false) continue;
+                
+                let productDoc = await Product.findById(p.product).session(session);
+                if (!productDoc && p.productNo) {
+                    productDoc = await Product.findOne({ productNo: p.productNo }).session(session);
+                }
+                
+                if (productDoc && (productDoc.quantity || 0) <= 0) {
+                    outOfStockProducts.push({
+                        name: productDoc.name || p.name || p.productNo,
+                        stock: productDoc.quantity || 0
+                    });
+                }
+            }
+
+            if (outOfStockProducts.length > 0) {
+                await session.abortTransaction();
+                session.endSession();
+                
+                let alertMsg = outOfStockProducts.length === 1 
+                    ? `Cannot create invoice.\n\nProduct "${outOfStockProducts[0].name}" is out of stock.\nCurrent stock: ${outOfStockProducts[0].stock} PCS.\n\nPlease add stock before creating the invoice.`
+                    : `Cannot create invoice because the following products are out of stock:\n\n`;
+                
+                if (outOfStockProducts.length > 1) {
+                    outOfStockProducts.forEach((item, index) => {
+                        alertMsg += `${index + 1}. ${item.name} — Current Stock: ${item.stock} PCS\n`;
+                    });
+                    alertMsg += "\nPlease add stock before creating the invoice.";
+                }
+                
+                return res.status(400).json({ message: alertMsg });
             }
         }
 
@@ -282,83 +354,52 @@ exports.updatePO = async (req, res) => {
         if (products) {
             // Stock reconciliation for Inward PO
             if (po.type === "inward") {
-                try {
-                    const Product = require("../models/Product");
-                    const StockLedger = require("../models/StockLedger");
-                    const { clearCachePrefix } = require("../utils/cache");
+                const Product = require("../models/Product");
+                const StockLedger = require("../models/StockLedger");
+                const { clearCachePrefix } = require("../utils/cache");
 
-                    for (const p of products) {
-                        const existingProduct = po.products.find(ep => 
-                            (ep.product && String(ep.product) === String(p.product)) ||
-                            (ep.productNo && ep.productNo === p.productNo)
-                        );
+                for (const p of products) {
+                    const existingProduct = po.products.find(ep => 
+                        (ep.product && String(ep.product) === String(p.product)) ||
+                        (ep.productNo && ep.productNo === p.productNo)
+                    );
 
-                        const wasSelected = existingProduct ? existingProduct.selected !== false : false;
-                        const isSelectedNow = p.selected !== false;
+                    const wasSelected = existingProduct ? existingProduct.selected !== false : false;
+                    const oldQty = (wasSelected && existingProduct) ? (Number(existingProduct.quantity) || 0) : 0;
+                    
+                    const isSelectedNow = p.selected !== false;
+                    const newQty = isSelectedNow ? (Number(p.quantity) || 0) : 0;
+                    
+                    const diff = newQty - oldQty;
 
-                        if (!wasSelected && isSelectedNow) {
-                            // Newly selected! Deduct stock
-                            const qtyToSubtract = Number(p.quantity) || 0;
-                            if (qtyToSubtract > 0) {
-                                let productDoc = await Product.findById(p.product);
-                                if (!productDoc && p.productNo) {
-                                    productDoc = await Product.findOne({ productNo: p.productNo });
-                                }
-                                if (productDoc) {
-                                    productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
-                                    const updatedProduct = await productDoc.save();
+                    if (diff !== 0) {
+                        let productDoc = await Product.findById(p.product).session(session);
+                        if (!productDoc && p.productNo) {
+                            productDoc = await Product.findOne({ productNo: p.productNo }).session(session);
+                        }
+                        if (productDoc) {
+                            productDoc.quantity = (productDoc.quantity || 0) - diff;
+                            const updatedProduct = await productDoc.save({ session });
 
-                                    const ledgerEntry = new StockLedger({
-                                        product: updatedProduct._id,
-                                        productNo: updatedProduct.productNo,
-                                        brand: updatedProduct.brand,
-                                        entryType: "OUT",
-                                        piNo: po.pi?.quotationNumber || "",
-                                        poNo: po.poNumber,
-                                        date: new Date(),
-                                        quantity: qtyToSubtract,
-                                        unitPrice: p.unitPrice || 0,
-                                        balanceAfter: updatedProduct.quantity,
-                                        remarks: `Subtracted stock upon item selection update in Inward PO`
-                                    });
-                                    await ledgerEntry.save();
-                                }
-                            }
-                        } else if (wasSelected && !isSelectedNow) {
-                            // Deselected! Revert stock (add back)
-                            const qtyToAdd = Number(p.quantity) || 0;
-                            if (qtyToAdd > 0) {
-                                let productDoc = await Product.findById(p.product);
-                                if (!productDoc && p.productNo) {
-                                    productDoc = await Product.findOne({ productNo: p.productNo });
-                                }
-                                if (productDoc) {
-                                    productDoc.quantity = (productDoc.quantity || 0) + qtyToAdd;
-                                    const updatedProduct = await productDoc.save();
-
-                                    const ledgerEntry = new StockLedger({
-                                        product: updatedProduct._id,
-                                        productNo: updatedProduct.productNo,
-                                        brand: updatedProduct.brand,
-                                        entryType: "IN",
-                                        piNo: po.pi?.quotationNumber || "",
-                                        poNo: po.poNumber,
-                                        date: new Date(),
-                                        quantity: qtyToAdd,
-                                        unitPrice: p.unitPrice || 0,
-                                        balanceAfter: updatedProduct.quantity,
-                                        remarks: `Reverted stock upon item deselection in Inward PO`
-                                    });
-                                    await ledgerEntry.save();
-                                }
-                            }
+                            const ledgerEntry = new StockLedger({
+                                product: updatedProduct._id,
+                                productNo: updatedProduct.productNo,
+                                brand: updatedProduct.brand,
+                                entryType: diff > 0 ? "OUT" : "IN",
+                                piNo: po.pi?.quotationNumber || "",
+                                poNo: po.poNumber,
+                                date: new Date(),
+                                quantity: Math.abs(diff),
+                                unitPrice: p.unitPrice || 0,
+                                balanceAfter: updatedProduct.quantity,
+                                remarks: `Adjusted stock upon Inward PO update. Difference: ${diff}`
+                            });
+                            await ledgerEntry.save({ session });
                         }
                     }
-                    clearCachePrefix("product_");
-                    clearCachePrefix("dashboard_");
-                } catch (cErr) {
-                    console.error("Reconciliation error in updatePO:", cErr);
                 }
+                clearCachePrefix("product_");
+                clearCachePrefix("dashboard_");
             }
 
             updates.products = products;
@@ -372,7 +413,7 @@ exports.updatePO = async (req, res) => {
         const updatedPO = await PurchaseOrder.findByIdAndUpdate(
             id,
             { $set: updates },
-            { new: true }
+            { new: true, session }
         ).populate({
             path: "pi",
             populate: {
@@ -380,6 +421,9 @@ exports.updatePO = async (req, res) => {
                 select: "leadNumber"
               }
         });
+        
+        await session.commitTransaction();
+        session.endSession();
 
         const io = req.app.get("io");
         if (io) {
@@ -388,6 +432,8 @@ exports.updatePO = async (req, res) => {
 
         res.json(updatedPO);
     } catch (err) {
+        await session.abortTransaction();
+        session.endSession();
         console.error("Update PO Error:", err);
         res.status(500).json({ message: "Failed to update Purchase Order" });
     }
