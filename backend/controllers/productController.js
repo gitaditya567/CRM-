@@ -516,6 +516,30 @@ exports.getProductLiveStock = async (req, res) => {
     const onHand = Number(product.quantity) || 0;
     const availableToSell = onHand;
 
+    let totalStockIn = onHand > 0 ? onHand : 0;
+    try {
+      const StockLedger = require("../models/StockLedger");
+      const conditions = [{ product: product._id }];
+      if (product.productNo) {
+        conditions.push({ productNo: product.productNo });
+      }
+      const inEntries = await StockLedger.find({
+        $or: conditions,
+        entryType: { $in: ["IN", "INITIAL", "ADJUSTMENT"] }
+      }).lean();
+
+      const sumIn = inEntries.reduce((sum, entry) => {
+        if (entry.entryType === "ADJUSTMENT" && entry.quantity < 0) return sum;
+        return sum + (entry.quantity || 0);
+      }, 0);
+
+      if (sumIn > 0) {
+        totalStockIn = sumIn;
+      }
+    } catch (lErr) {
+      console.warn("StockLedger live stock fetch warning:", lErr.message);
+    }
+
     res.json({
       product: {
         _id: product._id,
@@ -531,6 +555,7 @@ exports.getProductLiveStock = async (req, res) => {
         quantity: onHand
       },
       onHand,
+      totalStockIn,
       availableToSell,
       uom: product.uom || "Nos"
     });
@@ -545,14 +570,29 @@ exports.getProductLedger = async (req, res) => {
   try {
     const { id } = req.params;
 
-    let productFilter = {};
+    let orConditions = [];
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      productFilter = { product: id };
+      orConditions.push({ product: id });
+      const prodDoc = await Product.findById(id).lean();
+      if (prodDoc && prodDoc.productNo) {
+        orConditions.push({ productNo: prodDoc.productNo });
+        orConditions.push({ productNo: prodDoc.productNo.trim() });
+      }
     } else {
-      productFilter = { productNo: id };
+      orConditions.push({ productNo: id });
+      orConditions.push({ productNo: id.trim() });
+      const prodDoc = await Product.findOne({
+        $or: [{ productNo: id }, { productNo: id.trim() }]
+      }).lean();
+      if (prodDoc) {
+        orConditions.push({ product: prodDoc._id });
+        if (prodDoc.productNo) {
+          orConditions.push({ productNo: prodDoc.productNo });
+        }
+      }
     }
 
-    const ledger = await StockLedger.find(productFilter)
+    const ledger = await StockLedger.find({ $or: orConditions })
       .sort({ date: -1, createdAt: -1 })
       .populate("createdBy", "name email")
       .lean();

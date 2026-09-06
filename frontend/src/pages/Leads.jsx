@@ -5317,7 +5317,7 @@ const TeamInspire = () => {
                         </div>
 
                         <form onSubmit={handleQuotationSubmit} className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
-                            <div className="flex-1 p-6 overflow-y-auto space-y-6 min-w-0">
+                            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6 min-w-0">
                             {/* Header Info */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
@@ -5835,7 +5835,7 @@ const TeamInspire = () => {
                                         <span>💬</span>
                                         <h4 className="font-bold text-gray-800 dark:text-white text-xs uppercase tracking-wider">Lead Remarks History</h4>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
                                         {activeQuotationLead ? (
                                             <>
                                                 {/* Lead Info Summary Card */}
@@ -5914,7 +5914,7 @@ const TeamInspire = () => {
                                             <span className="text-[9px] font-black bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-300 px-2 py-0.5 rounded-full uppercase tracking-widest">Proforma Invoice</span>
                                         )}
                                     </div>
-                                    <div className="flex-1 overflow-y-auto p-4">
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
                                         {editingQuotation ? (
                                             <div className="space-y-3">
                                                 {!editingQuotation?.quotationNumber?.startsWith("PI") && (

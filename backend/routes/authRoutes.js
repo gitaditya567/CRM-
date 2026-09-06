@@ -45,51 +45,76 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password are required" });
     }
 
-    const user = await User.findOne({ email });
+    const cleanEmail = String(email).trim().toLowerCase();
+    const user = await User.findOne({ 
+      email: new RegExp(`^${cleanEmail.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}$`, "i") 
+    });
     if (!user) return res.status(401).json({ message: "User not found" });
+
+    if (!user.password) {
+      return res.status(401).json({ message: "User account password is not configured" });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: "Invalid password" });
 
     // Update Last Login
-    user.lastLogin = new Date();
-    await user.save();
+    try {
+      user.lastLogin = new Date();
+      await user.save();
+    } catch (saveErr) {
+      console.warn("Could not save user lastLogin:", saveErr.message);
+    }
 
     // Check Access Code for non-admins
     const roleLower = user.role?.toLowerCase();
     if (roleLower !== "admin" && roleLower !== "superadmin") {
-      const settings = await Setting.findOne({ key: "global_ui_settings" });
-      const requiredCode = settings?.features?.loginAccessCode;
-      
-      if (requiredCode && requiredCode !== req.body.accessCode) {
-        return res.status(403).json({ message: "Invalid access code. Please contact admin." });
+      try {
+        const settings = await Setting.findOne({ key: "global_ui_settings" });
+        const requiredCode = settings?.features?.loginAccessCode;
+        
+        if (requiredCode && requiredCode !== req.body.accessCode) {
+          return res.status(403).json({ message: "Invalid access code. Please contact admin." });
+        }
+      } catch (sErr) {
+        console.warn("Setting check warning during login:", sErr.message);
       }
     }
 
+    const jwtSecret = process.env.JWT_SECRET || "crm_teaminspire_secret_key_2026_default";
+
     const token = jwt.sign(
       { id: user._id, role: user.role, name: user.name, tokenVersion: user.tokenVersion || 0 },
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: "1d" }
     );
 
     let rolePermissions = {};
     if (user.role && user.role.toLowerCase() !== "admin") {
-      const roleDoc = await Role.findOne({ name: user.role });
-      if (roleDoc) {
-        rolePermissions = {
-          menuPermissions: roleDoc.menuPermissions || {},
-          modulePermissions: roleDoc.modulePermissions || {}
-        };
+      try {
+        const roleDoc = await Role.findOne({ name: user.role });
+        if (roleDoc) {
+          rolePermissions = {
+            menuPermissions: roleDoc.menuPermissions || {},
+            modulePermissions: roleDoc.modulePermissions || {}
+          };
+        }
+      } catch (rErr) {
+        console.warn("Role permissions fetch warning during login:", rErr.message);
       }
     }
 
     // Notify Admin via Socket
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("userAction", { 
-        action: "login", 
-        user: { name: user.name, role: user.role, email: user.email } 
-      });
+    try {
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("userAction", { 
+          action: "login", 
+          user: { name: user.name, role: user.role, email: user.email } 
+        });
+      }
+    } catch (socErr) {
+      console.warn("Socket notification warning during login:", socErr.message);
     }
 
     res.json({
@@ -103,7 +128,7 @@ router.post("/login", async (req, res) => {
     });
   } catch (err) {
     console.error("Login Error:", err);
-    res.status(500).json({ message: "Server error during login" });
+    res.status(500).json({ message: err.message || "Server error during login" });
   }
 });
 

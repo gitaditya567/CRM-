@@ -169,7 +169,7 @@ exports.createPOFromPI = async (req, res) => {
 
         const savedPO = await newPO.save({ session });
 
-        // Deduct stock for products and record in StockLedger
+        // Deduct stock for products and record in StockLedger upon PI conversion to Inward PO
         const Product = require("../models/Product");
         const StockLedger = require("../models/StockLedger");
         const { clearCachePrefix } = require("../utils/cache");
@@ -184,11 +184,9 @@ exports.createPOFromPI = async (req, res) => {
             }
 
             if (productDoc) {
-                // Decrease stock (allow negative stock)
                 productDoc.quantity = (productDoc.quantity || 0) - qtyToSubtract;
                 const updatedProduct = await productDoc.save({ session });
 
-                // Create StockLedger OUT entry
                 const ledgerEntry = new StockLedger({
                     product: updatedProduct._id,
                     productNo: updatedProduct.productNo,
@@ -262,42 +260,96 @@ exports.updatePO = async (req, res) => {
         // Invoice validation (Rule #13-17)
         const prevInvLen = po.invoiceHistory ? po.invoiceHistory.length : 0;
         const newInvLen = invoiceHistory ? invoiceHistory.length : prevInvLen;
-        const isCreatingInvoice = (isMovedToInvoice === true) || (newInvLen > prevInvLen);
+        const isCreatingInvoice = (newInvLen > prevInvLen);
 
         if (po.type === "inward" && isCreatingInvoice) {
             const Product = require("../models/Product");
-            const outOfStockProducts = [];
-            const activeProducts = products || po.products;
+            const StockLedger = require("../models/StockLedger");
+            const invalidProducts = [];
             
-            for (const p of activeProducts) {
+            const latestInvoice = invoiceHistory[invoiceHistory.length - 1];
+            const invoicedItems = (latestInvoice && latestInvoice.products && latestInvoice.products.length > 0)
+                ? latestInvoice.products
+                : (products || po.products);
+            
+            for (const p of invoicedItems) {
                 if (p.selected === false) continue;
                 
-                let productDoc = await Product.findById(p.product).session(session);
+                let productDoc = null;
+                if (p.product) {
+                    productDoc = await Product.findById(p.product).session(session);
+                }
                 if (!productDoc && p.productNo) {
                     productDoc = await Product.findOne({ productNo: p.productNo }).session(session);
                 }
                 
-                if (productDoc && (productDoc.quantity || 0) <= 0) {
-                    outOfStockProducts.push({
-                        name: productDoc.name || p.name || p.productNo,
-                        stock: productDoc.quantity || 0
+                if (!productDoc) continue;
+
+                // Query StockLedger for total stock purchased/added (IN entries)
+                let totalStockIn = (productDoc.quantity || 0) > 0 ? productDoc.quantity : 0;
+                try {
+                    const conditions = [{ product: productDoc._id }];
+                    if (productDoc.productNo) {
+                        conditions.push({ productNo: productDoc.productNo });
+                    }
+                    const inEntries = await StockLedger.find({
+                        $or: conditions,
+                        entryType: { $in: ["IN", "INITIAL", "ADJUSTMENT"] }
+                    }).session(session).lean();
+
+                    const sumIn = inEntries.reduce((sum, entry) => {
+                        if (entry.entryType === "ADJUSTMENT" && entry.quantity < 0) return sum;
+                        return sum + (entry.quantity || 0);
+                    }, 0);
+
+                    if (sumIn > 0) {
+                        totalStockIn = sumIn;
+                    }
+                } catch (lErr) {
+                    console.warn("StockLedger query warning in poController:", lErr.message);
+                }
+
+                const requestedQty = parseInt(p.quantity) || 0;
+
+                if (totalStockIn <= 0) {
+                    invalidProducts.push({
+                        name: productDoc?.name || p.name || p.productNo,
+                        stock: 0,
+                        requestedQty,
+                        reason: "out_of_stock"
+                    });
+                } else if (requestedQty > totalStockIn) {
+                    invalidProducts.push({
+                        name: productDoc?.name || p.name || p.productNo,
+                        stock: totalStockIn,
+                        requestedQty,
+                        reason: "exceeds_stock"
                     });
                 }
             }
 
-            if (outOfStockProducts.length > 0) {
+            if (invalidProducts.length > 0) {
                 await session.abortTransaction();
                 session.endSession();
                 
-                let alertMsg = outOfStockProducts.length === 1 
-                    ? `Cannot create invoice.\n\nProduct "${outOfStockProducts[0].name}" is out of stock.\nCurrent stock: ${outOfStockProducts[0].stock} PCS.\n\nPlease add stock before creating the invoice.`
-                    : `Cannot create invoice because the following products are out of stock:\n\n`;
-                
-                if (outOfStockProducts.length > 1) {
-                    outOfStockProducts.forEach((item, index) => {
-                        alertMsg += `${index + 1}. ${item.name} — Current Stock: ${item.stock} PCS\n`;
+                let alertMsg = "";
+                if (invalidProducts.length === 1) {
+                    const item = invalidProducts[0];
+                    if (item.reason === "out_of_stock") {
+                        alertMsg = `Cannot create invoice.\n\nProduct "${item.name}" is out of stock.\nTotal Stock Purchased/Added: 0 PCS.\n\nPlease add stock via Purchase Stock In before creating the invoice.`;
+                    } else {
+                        alertMsg = `Cannot create invoice.\n\nOnly ${item.stock} PCS purchased/available in stock for "${item.name}", but you requested ${item.requestedQty} PCS.\n\nOnly up to ${item.stock} PCS can be invoiced.`;
+                    }
+                } else {
+                    alertMsg = `Cannot create invoice due to stock issues:\n\n`;
+                    invalidProducts.forEach((item, index) => {
+                        if (item.reason === "out_of_stock") {
+                            alertMsg += `${index + 1}. ${item.name} — Out of stock (0 PCS Purchased/Added)\n`;
+                        } else {
+                            alertMsg += `${index + 1}. ${item.name} — Only ${item.stock} PCS Purchased/Available (Requested: ${item.requestedQty} PCS)\n`;
+                        }
                     });
-                    alertMsg += "\nPlease add stock before creating the invoice.";
+                    alertMsg += "\nPlease adjust invoice quantities or add stock via Purchase Stock In.";
                 }
                 
                 return res.status(400).json({ message: alertMsg });
@@ -315,7 +367,7 @@ exports.updatePO = async (req, res) => {
         let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
 
         if (po.type === "inward" && checkMoved) {
-            const activeProducts = checkProducts || po.products;
+            const activeProducts = (checkProducts || po.products || []).filter(p => p.selected !== false);
             if (activeProducts.length === 0) {
                 updates.status = "Pending";
             } else {
@@ -338,6 +390,99 @@ exports.updatePO = async (req, res) => {
 
         if (invoiceHistory) {
             updates.invoiceHistory = invoiceHistory;
+
+            const currentProds = products || po.products;
+            if (currentProds && currentProds.length > 0) {
+                currentProds.forEach(p => {
+                    let invoicedSum = 0;
+                    invoiceHistory.forEach(inv => {
+                        if (inv.products && inv.products.length > 0) {
+                            inv.products.forEach(invItem => {
+                                if (invItem.productNo === p.productNo) {
+                                    invoicedSum += (Number(invItem.quantity) || 0);
+                                }
+                            });
+                        }
+                    });
+                    p.invoicedQuantity = invoicedSum;
+                    p.currentInvoiceQty = Math.max(0, (p.quantity || 0) - invoicedSum);
+                });
+                updates.products = currentProds;
+            }
+
+            // Automatically link invoice number to StockLedger for Inward PO
+            if (po.type === "inward") {
+                try {
+                    const StockLedger = require("../models/StockLedger");
+                    const Quotation = require("../models/Quotation");
+                    let piNumber = "";
+                    if (po.pi) {
+                        const piDoc = await Quotation.findById(po.pi).session(session).lean();
+                        if (piDoc) piNumber = piDoc.quotationNumber || "";
+                    }
+
+                    for (const inv of invoiceHistory) {
+                        if (!inv.invoiceNo) continue;
+                        const invProducts = (inv.products && inv.products.length > 0) ? inv.products : (products || po.products || []);
+                        for (const item of invProducts) {
+                            const conditions = [];
+                            if (item.product) conditions.push({ product: item.product });
+                            if (item.productNo) conditions.push({ productNo: item.productNo });
+                            if (conditions.length === 0) continue;
+
+                            const refConditions = [];
+                            if (po.poNumber) refConditions.push({ poNo: po.poNumber });
+                            if (piNumber) refConditions.push({ piNo: piNumber });
+
+                            if (refConditions.length > 0) {
+                                const updateRes = await StockLedger.updateMany(
+                                    {
+                                        $and: [
+                                            { $or: conditions },
+                                            { entryType: "OUT" },
+                                            { $or: refConditions }
+                                        ]
+                                    },
+                                    { $set: { invoiceNo: inv.invoiceNo } },
+                                    { session }
+                                );
+
+                                if (updateRes.matchedCount === 0) {
+                                    // If no OUT entry exists for this product and PO/PI, create one
+                                    const Product = require("../models/Product");
+                                    let prodDoc = null;
+                                    if (item.product) prodDoc = await Product.findById(item.product).session(session);
+                                    if (!prodDoc && item.productNo) prodDoc = await Product.findOne({ productNo: item.productNo }).session(session);
+
+                                    if (prodDoc) {
+                                        const qtyToDeduct = Number(item.quantity) || 1;
+                                        prodDoc.quantity = Math.max(0, (prodDoc.quantity || 0) - qtyToDeduct);
+                                        await prodDoc.save({ session });
+
+                                        const newEntry = new StockLedger({
+                                            product: prodDoc._id,
+                                            productNo: prodDoc.productNo,
+                                            brand: prodDoc.brand || item.brand || "",
+                                            entryType: "OUT",
+                                            piNo: piNumber || po.poNumber,
+                                            poNo: po.poNumber,
+                                            invoiceNo: inv.invoiceNo,
+                                            date: inv.date || new Date(),
+                                            quantity: qtyToDeduct,
+                                            unitPrice: item.unitPrice || 0,
+                                            balanceAfter: prodDoc.quantity,
+                                            remarks: "Subtracted stock upon PI conversion to Inward PO"
+                                        });
+                                        await newEntry.save({ session });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (ledgerSyncErr) {
+                    console.warn("StockLedger invoice link warning:", ledgerSyncErr.message);
+                }
+            }
         }
 
         if (dispatchHistory) {
@@ -351,7 +496,7 @@ exports.updatePO = async (req, res) => {
         if (freightCartage !== undefined) updates.freightCartage = freightCartage;
         if (estimatedTotal !== undefined) updates.estimatedTotal = estimatedTotal;
 
-        if (products) {
+        if (products && !isCreatingInvoice) {
             // Stock reconciliation for Inward PO
             if (po.type === "inward") {
                 const Product = require("../models/Product");

@@ -190,7 +190,7 @@ const POManagement = () => {
   };
 
   const getInwardPOInvoiceStatus = (products) => {
-    const activeProducts = products || [];
+    const activeProducts = (products || []).filter(p => p.selected !== false);
     if (activeProducts.length === 0) return "Pending";
     const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
     if (totalInvoiced === 0) return "Pending";
@@ -201,14 +201,14 @@ const POManagement = () => {
   const getDisplayStatus = (po, tab) => {
     if (tab === "dispatch") {
       if (po.status === "Dispatched") return "Dispatched";
-      const activeProducts = po.products || [];
+      const activeProducts = (po.products || []).filter(p => p.selected !== false);
       const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
       if (totalInvoiced > 0 && totalDispatched >= totalInvoiced) return "Dispatched";
       return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
-      const activeProducts = po.products || [];
+      const activeProducts = (po.products || []).filter(p => p.selected !== false);
       if (activeProducts.length === 0) return "Pending";
       const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       if (totalInvoiced === 0) return "Pending";
@@ -234,7 +234,7 @@ const POManagement = () => {
     if (activeTab === "inward") {
       if (po.type !== "inward") return false;
       if (po.isMovedToInvoice === true) {
-        const activeProducts = po.products || [];
+        const activeProducts = (po.products || []).filter(p => p.selected !== false);
         const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
         if (isFullyInvoiced && statusFilter !== "All" && statusFilter !== "Invoiced" && statusFilter !== "Processed") return false;
       }
@@ -413,14 +413,20 @@ const POManagement = () => {
     setProductSearchQuery("");
     setIsChecklistFullScreen(false);
     const isInvoicePhase = activeTab === "inward_invoice";
-    const sourceProducts = po.products;
+    let sourceProducts = po.products || [];
+    if (isInvoicePhase) {
+      sourceProducts = sourceProducts.filter(p => p.selected !== false);
+    }
     setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
+      const isSelected = isInvoicePhase 
+        ? (pending > 0)
+        : (typeof p.selected !== "undefined" ? p.selected : true);
       return { 
         ...p,
-        currentInvoiceQty: pending > 0 ? 1 : 0,
-        selected: billed > 0 ? true : (pending > 0 ? true : false)
+        currentInvoiceQty: pending > 0 ? pending : 0,
+        selected: isSelected
       };
     }));
     setIsProductsModalOpen(true);
@@ -843,26 +849,46 @@ Thank you for choosing Team Inspire!`;
       try {
         const outOfStock = [];
         for (const item of itemsToBill) {
+          let stock = 0;
+          const requestedQty = parseInt(item.currentInvoiceQty || item.billQty || 0);
+
           if (item.product) {
             const productId = typeof item.product === "object" ? item.product._id : item.product;
-            const res = await API.get(`/products/${productId}/live-stock`);
-            const stock = res.data.onHand || 0;
-            if (stock <= 0) {
-              outOfStock.push({ name: item.name || item.productNo, stock });
+            try {
+              const res = await API.get(`/products/${productId}/live-stock`);
+              stock = (typeof res.data.totalStockIn !== "undefined" && res.data.totalStockIn > 0) 
+                ? res.data.totalStockIn 
+                : (res.data.onHand || 0);
+            } catch (err) {
+              console.warn("Stock fetch error by ID:", err);
             }
+          }
+
+          if (stock <= 0) {
+            outOfStock.push({ name: item.name || item.productNo, stock: 0, requestedQty, type: "zero" });
+          } else if (requestedQty > stock) {
+            outOfStock.push({ name: item.name || item.productNo, stock, requestedQty, type: "insufficient" });
           }
         }
         if (outOfStock.length > 0) {
-          const alertMsg = outOfStock.length === 1
-            ? `Cannot create invoice: Product "${outOfStock[0].name}" is out of stock (Current stock: ${outOfStock[0].stock}). Please add stock.`
-            : `Cannot create invoice: Multiple products out of stock. Please check inventory.`;
+          const first = outOfStock[0];
+          let alertMsg = "";
+          if (outOfStock.length === 1) {
+            alertMsg = first.type === "zero"
+              ? `Cannot create invoice: Product "${first.name}" is out of stock (0 PCS Purchased/Added). Please add stock via Purchase Stock In.`
+              : `Cannot create invoice: Only ${first.stock} PCS purchased/available for "${first.name}", but you requested ${first.requestedQty} PCS.`;
+          } else {
+            alertMsg = `Cannot create invoice due to stock issues:\n` + outOfStock.map((err, idx) =>
+              err.type === "zero"
+                ? `${idx + 1}. ${err.name} — Out of stock (0 PCS Purchased/Added)`
+                : `${idx + 1}. ${err.name} — Only ${err.stock} PCS Purchased/Available (Requested: ${err.requestedQty} PCS)`
+            ).join("\n");
+          }
           toast.error(alertMsg, { duration: 6000 });
           return;
         }
       } catch (err) {
         console.error("Failed to check live stock before invoicing", err);
-        toast.error("Failed to validate stock. Please try again.");
-        return;
       }
     }
 
@@ -959,8 +985,8 @@ Thank you for choosing Team Inspire!`;
 
       if (!isOutward) {
         // INWARD PO INVOICING
-        const sourceProducts = isProductsModalOpen ? modalProducts : (billingProducts.length > 0 ? billingProducts : po.products);
-        const itemsToBill = sourceProducts.filter(p => (p.selected || p.selectedForBill) && ((parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0) > 0));
+        const sourceProducts = isProductsModalOpen ? modalProducts : (billingProducts.length > 0 ? billingProducts : (po.products || []).filter(p => p.selected !== false));
+        const itemsToBill = sourceProducts.filter(p => p.selected !== false && (p.selected || p.selectedForBill) && ((parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0) > 0));
 
         if (itemsToBill.length === 0) {
           toast.error("No products selected with valid invoice quantity!");
