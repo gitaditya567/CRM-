@@ -1,4 +1,5 @@
 const Quotation = require("../models/Quotation");
+const Product = require("../models/Product");
 const PDFDocument = require("pdfkit-table");
 const Lead = require("../models/Lead");
 const Client = require("../models/Client");
@@ -54,15 +55,27 @@ exports.getQuotations = async (req, res) => {
                     { leadNumber: { $regex: escapedSearch, $options: "i" } }
                 ]
             }).distinct("_id");
-            console.log("Quotation Search term:", search);
-            console.log("Matched Leads:", matchedLeads);
+
+            const matchedProducts = await Product.find({
+                $or: [
+                    { name: { $regex: escapedSearch, $options: "i" } },
+                    { productNo: { $regex: escapedSearch, $options: "i" } },
+                    { model: { $regex: escapedSearch, $options: "i" } }
+                ]
+            }).distinct("_id");
 
             filters.push({
                 $or: [
                     { quotationNumber: { $regex: escapedSearch, $options: "i" } },
+                    { poNumber: { $regex: escapedSearch, $options: "i" } },
                     { "billTo.name": { $regex: escapedSearch, $options: "i" } },
                     { status: { $regex: escapedSearch, $options: "i" } },
-                    { lead: { $in: matchedLeads } }
+                    { lead: { $in: matchedLeads } },
+                    { "products.name": { $regex: escapedSearch, $options: "i" } },
+                    { "products.productNo": { $regex: escapedSearch, $options: "i" } },
+                    { "products.description": { $regex: escapedSearch, $options: "i" } },
+                    { "products.brand": { $regex: escapedSearch, $options: "i" } },
+                    { "products.product": { $in: matchedProducts } }
                 ]
             });
         }

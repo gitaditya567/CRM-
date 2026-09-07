@@ -190,11 +190,11 @@ const POManagement = () => {
   };
 
   const getInwardPOInvoiceStatus = (products) => {
-    const activeProducts = (products || []).filter(p => p.selected !== false);
-    if (activeProducts.length === 0) return "Pending";
-    const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+    const allProducts = (products || []).filter(p => p.selected !== false);
+    if (allProducts.length === 0) return "Pending";
+    const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
     if (totalInvoiced === 0) return "Pending";
-    const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+    const allBilled = allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
     return allBilled ? "Invoiced" : "Partially Invoiced";
   };
 
@@ -208,15 +208,38 @@ const POManagement = () => {
       return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
-      const activeProducts = (po.products || []).filter(p => p.selected !== false);
-      if (activeProducts.length === 0) return "Pending";
-      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const allProducts = (po.products || []).filter(p => p.selected !== false);
+      if (allProducts.length === 0) return "Pending";
+      const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       if (totalInvoiced === 0) return "Pending";
-      const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+      const allBilled = allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
       return allBilled ? "Invoiced" : "Partially Invoiced";
     }
-    if (tab === "inward" && po.type === "inward" && po.isMovedToInvoice === true) {
-      return "Processed";
+    if (tab === "inward" && po.type === "inward") {
+      const allProducts = po.products || [];
+      if (allProducts.length === 0) return po.status || "Pending";
+      const totalQty = allProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+      const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const allFullyInvoiced = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+
+      if (allFullyInvoiced && totalQty > 0) {
+        return "Processed";
+      }
+      if (totalInvoiced > 0) {
+        return "Partially Processed";
+      }
+      if (po.isMovedToInvoice === true) {
+        const activeProducts = allProducts.filter(p => p.selected !== false);
+        const allSelected = allProducts.length > 0 && activeProducts.length === allProducts.length;
+        return allSelected ? "Processed" : "Partially Processed";
+      }
+      if (po.status === "Partially Processed" || po.status === "Partially Pending" || po.status === "Partially Invoiced") {
+        return "Partially Processed";
+      }
+      if (po.status === "Processed" && !allFullyInvoiced) {
+        return "Partially Processed";
+      }
+      return po.status || "Pending";
     }
     return po.status;
   };
@@ -234,8 +257,8 @@ const POManagement = () => {
     if (activeTab === "inward") {
       if (po.type !== "inward") return false;
       if (po.isMovedToInvoice === true) {
-        const activeProducts = (po.products || []).filter(p => p.selected !== false);
-        const isFullyInvoiced = activeProducts.length > 0 && activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+        const allProducts = po.products || [];
+        const isFullyInvoiced = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
         if (isFullyInvoiced && statusFilter !== "All" && statusFilter !== "Invoiced" && statusFilter !== "Processed") return false;
       }
     }
@@ -250,8 +273,15 @@ const POManagement = () => {
 
     // 2. Status Filter
     const displayStatus = getDisplayStatus(po, activeTab);
-    if (statusFilter !== "All" && displayStatus !== statusFilter) {
-      return false;
+    if (statusFilter !== "All") {
+      if (activeTab === "inward" && statusFilter === "Pending") {
+        const hasPendingItems = (po.products || []).some(p => (p.invoicedQuantity || 0) < p.quantity);
+        if (displayStatus !== "Pending" && !(displayStatus === "Partially Processed" && hasPendingItems)) {
+          return false;
+        }
+      } else if (displayStatus !== statusFilter) {
+        return false;
+      }
     }
 
     // 3. Brand Filter
@@ -408,11 +438,11 @@ const POManagement = () => {
   };
 
   // Action handlers
-  const handleOpenProductsModal = (po) => {
+  const handleOpenProductsModal = (po, forceInvoicePhase = false) => {
     setSelectedPOForProducts(po);
     setProductSearchQuery("");
     setIsChecklistFullScreen(false);
-    const isInvoicePhase = activeTab === "inward_invoice";
+    const isInvoicePhase = forceInvoicePhase || activeTab === "inward_invoice";
     let sourceProducts = po.products || [];
     if (isInvoicePhase) {
       sourceProducts = sourceProducts.filter(p => p.selected !== false);
@@ -704,7 +734,7 @@ Thank you for choosing Team Inspire!`;
     const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
     const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
     const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
     const isDisabled = isFullyBilled || 
                        isFullyProcessedInward || 
                        (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
@@ -731,7 +761,7 @@ Thank you for choosing Team Inspire!`;
       const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
       const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
       const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-      const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+      const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
       return isFullyBilled || 
              isFullyProcessedInward || 
              (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
@@ -771,7 +801,7 @@ Thank you for choosing Team Inspire!`;
           if (allSelected) {
             newStatus = "Processed";
           } else if (anySelected) {
-            newStatus = "Partially Pending";
+            newStatus = "Partially Processed";
           }
         }
 
@@ -833,7 +863,7 @@ Thank you for choosing Team Inspire!`;
   };
 
   const handleOpenInwardBilling = (po) => {
-    handleOpenProductsModal(po);
+    handleOpenProductsModal(po, true);
   };
 
   const handleProceedToInvoiceFromChecklist = async () => {
@@ -1497,7 +1527,7 @@ Thank you for choosing Team Inspire!`;
                           <Download size={18} />
                         </button>
                         {/* Generate Inward Invoice Button (Inward Invoice tab only) */}
-                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true)) && po.products?.filter(p => p.selected !== false).some(p => (p.invoicedQuantity || 0) < p.quantity) && (
+                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true)) && (po.products || []).some(p => p.selected !== false && (p.invoicedQuantity || 0) < p.quantity) && (
                           <button 
                             onClick={() => handleOpenInwardBilling(po)}
                             className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1780,7 +1810,7 @@ Thank you for choosing Team Inspire!`;
                     const isMovedToInvoice = !isOutward && selectedPOForProducts?.isMovedToInvoice === true;
                     const savedProduct = selectedPOForProducts?.products?.find(sp => sp.productNo === p.productNo);
                     const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-                    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase;
+                    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
                     const isDisabled = isFullyBilled || 
                                        isFullyProcessedInward || 
                                        (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 

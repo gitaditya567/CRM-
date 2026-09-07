@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText, Search, Filter, Calendar, SlidersHorizontal, X, Briefcase, Grid, FileSpreadsheet } from "lucide-react";
+import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText, Search, Filter, Calendar, SlidersHorizontal, X, Briefcase, Grid, FileSpreadsheet, Package } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
 
@@ -394,7 +394,18 @@ const QuotationTableView = React.memo(({
                         ) : filteredQuotations.length === 0 ? (
                             <tr><td colSpan={isPIView ? 5 : 6} className="px-6 py-20 text-center text-gray-400 italic">No quotations found in the registry.</td></tr>
                         ) : (
-                            filteredQuotations.map((q) => (
+                            filteredQuotations.map((q) => {
+                                const matchingProds = searchQuotationQuery?.trim()
+                                    ? (q.products || []).filter(p => {
+                                        const query = searchQuotationQuery.trim().toLowerCase();
+                                        return (p.name && p.name.toLowerCase().includes(query)) ||
+                                               (p.productNo && p.productNo.toLowerCase().includes(query)) ||
+                                               (p.description && p.description.toLowerCase().includes(query)) ||
+                                               (p.brand && p.brand.toLowerCase().includes(query));
+                                    })
+                                    : [];
+
+                                return (
                                 <tr key={q._id} className="hover:bg-blue-50/40 dark:hover:bg-blue-900/15 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer group">
                                     <td className="px-6 py-5">
                                         <div className="flex flex-col">
@@ -402,6 +413,19 @@ const QuotationTableView = React.memo(({
                                             <span className="text-[10px] uppercase font-bold text-blue-500 tracking-widest mt-0.5">
                                                 {q.lead?.leadNumber ? `Lead No: ${q.lead.leadNumber}` : "Commercial Offer"}
                                             </span>
+                                            {matchingProds.length > 0 && (
+                                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                                    {matchingProds.slice(0, 2).map((mp, mIdx) => (
+                                                        <span key={mIdx} className="inline-flex items-center gap-1 text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800/50">
+                                                            <Package size={10} />
+                                                            <span className="truncate max-w-[160px]">{mp.name || mp.productNo}</span>
+                                                        </span>
+                                                    ))}
+                                                    {matchingProds.length > 2 && (
+                                                        <span className="text-[9px] font-bold text-gray-400">+{matchingProds.length - 2} more</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
@@ -564,8 +588,9 @@ const QuotationTableView = React.memo(({
                                         </div>
                                     </td>
                                 </tr>
-                            ))
-                        )}
+                            );
+                        })
+                    )}
                     </tbody>
                 </table>
             </div>
@@ -3695,7 +3720,7 @@ const TeamInspire = () => {
                                     <div className="relative w-full md:w-96 group">
                                         <input
                                             type="text"
-                                            placeholder="Search by ID, Client, or Amount..."
+                                            placeholder="Search by ID, Part Name, Client, or Amount..."
                                             value={searchQuotationQuery}
                                             onChange={(e) => setSearchQuotationQuery(e.target.value)}
                                             className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all shadow-sm font-medium"
@@ -4308,7 +4333,7 @@ const TeamInspire = () => {
                                         <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                                         <input
                                             type="text"
-                                            placeholder="Search by Proposal ID, Name..."
+                                            placeholder="Search by Proposal ID, Part Name, Client..."
                                             value={searchQuotationQuery}
                                             onChange={(e) => setSearchQuotationQuery(e.target.value)}
                                             className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none dark:text-white transition-all"
@@ -4431,7 +4456,7 @@ const TeamInspire = () => {
                                         <Search size={13} className="absolute left-3 text-gray-400 group-focus-within:text-teal-500 transition-colors" />
                                         <input
                                             type="text"
-                                            placeholder="Search by PI ID, Name..."
+                                            placeholder="Search by PI ID, Part Name, Client..."
                                             value={searchProformaQuery}
                                             onChange={(e) => setSearchProformaQuery(e.target.value)}
                                             className="w-full pl-8 pr-10 py-2.5 text-xs font-semibold rounded-xl bg-gray-55 dark:bg-gray-900 border border-transparent focus:bg-white dark:focus:bg-gray-800 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 outline-none dark:text-white transition-all"

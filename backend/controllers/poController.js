@@ -380,7 +380,8 @@ exports.updatePO = async (req, res) => {
                 } else if (totalInvoiced === 0) {
                     updates.status = "Pending";
                 } else {
-                    const allBilled = activeProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+                    const allProducts = checkProducts || po.products || [];
+                    const allBilled = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
                     updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
                 }
             }
