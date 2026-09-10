@@ -225,19 +225,19 @@ const POManagement = () => {
       if (allFullyInvoiced && totalQty > 0) {
         return "Processed";
       }
-      if (totalInvoiced > 0) {
-        return "Partially Processed";
+      if (totalInvoiced > 0 && !allFullyInvoiced) {
+        return "Partially Pending";
+      }
+      if (po.status === "Partially Processed" || po.status === "Partially Pending" || po.status === "Partially Invoiced") {
+        return "Partially Pending";
       }
       if (po.isMovedToInvoice === true) {
         const activeProducts = allProducts.filter(p => p.selected !== false);
-        const allSelected = allProducts.length > 0 && activeProducts.length === allProducts.length;
-        return allSelected ? "Processed" : "Partially Processed";
-      }
-      if (po.status === "Partially Processed" || po.status === "Partially Pending" || po.status === "Partially Invoiced") {
-        return "Partially Processed";
-      }
-      if (po.status === "Processed" && !allFullyInvoiced) {
-        return "Partially Processed";
+        const isPartialSelection = activeProducts.length > 0 && activeProducts.length < allProducts.length;
+        if (isPartialSelection) {
+          return "Partially Pending";
+        }
+        return "Pending";
       }
       return po.status || "Pending";
     }
@@ -274,9 +274,17 @@ const POManagement = () => {
     // 2. Status Filter
     const displayStatus = getDisplayStatus(po, activeTab);
     if (statusFilter !== "All") {
-      if (activeTab === "inward" && statusFilter === "Pending") {
-        const hasPendingItems = (po.products || []).some(p => (p.invoicedQuantity || 0) < p.quantity);
-        if (displayStatus !== "Pending" && !(displayStatus === "Partially Processed" && hasPendingItems)) {
+      if (activeTab === "inward") {
+        if (statusFilter === "Pending") {
+          const isPendingOrPartial = displayStatus === "Pending" ||
+            displayStatus === "Partially Pending" ||
+            displayStatus === "Partially Processed" ||
+            (po.products || []).some(p => (p.invoicedQuantity || 0) < p.quantity && displayStatus !== "Processed");
+          if (!isPendingOrPartial) return false;
+        } else if (statusFilter === "Partially Pending" || statusFilter === "Partially Processed") {
+          const isPartial = displayStatus === "Partially Pending" || displayStatus === "Partially Processed";
+          if (!isPartial) return false;
+        } else if (displayStatus !== statusFilter) {
           return false;
         }
       } else if (displayStatus !== statusFilter) {
@@ -1272,7 +1280,7 @@ Thank you for choosing Team Inspire!`;
                   ) : (
                     <>
                       <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                      <option value="Partially Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Processed</option>
+                      <option value="Partially Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Pending</option>
                       <option value="Processed" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Processed</option>
                     </>
                   )}
