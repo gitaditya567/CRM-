@@ -1042,10 +1042,10 @@ const TeamInspire = () => {
         products: [], // { product: id, quantity: 1, unitPrice: 0 }
         validUntil: "",
         terms: {
-            deliveryLeadTime: "Stock items are subject to prior sales against subject to Force Majeure Clause.",
+            deliveryLeadTime: "Ex-Stock items are subject to prior sales against subject to Force Majeure Clause.",
             payment: "100% advance along with Purchase Order.",
             warranty: "12 months from the date of TeamInspire Invoice for Equipments. (Onsite). No warranty on spare parts. Consumables, Wear and tear items, including rubber parts and bulbs, are not covered under warranty.",
-            deliveryTerms: "warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
+            deliveryTerms: "Ex-warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
             validity: "30 Days from the date of PI.",
             remark: ""
         },
@@ -3206,10 +3206,10 @@ const TeamInspire = () => {
                 products: mappedProducts,
                 validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString().split('T')[0] : "",
                 terms: {
-                    deliveryLeadTime: quote.terms?.deliveryLeadTime || "Stock items are subject to prior sales against subject to Force Majeure Clause.",
+                    deliveryLeadTime: quote.terms?.deliveryLeadTime || "Ex-Stock items are subject to prior sales against subject to Force Majeure Clause.",
                     payment: quote.terms?.payment || "100% advance along with Purchase Order.",
                     warranty: quote.terms?.warranty || "12 months from the date of TeamInspire Invoice for Equipments. (Onsite/OffSite). No warranty on spare parts. Consumables, Wear and tear items, including rubber parts and bulbs, are not covered under warranty.",
-                    deliveryTerms: quote.terms?.deliveryTerms || "warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
+                    deliveryTerms: quote.terms?.deliveryTerms || "Ex-warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
                     validity: quote.terms?.validity || "30 Days from the date of PI.",
                     remark: quote.terms?.remark || ""
                 },
@@ -3237,10 +3237,10 @@ const TeamInspire = () => {
                 products: defaultProducts,
                 validUntil: leadId ? (prev.validUntil || "") : "",
                 terms: {
-                    deliveryLeadTime: "Stock items are subject to prior sales against subject to Force Majeure Clause.",
+                    deliveryLeadTime: "Ex-Stock items are subject to prior sales against subject to Force Majeure Clause.",
                     payment: "100% advance along with Purchase Order.",
                     warranty: "12 months from the date of TeamInspire Invoice for Equipments. (Onsite/OffSite). No warranty on spare parts. Consumables, Wear and tear items, including rubber parts and bulbs, are not covered under warranty.",
-                    deliveryTerms: "warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
+                    deliveryTerms: "Ex-warehouse, Delhi is subject to prior sales and Force Majeure Clause.",
                     validity: "30 Days from the date of PI.",
                     remark: ""
                 },

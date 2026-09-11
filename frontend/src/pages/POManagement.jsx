@@ -189,12 +189,34 @@ const POManagement = () => {
     "Dispatched": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50",
   };
 
+  const isProductMoved = (p, po) => {
+    if (!p) return false;
+    if (p.movedToInvoice === true) return true;
+    if (p.movedToInvoice === false) return false;
+    if ((p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0) return true;
+    if (po && po.isMovedToInvoice === true) {
+      if ((po.status === "Partially Pending" || po.status === "Partial Pending") && (p.invoicedQuantity || 0) === 0) {
+        return false;
+      }
+      if (p.selected === false) return false;
+      return true;
+    }
+    return false;
+  };
+
+  const isPOFullyDispatched = (po) => {
+    if (!po || !po.products || po.products.length === 0) return false;
+    const totalQty = po.products.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    if (totalQty === 0) return false;
+    return po.products.every(p => (p.dispatchedQuantity || 0) >= (p.quantity || 0));
+  };
+
   const getInwardPOInvoiceStatus = (products) => {
-    const allProducts = (products || []).filter(p => p.selected !== false);
-    if (allProducts.length === 0) return "Pending";
-    const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+    const movedProducts = (products || []).filter(p => p.movedToInvoice === true || p.selected !== false || (p.invoicedQuantity || 0) > 0);
+    if (movedProducts.length === 0) return "Pending";
+    const totalInvoiced = movedProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
     if (totalInvoiced === 0) return "Pending";
-    const allBilled = allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+    const allBilled = movedProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
     return allBilled ? "Invoiced" : "Partially Invoiced";
   };
 
@@ -208,43 +230,49 @@ const POManagement = () => {
       return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
-      const allProducts = (po.products || []).filter(p => p.selected !== false);
-      if (allProducts.length === 0) return "Pending";
-      const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const movedProducts = (po.products || []).filter(p => isProductMoved(p, po));
+      if (movedProducts.length === 0) return "Pending";
+      const totalInvoiced = movedProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
       if (totalInvoiced === 0) return "Pending";
-      const allBilled = allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+      const allBilled = movedProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
       return allBilled ? "Invoiced" : "Partially Invoiced";
     }
     if (tab === "inward" && po.type === "inward") {
       const allProducts = po.products || [];
       if (allProducts.length === 0) return po.status || "Pending";
-      const totalQty = allProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-      const totalInvoiced = allProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-      const allFullyInvoiced = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
 
+      if (po.status === "Dispatched" || (po.dispatchHistory && po.dispatchHistory.length > 0)) {
+        const hasUnmoved = allProducts.some(p => !isProductMoved(p, po));
+        if (hasUnmoved) return "Partially Pending";
+        return "Processed";
+      }
+
+      const totalQty = allProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
+      const allFullyInvoiced = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
       if (allFullyInvoiced && totalQty > 0) {
         return "Processed";
       }
-      if (totalInvoiced > 0 && !allFullyInvoiced) {
+
+      const movedCount = allProducts.filter(p => isProductMoved(p, po)).length;
+
+      if (movedCount >= allProducts.length && allProducts.length > 0) {
+        return "Processed";
+      }
+      if (movedCount > 0 && movedCount < allProducts.length) {
         return "Partially Pending";
       }
-      if (po.status === "Partially Processed" || po.status === "Partially Pending" || po.status === "Partially Invoiced") {
+      if (po.status === "Processed") {
+        return "Processed";
+      }
+      if (po.status === "Partially Pending" || po.status === "Partial Pending" || po.status === "Partially Processed") {
         return "Partially Pending";
       }
-      if (po.isMovedToInvoice === true) {
-        const activeProducts = allProducts.filter(p => p.selected !== false);
-        const isPartialSelection = activeProducts.length > 0 && activeProducts.length < allProducts.length;
-        if (isPartialSelection) {
-          return "Partially Pending";
-        }
-        return "Pending";
-      }
-      return po.status || "Pending";
+      return "Pending";
     }
     return po.status;
   };
 
-  // Filter based on search query (by PO number, partner name, lead no, or pi no) and status
+  // Filter based on search query (by PO number, partner name, lead no, pi no, or product SKU) and status
   const filteredPOs = pos.filter(po => {
     // 1. Tab Specific Filtering
     if (activeTab === "outward") {
@@ -252,15 +280,17 @@ const POManagement = () => {
     }
     if (activeTab === "inward_invoice") {
       if (po.type !== "inward") return false;
-      if (po.isMovedToInvoice !== true) return false;
+      const hasMovedProducts = (po.products || []).some(p => 
+        p.movedToInvoice === true || 
+        (po.isMovedToInvoice && p.selected !== false) || 
+        (p.invoicedQuantity || 0) > 0
+      );
+      if (!hasMovedProducts && po.isMovedToInvoice !== true) return false;
     }
     if (activeTab === "inward") {
       if (po.type !== "inward") return false;
-      if (po.isMovedToInvoice === true) {
-        const allProducts = po.products || [];
-        const isFullyInvoiced = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-        if (isFullyInvoiced && statusFilter !== "All" && statusFilter !== "Invoiced" && statusFilter !== "Processed") return false;
-      }
+      // If all items of this inward PO are completely dispatched, remove from Inward PO (shown in Dispatch Management)
+      if (isPOFullyDispatched(po)) return false;
     }
     if (activeTab === "dispatch") {
       const isEligible = (po.type === "inward" && po.isMovedToInvoice === true) || po.type === "outward";
@@ -276,14 +306,12 @@ const POManagement = () => {
     if (statusFilter !== "All") {
       if (activeTab === "inward") {
         if (statusFilter === "Pending") {
-          const isPendingOrPartial = displayStatus === "Pending" ||
-            displayStatus === "Partially Pending" ||
-            displayStatus === "Partially Processed" ||
-            (po.products || []).some(p => (p.invoicedQuantity || 0) < p.quantity && displayStatus !== "Processed");
-          if (!isPendingOrPartial) return false;
+          if (displayStatus !== "Pending") return false;
         } else if (statusFilter === "Partially Pending" || statusFilter === "Partially Processed") {
-          const isPartial = displayStatus === "Partially Pending" || displayStatus === "Partially Processed";
+          const isPartial = displayStatus === "Partially Pending" || displayStatus === "Partially Processed" || displayStatus === "Partial Pending";
           if (!isPartial) return false;
+        } else if (statusFilter === "Processed") {
+          if (displayStatus !== "Processed") return false;
         } else if (displayStatus !== statusFilter) {
           return false;
         }
@@ -329,7 +357,12 @@ const POManagement = () => {
     const leadNumber = po.leadNumber || po.pi?.lead?.leadNumber || "";
     const matchesLead = leadNumber.toLowerCase().includes(query);
 
-    return matchesPo || matchesPartner || matchesPi || matchesLead;
+    const matchesProduct = (po.products || []).some(p => 
+      (p.productNo || "").toLowerCase().includes(query) || 
+      (p.name || "").toLowerCase().includes(query)
+    );
+
+    return matchesPo || matchesPartner || matchesPi || matchesLead || matchesProduct;
   });
 
   const getDispatchDateObj = (po) => {
@@ -453,18 +486,28 @@ const POManagement = () => {
     const isInvoicePhase = forceInvoicePhase || activeTab === "inward_invoice";
     let sourceProducts = po.products || [];
     if (isInvoicePhase) {
-      sourceProducts = sourceProducts.filter(p => p.selected !== false);
+      sourceProducts = sourceProducts.filter(p => isProductMoved(p, po));
     }
     setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
       const pending = Math.max(0, p.quantity - billed);
-      const isSelected = isInvoicePhase 
-        ? (pending > 0)
-        : (typeof p.selected !== "undefined" ? p.selected : true);
+      
+      const isAlreadyMoved = !isInvoicePhase && po.type === "inward" && isProductMoved(p, po);
+
+      let isSelected;
+      if (isInvoicePhase) {
+        isSelected = pending > 0;
+      } else if (isAlreadyMoved) {
+        isSelected = true; // locked as already processed/sent
+      } else {
+        isSelected = false;
+      }
+
       return { 
         ...p,
         currentInvoiceQty: pending > 0 ? pending : 0,
-        selected: isSelected
+        selected: isSelected,
+        isAlreadyMoved: !!isAlreadyMoved
       };
     }));
     setIsProductsModalOpen(true);
@@ -735,18 +778,9 @@ Thank you for choosing Team Inspire!`;
     const isInvoicePhase = activeTab === "inward_invoice";
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
     const processed = p.invoicedQuantity || 0;
-    const remaining = Math.max(0, p.quantity - processed);
     const isFullyBilled = isOutward && (processed >= p.quantity);
-    const isFullyProcessedInward = !isOutward && (remaining === 0);
-    const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
-    const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
-    const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
-    const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
-    const isDisabled = isFullyBilled || 
-                       isFullyProcessedInward || 
-                       (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
-                       isSelectedAndMoved;
+    const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, po));
+    const isDisabled = isFullyBilled || isAlreadyMoved;
 
     if (isDisabled) return;
     const updated = [...modalProducts];
@@ -762,18 +796,9 @@ Thank you for choosing Team Inspire!`;
 
     const checkIsDisabled = (p) => {
       const processed = p.invoicedQuantity || 0;
-      const remaining = Math.max(0, p.quantity - processed);
       const isFullyBilled = isOutward && (processed >= p.quantity);
-      const isFullyProcessedInward = !isOutward && (remaining === 0);
-      const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
-      const isMovedToInvoice = !isOutward && po.isMovedToInvoice === true;
-      const savedProduct = po.products?.find(sp => sp.productNo === p.productNo);
-      const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-      const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
-      return isFullyBilled || 
-             isFullyProcessedInward || 
-             (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
-             isSelectedAndMoved;
+      const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, po));
+      return isFullyBilled || isAlreadyMoved;
     };
 
     const availableProducts = modalProducts.filter(p => !checkIsDisabled(p));
@@ -794,39 +819,48 @@ Thank you for choosing Team Inspire!`;
 
     try {
       if (!isOutward) {
-        const anySelected = modalProducts.some(p => p.selected);
-        if (!anySelected) {
-          toast.error("⚠️ Restriction: Cannot update Inward PO without selecting at least one item! Please select at least one item.");
-          return;
-        }
-        const isMoved = po.isMovedToInvoice || shouldMoveToInvoice;
-        let newStatus;
-        if (isMoved) {
-          newStatus = getInwardPOInvoiceStatus(modalProducts);
-        } else {
-          const allSelected = modalProducts.every(p => p.selected);
-          newStatus = "Pending";
-          if (allSelected) {
-            newStatus = "Processed";
-          } else if (anySelected) {
-            newStatus = "Partially Processed";
+        // Build updated products for Inward PO
+        const updatedProducts = (po.products || []).map(originalP => {
+          const matchingModalP = modalProducts.find(mp => mp.productNo === originalP.productNo);
+          const wasAlreadyMoved = isProductMoved(originalP, po);
+
+          if (wasAlreadyMoved) {
+            return {
+              ...originalP,
+              movedToInvoice: true,
+              selected: true
+            };
           }
+
+          const isNowSelected = matchingModalP ? matchingModalP.selected : false;
+          return {
+            ...originalP,
+            movedToInvoice: shouldMoveToInvoice ? isNowSelected : false,
+            selected: isNowSelected
+          };
+        });
+
+        const totalItemsCount = updatedProducts.length;
+        const movedItemsCount = updatedProducts.filter(p => p.movedToInvoice === true).length;
+
+        let newStatus = "Pending";
+        if (movedItemsCount >= totalItemsCount && totalItemsCount > 0) {
+          newStatus = "Processed";
+        } else if (movedItemsCount > 0) {
+          newStatus = "Partially Pending";
         }
 
         const payload = {
-          products: modalProducts,
-          status: newStatus
+          products: updatedProducts,
+          status: newStatus,
+          isMovedToInvoice: (po.isMovedToInvoice || shouldMoveToInvoice || movedItemsCount > 0)
         };
-
-        if (shouldMoveToInvoice) {
-          payload.isMovedToInvoice = true;
-        }
 
         const res = await API.put(`/purchase-orders/${po._id}`, payload);
         toast.success(
-          shouldMoveToInvoice 
-            ? `Purchase Order ${res.data.poNumber} updated & moved to Inward Invoice!` 
-            : `Purchase Order ${res.data.poNumber} updated successfully!`
+          newStatus === "Processed"
+            ? `Purchase Order ${res.data.poNumber} completed & all items moved to Inward Invoice (Status: Processed)!`
+            : `Purchase Order ${res.data.poNumber} updated (Status: Partially Pending)!`
         );
         setIsMoveConfirmOpen(false);
         setIsProductsModalOpen(false);
@@ -859,9 +893,19 @@ Thank you for choosing Team Inspire!`;
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
 
     if (!isOutward) {
-      const anySelected = modalProducts.some(p => p.selected);
+      const pendingProducts = modalProducts.filter(p => {
+        const isAlreadyMoved = p.isAlreadyMoved || isProductMoved(p, po);
+        return !isAlreadyMoved;
+      });
+
+      if (pendingProducts.length === 0) {
+        toast.info("All items in this PO have already been processed and moved to Inward Invoice.");
+        return;
+      }
+
+      const anySelected = pendingProducts.some(p => p.selected);
       if (!anySelected) {
-        toast.error("⚠️ Restriction: You must select at least one item before updating or proceeding with the Inward PO!");
+        toast.error("⚠️ Restriction: You must select at least one pending item before updating!");
         return;
       }
       setIsMoveConfirmOpen(true);
@@ -1428,6 +1472,32 @@ Thank you for choosing Team Inspire!`;
                               ))}
                             </div>
                           )}
+                          {/* SKUs display for Inward PO */}
+                          {activeTab === "inward" && po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                              {po.products.slice(0, 4).map((p, pIdx) => {
+                                const isItemMoved = isProductMoved(p, po);
+                                return (
+                                  <span 
+                                    key={pIdx} 
+                                    className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border ${
+                                      isItemMoved 
+                                        ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800" 
+                                        : "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                                    }`}
+                                    title={`${p.name || ''} (${isItemMoved ? 'Sent to Invoice' : 'Pending'})`}
+                                  >
+                                    {p.productNo} {isItemMoved ? "✓ Sent" : "(Pending)"}
+                                  </span>
+                                );
+                              })}
+                              {po.products.length > 4 && (
+                                <span className="text-[9px] font-bold text-gray-400">
+                                  +{po.products.length - 4} more
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                     ) : (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
@@ -1535,7 +1605,7 @@ Thank you for choosing Team Inspire!`;
                           <Download size={18} />
                         </button>
                         {/* Generate Inward Invoice Button (Inward Invoice tab only) */}
-                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true)) && (po.products || []).some(p => p.selected !== false && (p.invoicedQuantity || 0) < p.quantity) && (
+                        {activeTab === "inward_invoice" && (po.products || []).some(p => p.selected !== false && (p.invoicedQuantity || 0) < p.quantity) && (
                           <button 
                             onClick={() => handleOpenInwardBilling(po)}
                             className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1596,7 +1666,7 @@ Thank you for choosing Team Inspire!`;
                           </button>
                         )}
                         {/* Delete Icon */}
-                        {activeTab === "outward" && (
+                        {(activeTab === "outward" || activeTab === "inward") && (
                           <button 
                             onClick={() => handleDeletePO(po)}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1740,7 +1810,7 @@ Thank you for choosing Team Inspire!`;
                   {isChecklistFullScreen && <span className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Full Screen</span>}
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mt-0.5">
-                  PO: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForProducts.poNumber}</span> | PO Date: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForProducts.pi?.poDate ? new Date(selectedPOForProducts.pi.poDate).toLocaleDateString("en-GB") : new Date(selectedPOForProducts.date).toLocaleDateString("en-GB")}</span>
+                  PO: <span className="text-lime-600 dark:text-lime-400 font-bold">{selectedPOForProducts.poNumber}</span> | PO Date: <span className="text-lime-600 dark:text-lime-400 font-bold">{(selectedPOForProducts.pi?.poDate || selectedPOForProducts.date || selectedPOForProducts.createdAt) ? new Date(selectedPOForProducts.pi?.poDate || selectedPOForProducts.date || selectedPOForProducts.createdAt).toLocaleDateString("en-GB") : "N/A"}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1783,17 +1853,35 @@ Thank you for choosing Team Inspire!`;
               </div>
 
               {/* All Select toggle */}
-              <div 
-                onClick={handleToggleAllProducts}
-                className="flex items-center gap-3 p-3 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100/30 dark:border-blue-800/30 rounded-2xl cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/35 transition"
-              >
-                {modalProducts.every(p => p.selected) ? (
-                  <CheckSquare size={20} className="text-blue-600 dark:text-blue-400" />
-                ) : (
-                  <Square size={20} className="text-gray-400 dark:text-gray-500" />
-                )}
-                <span className="text-sm font-black text-blue-800 dark:text-blue-300 uppercase tracking-wider">Select All Products ({modalProducts.length})</span>
-              </div>
+              {(() => {
+                const isInvoicePhase = activeTab === "inward_invoice";
+                const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
+                const isAllMoved = !isInvoicePhase && !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved);
+                const pendingProducts = modalProducts.filter(p => !p.isAlreadyMoved);
+                return (
+                  <div 
+                    onClick={isAllMoved ? undefined : handleToggleAllProducts}
+                    className={`flex items-center gap-3 p-3 rounded-2xl transition ${
+                      isAllMoved 
+                        ? "bg-gray-100/70 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 opacity-60 cursor-not-allowed select-none"
+                        : "bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100/30 dark:border-blue-800/30 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/35"
+                    }`}
+                  >
+                    {modalProducts.every(p => p.selected) ? (
+                      <CheckSquare size={20} className={isAllMoved ? "text-gray-400" : "text-blue-600 dark:text-blue-400"} />
+                    ) : (
+                      <Square size={20} className="text-gray-400 dark:text-gray-500" />
+                    )}
+                    <span className={`text-sm font-black uppercase tracking-wider ${isAllMoved ? "text-gray-500" : "text-blue-800 dark:text-blue-300"}`}>
+                      {isAllMoved 
+                        ? `All Products Processed (${modalProducts.length})` 
+                        : pendingProducts.length < modalProducts.length 
+                          ? `Select All Pending Products (${pendingProducts.length})` 
+                          : `Select All Products (${modalProducts.length})`}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Product list */}
               <div className="space-y-3">
@@ -1813,16 +1901,8 @@ Thank you for choosing Team Inspire!`;
                     const processed = p.invoicedQuantity || 0;
                     const remaining = Math.max(0, p.quantity - processed);
                     const isFullyBilled = isOutward && (processed >= p.quantity);
-                    const isFullyProcessedInward = !isOutward && (remaining === 0);
-                    const isPartiallyOrFullyInvoicedInward = !isOutward && (processed > 0);
-                    const isMovedToInvoice = !isOutward && selectedPOForProducts?.isMovedToInvoice === true;
-                    const savedProduct = selectedPOForProducts?.products?.find(sp => sp.productNo === p.productNo);
-                    const isSelectedInDatabase = savedProduct ? savedProduct.selected !== false : false;
-                    const isSelectedAndMoved = !isInvoicePhase && isMovedToInvoice && isSelectedInDatabase && (processed > 0);
-                    const isDisabled = isFullyBilled || 
-                                       isFullyProcessedInward || 
-                                       (!isInvoicePhase && isPartiallyOrFullyInvoicedInward) || 
-                                       isSelectedAndMoved;
+                    const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, selectedPOForProducts));
+                    const isDisabled = isFullyBilled || isAlreadyMoved;
 
                     return (
                       <div 
@@ -1832,7 +1912,7 @@ Thank you for choosing Team Inspire!`;
                         }}
                         className={`flex items-start gap-3 p-4 border rounded-2xl transition ${
                           isDisabled
-                            ? "bg-gray-100/70 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 opacity-50 cursor-not-allowed select-none"
+                            ? "bg-gray-100/70 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 opacity-60 cursor-not-allowed select-none"
                             : p.selected 
                               ? "bg-white dark:bg-gray-800 border-blue-500 shadow-sm cursor-pointer"
                               : "bg-gray-50/50 dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-70 cursor-pointer"
@@ -1878,14 +1958,24 @@ Thank you for choosing Team Inspire!`;
                               {/* Inward Badges */}
                               {!isOutward && (
                                 <div className="mt-1 flex items-center gap-1.5">
-                                  {isFullyProcessedInward ? (
+                                  {isAlreadyMoved ? (
                                     <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                                      Processed ({processed}/{p.quantity})
+                                      ✓ Sent to Invoice / Processed
                                     </span>
-                                  ) : processed > 0 ? (
-                                    <span className="bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                                      Processed: {processed} / {p.quantity} (Rem: {remaining})
-                                    </span>
+                                  ) : isInvoicePhase ? (
+                                    processed >= p.quantity ? (
+                                      <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                        Billed ({processed}/{p.quantity})
+                                      </span>
+                                    ) : processed > 0 ? (
+                                      <span className="bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                        Billed: {processed} / {p.quantity} (Rem: {remaining})
+                                      </span>
+                                    ) : (
+                                      <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                        Ready to Invoice ({p.quantity} items)
+                                      </span>
+                                    )
                                   ) : (
                                     <span className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
                                       Pending ({p.quantity} items)
@@ -1989,12 +2079,22 @@ Thank you for choosing Team Inspire!`;
                   Cancel
                 </button>
                 {!isInvoicePhase && (
-                  <button
-                    onClick={handleUpdatePOProducts}
-                    className="px-5 py-2.5 bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-blue-500/10 transition cursor-pointer"
-                  >
-                    Update PO
-                  </button>
+                  (() => {
+                    const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
+                    const isAllMoved = !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved);
+                    return isAllMoved ? (
+                      <span className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs font-black uppercase tracking-wider rounded-xl cursor-not-allowed">
+                        All Items Processed
+                      </span>
+                    ) : (
+                      <button
+                        onClick={handleUpdatePOProducts}
+                        className="px-5 py-2.5 bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-blue-500/10 transition cursor-pointer"
+                      >
+                        Update PO
+                      </button>
+                    );
+                  })()
                 )}
                 {isInvoicePhase && (
                   <button
@@ -2095,7 +2195,7 @@ Thank you for choosing Team Inspire!`;
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                       {(selectedPOForDetails.products || [])
-                        .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected)
+                        .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : (activeTab === "inward" ? true : (activeTab === "inward_invoice" ? (p.movedToInvoice || p.selected) : p.selected)))
                         .map((p, idx) => (
                           <tr key={idx} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/20">
                             <td className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">

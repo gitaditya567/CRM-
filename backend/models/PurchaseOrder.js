@@ -108,6 +108,10 @@ const purchaseOrderSchema = new mongoose.Schema({
         dispatchedQuantity: {
             type: Number,
             default: 0
+        },
+        movedToInvoice: {
+            type: Boolean,
+            default: false
         }
     }],
     createdBy: {

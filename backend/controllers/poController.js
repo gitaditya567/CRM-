@@ -366,23 +366,29 @@ exports.updatePO = async (req, res) => {
         let checkProducts = products || po.products;
         let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
 
-        if (po.type === "inward" && checkMoved) {
-            const activeProducts = (checkProducts || po.products || []).filter(p => p.selected !== false);
-            if (activeProducts.length === 0) {
-                updates.status = "Pending";
-            } else {
+        if (po.type === "inward") {
+            if (isCreatingInvoice) {
+                const allProducts = checkProducts || po.products || [];
+                const allBilled = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+                updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
+            } else if (dispatchHistory && dispatchHistory.length > 0) {
+                const activeProducts = (checkProducts || po.products || []).filter(p => p.selected !== false);
                 const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
                 const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
                 const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-
-                if (totalDispatched > 0) {
-                    updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced && totalDispatched >= totalQty) ? "Dispatched" : "Pending";
-                } else if (totalInvoiced === 0) {
+                updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced && totalDispatched >= totalQty) ? "Dispatched" : (status || po.status);
+            } else if (status) {
+                updates.status = status;
+            } else if (checkMoved) {
+                const allProducts = checkProducts || po.products || [];
+                const totalCount = allProducts.length;
+                const movedCount = allProducts.filter(p => p.movedToInvoice === true || (p.invoicedQuantity || 0) >= p.quantity).length;
+                if (movedCount === 0) {
                     updates.status = "Pending";
+                } else if (movedCount >= totalCount && totalCount > 0) {
+                    updates.status = "Processed";
                 } else {
-                    const allProducts = checkProducts || po.products || [];
-                    const allBilled = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-                    updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
+                    updates.status = "Partially Pending";
                 }
             }
         } else if (status) {
@@ -549,11 +555,19 @@ exports.updatePO = async (req, res) => {
             }
 
             updates.products = products;
-            // Recalculate total value for selected items
-            const totalValue = products
-                .filter(p => p.selected)
-                .reduce((sum, p) => sum + (p.total || 0), 0);
-            updates.totalValue = totalValue;
+            // For Inward PO, maintain full PO total value across all products
+            if (po.type === "inward") {
+                const poTotal = products.reduce((sum, p) => sum + (p.total || ((p.quantity || 0) * (p.unitPrice || 0) * (1 + (p.gstRate || 0)/100))), 0);
+                if (poTotal > 0) {
+                    updates.totalValue = poTotal;
+                }
+            } else {
+                // Recalculate total value for selected items (outward)
+                const totalValue = products
+                    .filter(p => p.selected)
+                    .reduce((sum, p) => sum + (p.total || 0), 0);
+                updates.totalValue = totalValue;
+            }
         }
 
         const updatedPO = await PurchaseOrder.findByIdAndUpdate(
