@@ -191,14 +191,18 @@ const POManagement = () => {
 
   const isProductMoved = (p, po) => {
     if (!p) return false;
-    if (p.movedToInvoice === true) return true;
-    if (p.movedToInvoice === false) return false;
+    // 1. If product has any invoiced or dispatched quantity, it was definitely moved to invoice/dispatch
     if ((p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0) return true;
+    // 2. If product is explicitly flagged as movedToInvoice
+    if (p.movedToInvoice === true) return true;
+    // 3. If the PO as a whole is marked as moved to invoice
     if (po && po.isMovedToInvoice === true) {
-      if ((po.status === "Partially Pending" || po.status === "Partial Pending") && (p.invoicedQuantity || 0) === 0) {
+      if (po.status === "Partially Pending" || po.status === "Partial Pending") {
+        if (p.movedToInvoice === false && p.selected === false) return false;
+        if (p.selected === true) return true;
         return false;
       }
-      if (p.selected === false) return false;
+      if (p.selected === false && p.movedToInvoice === false) return false;
       return true;
     }
     return false;
@@ -222,11 +226,13 @@ const POManagement = () => {
 
   const getDisplayStatus = (po, tab) => {
     if (tab === "dispatch") {
-      if (po.status === "Dispatched") return "Dispatched";
-      const activeProducts = (po.products || []).filter(p => p.selected !== false);
-      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-      if (totalInvoiced > 0 && totalDispatched >= totalInvoiced) return "Dispatched";
+      const activeProducts = (po.products || []).filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || p.selected !== false);
+      const targetProducts = activeProducts.length > 0 ? activeProducts : (po.products || []);
+      const totalInvoiced = targetProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const totalDispatched = targetProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+
+      if (po.status === "Dispatched" || (totalInvoiced > 0 && totalDispatched >= totalInvoiced)) return "Dispatched";
+      if (totalDispatched > 0) return "Partially Dispatched";
       return "Pending";
     }
     if (tab === "inward_invoice" && po.type === "inward") {
@@ -312,6 +318,14 @@ const POManagement = () => {
           if (!isPartial) return false;
         } else if (statusFilter === "Processed") {
           if (displayStatus !== "Processed") return false;
+        } else if (displayStatus !== statusFilter) {
+          return false;
+        }
+      } else if (activeTab === "dispatch") {
+        if (statusFilter === "Pending") {
+          if (displayStatus !== "Pending") return false;
+        } else if (statusFilter === "Dispatched") {
+          if (displayStatus !== "Dispatched") return false;
         } else if (displayStatus !== statusFilter) {
           return false;
         }
@@ -486,7 +500,8 @@ const POManagement = () => {
     const isInvoicePhase = forceInvoicePhase || activeTab === "inward_invoice";
     let sourceProducts = po.products || [];
     if (isInvoicePhase) {
-      sourceProducts = sourceProducts.filter(p => isProductMoved(p, po));
+      const moved = sourceProducts.filter(p => isProductMoved(p, po));
+      sourceProducts = moved.length > 0 ? moved : (sourceProducts.filter(p => p.selected !== false).length > 0 ? sourceProducts.filter(p => p.selected !== false) : sourceProducts);
     }
     setModalProducts(sourceProducts.map(p => {
       const billed = p.invoicedQuantity || 0;
@@ -752,10 +767,13 @@ Thank you for choosing Team Inspire!`;
         }
         return p;
       });
-      const activeProducts = updatedProducts.filter(p => p.selected !== false);
-      const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-      const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-      const newStatus = (totalInvoiced > 0 && totalDispatched >= totalInvoiced) ? "Dispatched" : "Pending";
+      const activeProducts = updatedProducts.filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || p.selected !== false);
+      const targetProducts = activeProducts.length > 0 ? activeProducts : updatedProducts;
+      const totalInvoiced = targetProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+      const totalDispatched = targetProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+      const newStatus = (totalInvoiced > 0 && totalDispatched >= totalInvoiced) 
+        ? "Dispatched" 
+        : (totalDispatched > 0 ? "Partially Dispatched" : "Pending");
 
       await API.put(`/purchase-orders/${selectedPOForDispatch._id}`, {
         products: updatedProducts,
@@ -775,10 +793,11 @@ Thank you for choosing Team Inspire!`;
     const p = modalProducts[index];
     const po = selectedPOForProducts;
     if (!po) return;
+    if (activeTab === "dispatch") return; // Dispatch mode is view-only
     const isInvoicePhase = activeTab === "inward_invoice";
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
     const processed = p.invoicedQuantity || 0;
-    const isFullyBilled = isOutward && (processed >= p.quantity);
+    const isFullyBilled = (isInvoicePhase || isOutward) && (processed >= p.quantity);
     const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, po));
     const isDisabled = isFullyBilled || isAlreadyMoved;
 
@@ -791,12 +810,13 @@ Thank you for choosing Team Inspire!`;
   const handleToggleAllProducts = () => {
     const po = selectedPOForProducts;
     if (!po) return;
+    if (activeTab === "dispatch") return;
     const isInvoicePhase = activeTab === "inward_invoice";
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
 
     const checkIsDisabled = (p) => {
       const processed = p.invoicedQuantity || 0;
-      const isFullyBilled = isOutward && (processed >= p.quantity);
+      const isFullyBilled = (isInvoicePhase || isOutward) && (processed >= p.quantity);
       const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, po));
       return isFullyBilled || isAlreadyMoved;
     };
@@ -806,7 +826,9 @@ Thank you for choosing Team Inspire!`;
 
     const allAvailableSelected = availableProducts.every(p => p.selected);
     const updated = modalProducts.map(p => {
-      if (checkIsDisabled(p)) return p;
+      if (checkIsDisabled(p)) {
+        return { ...p, selected: !isInvoicePhase && p.isAlreadyMoved ? true : false };
+      }
       return { ...p, selected: !allAvailableSelected };
     });
     setModalProducts(updated);
@@ -919,9 +941,12 @@ Thank you for choosing Team Inspire!`;
   };
 
   const handleProceedToInvoiceFromChecklist = async () => {
-    const itemsToBill = modalProducts.filter(p => p.selected && (parseInt(p.currentInvoiceQty) || 0) > 0);
+    const itemsToBill = modalProducts.filter(p => {
+      const remaining = Math.max(0, p.quantity - (p.invoicedQuantity || 0));
+      return p.selected && remaining > 0 && (parseInt(p.currentInvoiceQty) || 0) > 0;
+    });
     if (itemsToBill.length === 0) {
-      toast.error("Please select at least one product and enter an Invoice Quantity > 0!");
+      toast.error("Please select at least one pending product and enter an Invoice Quantity > 0!");
       return;
     }
 
@@ -1498,6 +1523,81 @@ Thank you for choosing Team Inspire!`;
                               )}
                             </div>
                           )}
+
+                          {/* SKUs display for Inward Invoice */}
+                          {activeTab === "inward_invoice" && po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                              {(() => {
+                                const moved = po.products.filter(p => isProductMoved(p, po) || (p.invoicedQuantity || 0) > 0);
+                                const target = moved.length > 0 ? moved : (po.products.filter(p => p.selected !== false).length > 0 ? po.products.filter(p => p.selected !== false) : po.products);
+                                return (
+                                  <>
+                                    {target.slice(0, 4).map((p, pIdx) => {
+                                      const invoiced = p.invoicedQuantity || 0;
+                                      const ordered = p.quantity || 0;
+                                      const isDone = invoiced >= ordered && ordered > 0;
+                                      const isPartial = invoiced > 0 && invoiced < ordered;
+                                      return (
+                                        <span 
+                                          key={pIdx} 
+                                          className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border ${
+                                            isDone 
+                                              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" 
+                                              : isPartial
+                                                ? "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+                                                : "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                                          }`}
+                                          title={`${p.name || ''} (Billed: ${invoiced}/${ordered})`}
+                                        >
+                                          {p.productNo} ({invoiced}/{ordered})
+                                        </span>
+                                      );
+                                    })}
+                                    {target.length > 4 && (
+                                      <span className="text-[9px] font-bold text-gray-400">
+                                        +{target.length - 4} more
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {/* SKUs display for Dispatch Management */}
+                          {activeTab === "dispatch" && po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                              {po.products
+                                .filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || isProductMoved(p, po))
+                                .slice(0, 4)
+                                .map((p, pIdx) => {
+                                  const invoiced = p.invoicedQuantity || 0;
+                                  const dispatched = p.dispatchedQuantity || 0;
+                                  const isDone = invoiced > 0 && dispatched >= invoiced;
+                                  const isPartial = dispatched > 0 && dispatched < invoiced;
+                                  return (
+                                    <span 
+                                      key={pIdx} 
+                                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border ${
+                                        isDone 
+                                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" 
+                                          : isPartial
+                                            ? "bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800"
+                                            : "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                                      }`}
+                                      title={`${p.name || ''} (Dispatched: ${dispatched}/${invoiced > 0 ? invoiced : p.quantity})`}
+                                    >
+                                      {p.productNo} ({dispatched}/{invoiced > 0 ? invoiced : p.quantity})
+                                    </span>
+                                  );
+                                })}
+                              {po.products.filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || isProductMoved(p, po)).length > 4 && (
+                                <span className="text-[9px] font-bold text-gray-400">
+                                  +{po.products.filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || isProductMoved(p, po)).length - 4} more
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                     ) : (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
@@ -1565,28 +1665,26 @@ Thank you for choosing Team Inspire!`;
                     )}
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {/* View Product Checkbox Icon / Edit Icon (Disabled in Dispatch Management tab) */}
-                        {activeTab !== "dispatch" && (
-                          activeTab === "outward" ? (
-                            <button 
-                              onClick={() => {
-                                  setSelectedPOToEdit(po);
-                                  setIsCreateOutwardOpen(true);
-                              }}
-                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                              title="Edit Outward PO"
-                            >
-                              <Edit size={18} />
-                            </button>
-                          ) : (
-                            <button 
-                              onClick={() => handleOpenProductsModal(po)}
-                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                              title="View Products for Update"
-                            >
-                              <List size={18} />
-                            </button>
-                          )
+                        {/* View Product Checkbox Icon / Edit Icon */}
+                        {activeTab === "outward" ? (
+                          <button 
+                            onClick={() => {
+                                setSelectedPOToEdit(po);
+                                setIsCreateOutwardOpen(true);
+                            }}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title="Edit Outward PO"
+                          >
+                            <Edit size={18} />
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => handleOpenProductsModal(po)}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                            title={activeTab === "dispatch" ? "View Products & Dispatch Status" : "View Products for Update"}
+                          >
+                            <List size={18} />
+                          </button>
                         )}
                         {/* Eye Icon for detail view */}
                         <button 
@@ -1665,8 +1763,8 @@ Thank you for choosing Team Inspire!`;
                             <History size={18} />
                           </button>
                         )}
-                        {/* Delete Icon */}
-                        {(activeTab === "outward" || activeTab === "inward") && (
+                        {/* Delete Icon - Outward only */}
+                        {activeTab === "outward" && (
                           <button 
                             onClick={() => handleDeletePO(po)}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1856,28 +1954,44 @@ Thank you for choosing Team Inspire!`;
               {(() => {
                 const isInvoicePhase = activeTab === "inward_invoice";
                 const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
-                const isAllMoved = !isInvoicePhase && !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved);
-                const pendingProducts = modalProducts.filter(p => !p.isAlreadyMoved);
+                const isAllMoved = !isInvoicePhase && !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved || isProductMoved(p, selectedPOForProducts));
+                const isAllInvoiced = isInvoicePhase && modalProducts.length > 0 && modalProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+                const isAllDisabled = isAllMoved || isAllInvoiced || activeTab === "dispatch";
+                
+                const pendingProducts = modalProducts.filter(p => {
+                  if (isInvoicePhase) return (p.invoicedQuantity || 0) < p.quantity;
+                  if (!isOutward) return !p.isAlreadyMoved && !isProductMoved(p, selectedPOForProducts);
+                  return (p.invoicedQuantity || 0) < p.quantity;
+                });
+                
+                const areAllPendingSelected = pendingProducts.length > 0 && pendingProducts.every(p => p.selected);
+
                 return (
                   <div 
-                    onClick={isAllMoved ? undefined : handleToggleAllProducts}
+                    onClick={isAllDisabled ? undefined : handleToggleAllProducts}
                     className={`flex items-center gap-3 p-3 rounded-2xl transition ${
-                      isAllMoved 
+                      isAllDisabled 
                         ? "bg-gray-100/70 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 opacity-60 cursor-not-allowed select-none"
                         : "bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100/30 dark:border-blue-800/30 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/35"
                     }`}
                   >
-                    {modalProducts.every(p => p.selected) ? (
-                      <CheckSquare size={20} className={isAllMoved ? "text-gray-400" : "text-blue-600 dark:text-blue-400"} />
+                    {isAllDisabled ? (
+                      <CheckSquare size={20} className="text-gray-400 dark:text-gray-500" />
+                    ) : areAllPendingSelected ? (
+                      <CheckSquare size={20} className="text-blue-600 dark:text-blue-400" />
                     ) : (
                       <Square size={20} className="text-gray-400 dark:text-gray-500" />
                     )}
-                    <span className={`text-sm font-black uppercase tracking-wider ${isAllMoved ? "text-gray-500" : "text-blue-800 dark:text-blue-300"}`}>
-                      {isAllMoved 
-                        ? `All Products Processed (${modalProducts.length})` 
-                        : pendingProducts.length < modalProducts.length 
-                          ? `Select All Pending Products (${pendingProducts.length})` 
-                          : `Select All Products (${modalProducts.length})`}
+                    <span className={`text-sm font-black uppercase tracking-wider ${isAllDisabled ? "text-gray-500" : "text-blue-800 dark:text-blue-300"}`}>
+                      {activeTab === "dispatch"
+                        ? `All Products (${modalProducts.length})`
+                        : isAllInvoiced
+                          ? `All Products Invoiced (${modalProducts.length})`
+                          : isAllMoved 
+                            ? `All Products Processed (${modalProducts.length})` 
+                            : pendingProducts.length < modalProducts.length 
+                              ? `Select All Pending Products (${pendingProducts.length})` 
+                              : `Select All Products (${modalProducts.length})`}
                     </span>
                   </div>
                 );
@@ -1900,9 +2014,9 @@ Thank you for choosing Team Inspire!`;
                     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
                     const processed = p.invoicedQuantity || 0;
                     const remaining = Math.max(0, p.quantity - processed);
-                    const isFullyBilled = isOutward && (processed >= p.quantity);
+                    const isFullyBilled = (isInvoicePhase || isOutward) && (processed >= p.quantity);
                     const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, selectedPOForProducts));
-                    const isDisabled = isFullyBilled || isAlreadyMoved;
+                    const isDisabled = isFullyBilled || isAlreadyMoved || activeTab === "dispatch";
 
                     return (
                       <div 
@@ -1920,7 +2034,11 @@ Thank you for choosing Team Inspire!`;
                       >
                         <div className="mt-0.5">
                           {isDisabled ? (
-                            <CheckSquare size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
+                            isFullyBilled || isAlreadyMoved ? (
+                              <CheckSquare size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
+                            ) : (
+                              <Square size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
+                            )
                           ) : p.selected ? (
                             <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
                           ) : (
@@ -1955,8 +2073,27 @@ Thank you for choosing Team Inspire!`;
                               <p className="text-sm font-bold text-gray-900 dark:text-white">Total: ₹{((p.quantity || 0) * (p.unitPrice || 0)).toLocaleString()}</p>
                               <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Qty: {p.quantity} × ₹{p.unitPrice?.toLocaleString()}</p>
                               
-                              {/* Inward Badges */}
-                              {!isOutward && (
+                              {/* Badges */}
+                              {activeTab === "dispatch" ? (
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                    Invoiced: {p.invoicedQuantity || 0} / {p.quantity}
+                                  </span>
+                                  {(p.dispatchedQuantity || 0) >= (p.invoicedQuantity || 0) && (p.invoicedQuantity || 0) > 0 ? (
+                                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      ✓ Dispatched ({p.dispatchedQuantity}/{p.invoicedQuantity})
+                                    </span>
+                                  ) : (p.dispatchedQuantity || 0) > 0 ? (
+                                    <span className="bg-orange-100 text-orange-850 dark:bg-orange-900/40 dark:text-orange-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      Dispatched: {p.dispatchedQuantity} / {p.invoicedQuantity}
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                      Pending Dispatch
+                                    </span>
+                                  )}
+                                </div>
+                              ) : !isOutward && (
                                 <div className="mt-1 flex items-center gap-1.5">
                                   {isAlreadyMoved ? (
                                     <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
@@ -1965,11 +2102,11 @@ Thank you for choosing Team Inspire!`;
                                   ) : isInvoicePhase ? (
                                     processed >= p.quantity ? (
                                       <span className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                                        Billed ({processed}/{p.quantity})
+                                        ✓ 100% Invoiced ({processed}/{p.quantity})
                                       </span>
                                     ) : processed > 0 ? (
                                       <span className="bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                                        Billed: {processed} / {p.quantity} (Rem: {remaining})
+                                        Invoiced: {processed} / {p.quantity} (Rem: {remaining})
                                       </span>
                                     ) : (
                                       <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
@@ -2041,7 +2178,7 @@ Thank you for choosing Team Inspire!`;
                                   type="number"
                                   min="1"
                                   max={remaining}
-                                  disabled={remaining === 0 || !p.selected}
+                                  disabled={remaining === 0 || !p.selected || isDisabled}
                                   value={p.currentInvoiceQty ?? 1}
                                   onChange={(e) => {
                                     let val = parseInt(e.target.value) || 1;
@@ -2078,7 +2215,7 @@ Thank you for choosing Team Inspire!`;
                 >
                   Cancel
                 </button>
-                {!isInvoicePhase && (
+                {!isInvoicePhase && activeTab !== "dispatch" && (
                   (() => {
                     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
                     const isAllMoved = !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved);
@@ -2096,14 +2233,32 @@ Thank you for choosing Team Inspire!`;
                     );
                   })()
                 )}
-                {isInvoicePhase && (
+                {activeTab === "dispatch" && (
                   <button
-                    onClick={handleProceedToInvoiceFromChecklist}
-                    className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-purple-500/10 transition cursor-pointer flex items-center gap-1.5"
+                    onClick={() => {
+                      setIsProductsModalOpen(false);
+                      handleOpenDispatchModal(selectedPOForProducts);
+                    }}
+                    className="px-5 py-2.5 bg-gradient-to-tr from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-amber-500/10 transition cursor-pointer flex items-center gap-1.5"
                   >
-                    <FileCheck size={16} />
-                    Invoice
+                    <Truck size={16} />
+                    Dispatch Tracking
                   </button>
+                )}
+                {isInvoicePhase && (
+                  modalProducts.length > 0 && modalProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity) ? (
+                    <span className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs font-black uppercase tracking-wider rounded-xl cursor-not-allowed">
+                      All Items Invoiced
+                    </span>
+                  ) : (
+                    <button
+                      onClick={handleProceedToInvoiceFromChecklist}
+                      className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:scale-105 active:scale-95 shadow-md shadow-purple-500/10 transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <FileCheck size={16} />
+                      Invoice
+                    </button>
+                  )
                 )}
               </div>
             </div>
@@ -2169,10 +2324,21 @@ Thank you for choosing Team Inspire!`;
                 <div>
                   <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Taxable Value</p>
                   <p className="text-lg font-black text-gray-900 dark:text-white mt-1">
-                    ₹{(selectedPOForDetails.products || [])
-                      .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected)
-                      .reduce((sum, p) => sum + ((activeTab === "dispatch" ? (p.invoicedQuantity || 0) : (p.quantity || 0)) * (p.unitPrice || 0)), 0)
-                      .toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    ₹{(() => {
+                      const prods = (selectedPOForDetails.products || []).filter(p => {
+                        if (activeTab === "dispatch") return (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0;
+                        if (activeTab === "inward_invoice") return isProductMoved(p, selectedPOForDetails) || (p.invoicedQuantity || 0) > 0;
+                        if (activeTab === "inward") return true;
+                        return p.selected;
+                      });
+                      const target = prods.length > 0 ? prods : (selectedPOForDetails.products || []);
+                      return target.reduce((sum, p) => {
+                        const qty = activeTab === "dispatch" 
+                          ? ((p.invoicedQuantity || 0) > 0 ? p.invoicedQuantity : p.quantity) 
+                          : (activeTab === "inward_invoice" && (p.invoicedQuantity || 0) > 0 ? p.invoicedQuantity : p.quantity);
+                        return sum + ((qty || 0) * (p.unitPrice || 0));
+                      }, 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+                    })()}
                   </p>
                 </div>
               </div>
@@ -2180,7 +2346,15 @@ Thank you for choosing Team Inspire!`;
               {/* Products Table */}
               <div>
                 <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">
-                  Included Products ({(selectedPOForDetails.products || []).filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : p.selected).length})
+                  Included Products ({(() => {
+                    const prods = (selectedPOForDetails.products || []).filter(p => {
+                      if (activeTab === "dispatch") return (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0;
+                      if (activeTab === "inward_invoice") return isProductMoved(p, selectedPOForDetails) || (p.invoicedQuantity || 0) > 0;
+                      if (activeTab === "inward") return true;
+                      return p.selected;
+                    });
+                    return prods.length > 0 ? prods.length : (selectedPOForDetails.products || []).length;
+                  })()})
                 </h4>
                 <div className="overflow-x-auto custom-scrollbar border border-gray-100 dark:border-gray-800 rounded-2xl">
                   <table className="w-full text-left">
@@ -2188,15 +2362,23 @@ Thank you for choosing Team Inspire!`;
                       <tr>
                         <th className="px-4 py-3 text-sm font-black uppercase text-gray-400">Model/Brand</th>
                         <th className="px-4 py-3 text-sm font-black uppercase text-gray-400">Product Name</th>
-                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-center">QTY</th>
+                        <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-center">
+                          {activeTab === "dispatch" ? "Dispatch / Invoiced QTY" : (activeTab === "inward_invoice" ? "Billed / Ordered QTY" : "QTY")}
+                        </th>
                         <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-right">Price</th>
                         <th className="px-4 py-3 text-sm font-black uppercase text-gray-400 text-right">Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {(selectedPOForDetails.products || [])
-                        .filter(p => activeTab === "dispatch" ? (p.invoicedQuantity > 0) : (activeTab === "inward" ? true : (activeTab === "inward_invoice" ? (p.movedToInvoice || p.selected) : p.selected)))
-                        .map((p, idx) => (
+                      {(() => {
+                        const prods = (selectedPOForDetails.products || []).filter(p => {
+                          if (activeTab === "dispatch") return (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0;
+                          if (activeTab === "inward_invoice") return isProductMoved(p, selectedPOForDetails) || (p.invoicedQuantity || 0) > 0;
+                          if (activeTab === "inward") return true;
+                          return p.selected;
+                        });
+                        const target = prods.length > 0 ? prods : (selectedPOForDetails.products || []);
+                        return target.map((p, idx) => (
                           <tr key={idx} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/20">
                             <td className="px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">
                               <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -2228,16 +2410,30 @@ Thank you for choosing Team Inspire!`;
                               </span>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center font-black">
-                              {activeTab === "dispatch" ? p.invoicedQuantity : p.quantity}
+                              {activeTab === "dispatch" ? (
+                                <div className="flex flex-col items-center">
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">Sent: {p.dispatchedQuantity || 0} / {p.invoicedQuantity || p.quantity}</span>
+                                  <span className="text-[10px] text-gray-400 font-normal">Ordered: {p.quantity}</span>
+                                </div>
+                              ) : activeTab === "inward_invoice" ? (
+                                <div className="flex flex-col items-center">
+                                  <span className="text-purple-600 dark:text-purple-400 font-bold">Billed: {p.invoicedQuantity || 0} / {p.quantity}</span>
+                                </div>
+                              ) : (
+                                p.quantity
+                              )}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 text-right font-bold">
                               ₹{p.unitPrice?.toLocaleString()}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900 dark:text-white text-right font-black">
-                              ₹{(activeTab === "dispatch" ? (p.invoicedQuantity || 0) * (p.unitPrice || 0) : (p.total || 0)).toLocaleString()}
+                              ₹{((activeTab === "dispatch" 
+                                ? ((p.invoicedQuantity > 0 ? p.invoicedQuantity : p.quantity) || 0) 
+                                : (p.quantity || 0)) * (p.unitPrice || 0)).toLocaleString()}
                             </td>
                           </tr>
-                        ))}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -2383,12 +2579,18 @@ Thank you for choosing Team Inspire!`;
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={handleProceedToInvoicePrompt}
-                  className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md hover:scale-105 transition cursor-pointer"
-                >
-                  Invoice
-                </button>
+                {billingProducts.length > 0 && billingProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity) ? (
+                  <span className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs font-black uppercase tracking-wider rounded-xl cursor-not-allowed">
+                    All Items Invoiced
+                  </span>
+                ) : (
+                  <button
+                    onClick={handleProceedToInvoicePrompt}
+                    className="px-5 py-2.5 bg-gradient-to-tr from-purple-600 to-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md hover:scale-105 transition cursor-pointer"
+                  >
+                    Invoice
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -2524,10 +2726,14 @@ Thank you for choosing Team Inspire!`;
               <div>
                 <h4 className="text-sm font-black uppercase text-gray-400 tracking-wider mb-3">Dispatch Quantity Details</h4>
                 <div className="space-y-3">
-                  {dispatchProducts.filter(p => p.remainingToDispatch > 0).map((p, idx) => (
+                  {dispatchProducts.map((p, idx) => (
                     <div 
-                      key={p.productNo}
-                      className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl gap-4"
+                      key={p.productNo || idx}
+                      className={`flex flex-col md:flex-row md:items-center justify-between p-4 border rounded-2xl gap-4 transition ${
+                        p.remainingToDispatch === 0
+                          ? "bg-gray-50/50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 opacity-75"
+                          : "bg-gray-50 dark:bg-gray-900 border-gray-100 dark:border-gray-800"
+                      }`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -2540,17 +2746,44 @@ Thank you for choosing Team Inspire!`;
                         </div>
                         <p className="text-xs font-bold text-gray-850 dark:text-gray-200 truncate">{p.name}</p>
                         <div className="flex gap-4 text-[10px] font-bold text-gray-400 dark:text-gray-500 mt-1">
-                          <span>Total Invoiced: {p.invoicedQuantity || 0}</span>
-                          <span>Already Sent: {p.dispatchedQuantity || 0}</span>
+                          <span>Ordered Qty: {p.quantity || 0}</span>
+                          <span>Invoiced: {p.invoicedQuantity || 0}</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold">Already Sent: {p.dispatchedQuantity || 0}</span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 self-end md:self-auto">
-                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Dispatch Qty:</span>
-                        <span className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-black px-3 py-1 rounded-xl text-xs border border-amber-200 dark:border-amber-900/50 shadow-sm">
-                          {p.remainingToDispatch}
-                        </span>
-                      </div>
+                      {p.remainingToDispatch > 0 ? (
+                        <div className="flex items-center gap-3 self-end md:self-auto">
+                          <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Dispatch Qty:</span>
+                          <input 
+                            type="number"
+                            min="0"
+                            max={p.remainingToDispatch}
+                            value={p.dispatchQty ?? p.remainingToDispatch}
+                            onChange={(e) => {
+                              let val = parseInt(e.target.value) || 0;
+                              if (val > p.remainingToDispatch) val = p.remainingToDispatch;
+                              if (val < 0) val = 0;
+                              const updated = [...dispatchProducts];
+                              const pIdx = updated.findIndex(item => item.productNo === p.productNo);
+                              if (pIdx !== -1) {
+                                updated[pIdx].dispatchQty = val;
+                                setDispatchProducts(updated);
+                              }
+                            }}
+                            className="w-20 px-2 py-1 text-xs font-bold text-center text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-amber-300 dark:border-amber-600 rounded-xl outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                          />
+                          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                            (Rem: {p.remainingToDispatch})
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 self-end md:self-auto">
+                          <span className="text-xs font-bold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 px-3 py-1 rounded-xl">
+                            ✓ Fully Dispatched ({p.dispatchedQuantity || 0}/{p.invoicedQuantity || 0})
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

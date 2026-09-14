@@ -368,15 +368,23 @@ exports.updatePO = async (req, res) => {
 
         if (po.type === "inward") {
             if (isCreatingInvoice) {
-                const allProducts = checkProducts || po.products || [];
-                const allBilled = allProducts.length > 0 && allProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
+                const movedProducts = (checkProducts || po.products || []).filter(p => p.movedToInvoice === true || p.selected !== false || (p.invoicedQuantity || 0) > 0);
+                const targetProducts = movedProducts.length > 0 ? movedProducts : (checkProducts || po.products || []);
+                const allBilled = targetProducts.length > 0 && targetProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
                 updates.status = allBilled ? "Invoiced" : "Partially Invoiced";
             } else if (dispatchHistory && dispatchHistory.length > 0) {
-                const activeProducts = (checkProducts || po.products || []).filter(p => p.selected !== false);
-                const totalQty = activeProducts.reduce((sum, p) => sum + (p.quantity || 0), 0);
-                const totalDispatched = activeProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
-                const totalInvoiced = activeProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
-                updates.status = (totalInvoiced > 0 && totalDispatched >= totalInvoiced && totalDispatched >= totalQty) ? "Dispatched" : (status || po.status);
+                const activeProducts = (checkProducts || po.products || []).filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || p.selected !== false);
+                const targetProducts = activeProducts.length > 0 ? activeProducts : (checkProducts || po.products || []);
+                const totalInvoiced = targetProducts.reduce((sum, p) => sum + (p.invoicedQuantity || 0), 0);
+                const totalDispatched = targetProducts.reduce((sum, p) => sum + (p.dispatchedQuantity || 0), 0);
+
+                if (totalInvoiced > 0 && totalDispatched >= totalInvoiced) {
+                    updates.status = "Dispatched";
+                } else if (totalDispatched > 0) {
+                    updates.status = "Partially Dispatched";
+                } else {
+                    updates.status = "Pending";
+                }
             } else if (status) {
                 updates.status = status;
             } else if (checkMoved) {
