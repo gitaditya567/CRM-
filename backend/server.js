@@ -177,6 +177,17 @@ io.on("connection", (socket) => {
 
 app.set("io", io);
 
+// Global Express error handling middleware
+app.use((err, req, res, next) => {
+  console.error("[Express Error Handler]", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err.status || 500).json({
+    message: err.message || "Internal Server Error"
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 
 module.exports = app;

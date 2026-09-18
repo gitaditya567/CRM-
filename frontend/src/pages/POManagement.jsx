@@ -469,6 +469,113 @@ const POManagement = () => {
     }
   }, [totalPages, currentPage]);
 
+  const formatDateDots = (dateValue) => {
+    if (!dateValue) return "";
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return String(dateValue);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}.${month}.${year}`;
+  };
+
+  const getItemCSVStatus = (item, po, tab) => {
+    if (tab === "inward_invoice") {
+      const invQty = item.invoicedQuantity || 0;
+      const reqQty = item.quantity || 0;
+      if (invQty >= reqQty && reqQty > 0) return "Invoiced";
+      if (invQty > 0) return "Partially Invoiced";
+      return "Pending";
+    }
+    if (tab === "inward") {
+      if (isProductMoved(item, po)) return "Processed";
+      return "Pending";
+    }
+    return getDisplayStatus(po, tab) || po.status || "Pending";
+  };
+
+  const handleExportCSV = () => {
+    if (activeTab !== "inward" && activeTab !== "inward_invoice") return;
+
+    if (!filteredPOs || filteredPOs.length === 0) {
+      toast.error("No Purchase Orders available to export.");
+      return;
+    }
+
+    const headers = [
+      "PO No.",
+      "Date",
+      "PI No.",
+      "Lead ID",
+      "Client Name",
+      "Item Name",
+      "Item Code",
+      "Brand",
+      "QTY",
+      "Price per piece",
+      "Status"
+    ];
+
+    const csvRows = [headers.join(",")];
+
+    filteredPOs.forEach((po) => {
+      const poNo = po.poNumber || "";
+      const rawDate = po.pi?.poDate || po.date || po.createdAt;
+      const dateStr = formatDateDots(rawDate);
+      const piNo = po.pi?.quotationNumber || po.piNumber || po.proformaInvoiceNo || po.pi?.piNumber || "";
+      const leadId = po.leadNumber || po.pi?.lead?.leadNumber || po.leadId || "";
+      const clientName = po.vendorName || po.clientName || po.client || po.customerName || "";
+
+      const items = po.products && po.products.length > 0 ? po.products : [{}];
+
+      items.forEach((item) => {
+        const itemName = item.name || item.productName || item.product?.name || item.description || "";
+        const itemCode = item.productNo || item.itemCode || item.code || item.model || item.product?.productNo || item.product?.code || "";
+        const brand = item.brand || item.productBrand || item.product?.brand || "";
+        const qty = item.quantity !== undefined ? item.quantity : (item.qty !== undefined ? item.qty : "");
+        const price = item.unitPrice !== undefined ? item.unitPrice : (item.price !== undefined ? item.price : (item.rate !== undefined ? item.rate : ""));
+        const status = getItemCSVStatus(item, po, activeTab);
+
+        const rowValues = [
+          poNo,
+          dateStr,
+          piNo,
+          leadId,
+          clientName,
+          itemName,
+          itemCode,
+          brand,
+          qty,
+          price,
+          status
+        ];
+
+        const formattedRow = rowValues.map((field) => {
+          const val = field === null || field === undefined ? "" : String(field);
+          if (val.includes('"') || val.includes(',') || val.includes('\n') || val.includes('\r')) {
+            return `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        });
+
+        csvRows.push(formattedRow.join(","));
+      });
+    });
+
+    const csvContent = "\uFEFF" + csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    const fileNameTab = activeTab === "inward_invoice" ? "Inward_Invoice" : (activeTab === "inward" ? "Inward_PO" : activeTab);
+    link.setAttribute("download", `${fileNameTab}_Export_${formatDateDots(new Date()).replace(/\./g, "-")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("CSV exported successfully!");
+  };
+
   const indexOfFirstItem = itemsPerPage === "All" ? 0 : (currentPage - 1) * effectiveItemsPerPage;
   const indexOfLastItem = itemsPerPage === "All" ? totalItems : Math.min(currentPage * effectiveItemsPerPage, totalItems);
   
@@ -1408,6 +1515,15 @@ Thank you for choosing Team Inspire!`;
             >
               <Filter size={16} />
             </button>
+            {(activeTab === "inward" || activeTab === "inward_invoice") && (
+              <button 
+                onClick={handleExportCSV}
+                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition shadow-sm cursor-pointer whitespace-nowrap"
+                title="Export CSV"
+              >
+                <Download size={16} /> Export CSV
+              </button>
+            )}
           </div>
         </div>
 
