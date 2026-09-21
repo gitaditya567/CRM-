@@ -479,6 +479,25 @@ const POManagement = () => {
     return `${day}.${month}.${year}`;
   };
 
+  const isItemBillInvoicedAndInDispatch = (item, po) => {
+    if (!item) return false;
+    // 1. If whole PO is marked Dispatched, all its products are already dispatched
+    if (po && po.status === "Dispatched") return true;
+
+    const reqQty = Number(item.quantity) || 0;
+    const invQty = Number(item.invoicedQuantity) || 0;
+    const dispQty = Number(item.dispatchedQuantity) || 0;
+
+    // 2. Fully invoiced: In this CRM, once an item's bill invoice is completed (invoicedQuantity >= quantity),
+    // it automatically reaches the Dispatch tab for shipment.
+    if (reqQty > 0 && invQty >= reqQty) return true;
+
+    // 3. Fully dispatched
+    if (reqQty > 0 && dispQty >= reqQty) return true;
+
+    return false;
+  };
+
   const getItemCSVStatus = (item, po, tab) => {
     if (tab === "inward_invoice") {
       const invQty = item.invoicedQuantity || 0;
@@ -526,13 +545,35 @@ const POManagement = () => {
       const leadId = po.leadNumber || po.pi?.lead?.leadNumber || po.leadId || "";
       const clientName = po.vendorName || po.clientName || po.client || po.customerName || "";
 
-      const items = po.products && po.products.length > 0 ? po.products : [{}];
+      let items = po.products && po.products.length > 0 ? po.products : [];
+
+      // For Inward Invoice tab, only products moved to invoice belong to this tab
+      if (activeTab === "inward_invoice") {
+        items = items.filter(p => isProductMoved(p, po) || (p.invoicedQuantity || 0) > 0 || (po.isMovedToInvoice && p.selected !== false));
+      }
 
       items.forEach((item) => {
+        // Exclude items whose bill invoice is completed and have reached dispatch / been dispatched
+        if (isItemBillInvoicedAndInDispatch(item, po)) {
+          return;
+        }
+
+        const reqQty = Number(item.quantity) || 0;
+        const invQty = Number(item.invoicedQuantity) || 0;
+
+        // If partially invoiced, export only remaining pending quantity that has not yet reached dispatch
+        let qty = item.quantity !== undefined ? item.quantity : (item.qty !== undefined ? item.qty : "");
+        if (invQty > 0 && reqQty > invQty) {
+          qty = reqQty - invQty;
+        }
+
+        if (qty <= 0 && reqQty > 0) {
+          return;
+        }
+
         const itemName = item.name || item.productName || item.product?.name || item.description || "";
         const itemCode = item.productNo || item.itemCode || item.code || item.model || item.product?.productNo || item.product?.code || "";
         const brand = item.brand || item.productBrand || item.product?.brand || "";
-        const qty = item.quantity !== undefined ? item.quantity : (item.qty !== undefined ? item.qty : "");
         const price = item.unitPrice !== undefined ? item.unitPrice : (item.price !== undefined ? item.price : (item.rate !== undefined ? item.rate : ""));
         const status = getItemCSVStatus(item, po, activeTab);
 
@@ -561,6 +602,11 @@ const POManagement = () => {
         csvRows.push(formattedRow.join(","));
       });
     });
+
+    if (csvRows.length <= 1) {
+      toast.error("No pending items available to export. All items have been invoiced and reached dispatch.");
+      return;
+    }
 
     const csvContent = "\uFEFF" + csvRows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
