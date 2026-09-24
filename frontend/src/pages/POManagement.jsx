@@ -904,18 +904,33 @@ Thank you for choosing Team Inspire!`;
         transportMode: dispatchForm.transportMode || "Road",
         dispatchDate: dispatchForm.dispatchDate,
         products: itemsToSend.map(p => ({
+          product: p.product?._id || p.product,
           productNo: p.productNo,
           name: p.name,
           brand: p.brand,
+          type: p.type || "",
           quantity: parseInt(p.dispatchQty) || 0
         }))
       };
+      const remainingToSend = itemsToSend.map(b => ({
+        ...b,
+        qtyToSend: parseInt(b.dispatchQty) || 0
+      }));
       const updatedProducts = selectedPOForDispatch.products.map(p => {
-        const matching = itemsToSend.find(b => b.productNo === p.productNo);
-        if (matching) {
+        let matchIdx = remainingToSend.findIndex(b => b._id && p._id && String(b._id) === String(p._id));
+        if (matchIdx === -1) {
+          matchIdx = remainingToSend.findIndex(b => b.productNo === p.productNo && b.type === p.type);
+        }
+        if (matchIdx === -1) {
+          matchIdx = remainingToSend.findIndex(b => b.productNo === p.productNo);
+        }
+        if (matchIdx !== -1) {
+          const matching = remainingToSend[matchIdx];
+          const qty = matching.qtyToSend || 0;
+          remainingToSend.splice(matchIdx, 1);
           return {
             ...p,
-            dispatchedQuantity: (p.dispatchedQuantity || 0) + (parseInt(matching.dispatchQty) || 0)
+            dispatchedQuantity: (p.dispatchedQuantity || 0) + qty
           };
         }
         return p;
@@ -995,8 +1010,10 @@ Thank you for choosing Team Inspire!`;
     try {
       if (!isOutward) {
         // Build updated products for Inward PO
-        const updatedProducts = (po.products || []).map(originalP => {
-          const matchingModalP = modalProducts.find(mp => mp.productNo === originalP.productNo);
+        const updatedProducts = (po.products || []).map((originalP, idx) => {
+          const matchingModalP = modalProducts.find(mp => (mp._id && originalP._id && String(mp._id) === String(originalP._id))) ||
+            modalProducts.find(mp => mp.productNo === originalP.productNo && mp.type === originalP.type) ||
+            modalProducts[idx];
           const wasAlreadyMoved = isProductMoved(originalP, po);
 
           if (wasAlreadyMoved) {
@@ -1265,9 +1282,11 @@ Thank you for choosing Team Inspire!`;
           products: itemsToBill.map(p => {
             const qty = parseInt(p.currentInvoiceQty) || parseInt(p.billQty) || 0;
             return {
+              product: p.product?._id || p.product,
               productNo: p.productNo,
               name: p.name,
               brand: p.brand,
+              type: p.type || "",
               quantity: qty,
               unitPrice: p.unitPrice,
               total: qty * (p.unitPrice || 0)
@@ -1275,13 +1294,27 @@ Thank you for choosing Team Inspire!`;
           })
         };
 
+        const remainingToBill = itemsToBill.map(b => ({
+          ...b,
+          billQty: parseInt(b.currentInvoiceQty) || parseInt(b.billQty) || 0
+        }));
+
         const updatedProducts = po.products.map(p => {
-          const matching = itemsToBill.find(b => b.productNo === p.productNo);
-          if (matching) {
-            const qty = parseInt(matching.currentInvoiceQty) || parseInt(matching.billQty) || 0;
+          let matchIdx = remainingToBill.findIndex(b => b._id && p._id && String(b._id) === String(p._id));
+          if (matchIdx === -1) {
+            matchIdx = remainingToBill.findIndex(b => b.productNo === p.productNo && b.type === p.type);
+          }
+          if (matchIdx === -1) {
+            matchIdx = remainingToBill.findIndex(b => b.productNo === p.productNo);
+          }
+          if (matchIdx !== -1) {
+            const matching = remainingToBill[matchIdx];
+            const qty = matching.billQty || 0;
+            remainingToBill.splice(matchIdx, 1);
             return {
               ...p,
-              invoicedQuantity: (p.invoicedQuantity || 0) + qty
+              invoicedQuantity: (p.invoicedQuantity || 0) + qty,
+              currentInvoiceQty: Math.max(0, (p.quantity || 0) - ((p.invoicedQuantity || 0) + qty))
             };
           }
           return p;

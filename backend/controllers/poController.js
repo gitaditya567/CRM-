@@ -362,8 +362,89 @@ exports.updatePO = async (req, res) => {
             updates.isMovedToInvoice = isMovedToInvoice;
         }
 
+        if (invoiceHistory) {
+            updates.invoiceHistory = invoiceHistory;
+
+            if (products && Array.isArray(products) && products.length > 0) {
+                // If products array was explicitly provided by client with per-line invoiced quantities, preserve it
+                updates.products = products.map(p => {
+                    const qty = Number(p.quantity) || 0;
+                    const invQty = Number(p.invoicedQuantity) || 0;
+                    return {
+                        ...p,
+                        invoicedQuantity: invQty,
+                        currentInvoiceQty: Math.max(0, qty - invQty)
+                    };
+                });
+            } else {
+                // Safely recalculate invoicedQuantity sequentially without duplicate productNo collision
+                const currentProds = (po.products || []).map(p => ({
+                    ...(p.toObject ? p.toObject() : p),
+                    invoicedQuantity: 0,
+                    currentInvoiceQty: Number(p.quantity) || 0
+                }));
+
+                const invoicePool = [];
+                invoiceHistory.forEach(inv => {
+                    if (inv.products && inv.products.length > 0) {
+                        inv.products.forEach(invItem => {
+                            invoicePool.push({
+                                productNo: invItem.productNo,
+                                type: invItem.type || "",
+                                quantity: Number(invItem.quantity) || 0
+                            });
+                        });
+                    }
+                });
+
+                invoicePool.forEach(invItem => {
+                    let qtyRemaining = invItem.quantity;
+                    if (qtyRemaining <= 0) return;
+
+                    // 1. Match productNo AND type (where still capacity available)
+                    for (const p of currentProds) {
+                        if (qtyRemaining <= 0) break;
+                        const pQty = Number(p.quantity) || 0;
+                        const pInv = Number(p.invoicedQuantity) || 0;
+                        if (p.productNo === invItem.productNo && (!invItem.type || p.type === invItem.type) && pInv < pQty) {
+                            const alloc = Math.min(qtyRemaining, pQty - pInv);
+                            p.invoicedQuantity = pInv + alloc;
+                            p.currentInvoiceQty = Math.max(0, pQty - p.invoicedQuantity);
+                            qtyRemaining -= alloc;
+                        }
+                    }
+
+                    // 2. Match productNo only (where still capacity available)
+                    if (qtyRemaining > 0) {
+                        for (const p of currentProds) {
+                            if (qtyRemaining <= 0) break;
+                            const pQty = Number(p.quantity) || 0;
+                            const pInv = Number(p.invoicedQuantity) || 0;
+                            if (p.productNo === invItem.productNo && pInv < pQty) {
+                                const alloc = Math.min(qtyRemaining, pQty - pInv);
+                                p.invoicedQuantity = pInv + alloc;
+                                p.currentInvoiceQty = Math.max(0, pQty - p.invoicedQuantity);
+                                qtyRemaining -= alloc;
+                            }
+                        }
+                    }
+
+                    // 3. Fallback for excess/over-invoiced items
+                    if (qtyRemaining > 0) {
+                        const firstMatch = currentProds.find(p => p.productNo === invItem.productNo);
+                        if (firstMatch) {
+                            firstMatch.invoicedQuantity = (Number(firstMatch.invoicedQuantity) || 0) + qtyRemaining;
+                            firstMatch.currentInvoiceQty = 0;
+                        }
+                    }
+                });
+
+                updates.products = currentProds;
+            }
+        }
+
         // Automatic status calculation for Inward POs in the invoice flow
-        let checkProducts = products || po.products;
+        let checkProducts = updates.products || products || po.products;
         let checkMoved = typeof isMovedToInvoice !== "undefined" ? isMovedToInvoice : po.isMovedToInvoice;
 
         if (po.type === "inward") {
@@ -403,100 +484,77 @@ exports.updatePO = async (req, res) => {
             updates.status = status;
         }
 
-        if (invoiceHistory) {
-            updates.invoiceHistory = invoiceHistory;
+        // Automatically link invoice number to StockLedger for Inward PO
+        if (invoiceHistory && po.type === "inward") {
+            try {
+                const StockLedger = require("../models/StockLedger");
+                const Quotation = require("../models/Quotation");
+                let piNumber = "";
+                if (po.pi) {
+                    const piDoc = await Quotation.findById(po.pi).session(session).lean();
+                    if (piDoc) piNumber = piDoc.quotationNumber || "";
+                }
 
-            const currentProds = products || po.products;
-            if (currentProds && currentProds.length > 0) {
-                currentProds.forEach(p => {
-                    let invoicedSum = 0;
-                    invoiceHistory.forEach(inv => {
-                        if (inv.products && inv.products.length > 0) {
-                            inv.products.forEach(invItem => {
-                                if (invItem.productNo === p.productNo) {
-                                    invoicedSum += (Number(invItem.quantity) || 0);
-                                }
-                            });
-                        }
-                    });
-                    p.invoicedQuantity = invoicedSum;
-                    p.currentInvoiceQty = Math.max(0, (p.quantity || 0) - invoicedSum);
-                });
-                updates.products = currentProds;
-            }
+                for (const inv of invoiceHistory) {
+                    if (!inv.invoiceNo) continue;
+                    const invProducts = (inv.products && inv.products.length > 0) ? inv.products : (products || po.products || []);
+                    for (const item of invProducts) {
+                        const conditions = [];
+                        if (item.product) conditions.push({ product: item.product });
+                        if (item.productNo) conditions.push({ productNo: item.productNo });
+                        if (conditions.length === 0) continue;
 
-            // Automatically link invoice number to StockLedger for Inward PO
-            if (po.type === "inward") {
-                try {
-                    const StockLedger = require("../models/StockLedger");
-                    const Quotation = require("../models/Quotation");
-                    let piNumber = "";
-                    if (po.pi) {
-                        const piDoc = await Quotation.findById(po.pi).session(session).lean();
-                        if (piDoc) piNumber = piDoc.quotationNumber || "";
-                    }
+                        const refConditions = [];
+                        if (po.poNumber) refConditions.push({ poNo: po.poNumber });
+                        if (piNumber) refConditions.push({ piNo: piNumber });
 
-                    for (const inv of invoiceHistory) {
-                        if (!inv.invoiceNo) continue;
-                        const invProducts = (inv.products && inv.products.length > 0) ? inv.products : (products || po.products || []);
-                        for (const item of invProducts) {
-                            const conditions = [];
-                            if (item.product) conditions.push({ product: item.product });
-                            if (item.productNo) conditions.push({ productNo: item.productNo });
-                            if (conditions.length === 0) continue;
+                        if (refConditions.length > 0) {
+                            const updateRes = await StockLedger.updateMany(
+                                {
+                                    $and: [
+                                        { $or: conditions },
+                                        { entryType: "OUT" },
+                                        { $or: refConditions }
+                                    ]
+                                },
+                                { $set: { invoiceNo: inv.invoiceNo } },
+                                { session }
+                            );
 
-                            const refConditions = [];
-                            if (po.poNumber) refConditions.push({ poNo: po.poNumber });
-                            if (piNumber) refConditions.push({ piNo: piNumber });
+                            if (updateRes.matchedCount === 0) {
+                                // If no OUT entry exists for this product and PO/PI, create one
+                                const Product = require("../models/Product");
+                                let prodDoc = null;
+                                if (item.product) prodDoc = await Product.findById(item.product).session(session);
+                                if (!prodDoc && item.productNo) prodDoc = await Product.findOne({ productNo: item.productNo }).session(session);
 
-                            if (refConditions.length > 0) {
-                                const updateRes = await StockLedger.updateMany(
-                                    {
-                                        $and: [
-                                            { $or: conditions },
-                                            { entryType: "OUT" },
-                                            { $or: refConditions }
-                                        ]
-                                    },
-                                    { $set: { invoiceNo: inv.invoiceNo } },
-                                    { session }
-                                );
+                                if (prodDoc) {
+                                    const qtyToDeduct = Number(item.quantity) || 1;
+                                    prodDoc.quantity = Math.max(0, (prodDoc.quantity || 0) - qtyToDeduct);
+                                    await prodDoc.save({ session });
 
-                                if (updateRes.matchedCount === 0) {
-                                    // If no OUT entry exists for this product and PO/PI, create one
-                                    const Product = require("../models/Product");
-                                    let prodDoc = null;
-                                    if (item.product) prodDoc = await Product.findById(item.product).session(session);
-                                    if (!prodDoc && item.productNo) prodDoc = await Product.findOne({ productNo: item.productNo }).session(session);
-
-                                    if (prodDoc) {
-                                        const qtyToDeduct = Number(item.quantity) || 1;
-                                        prodDoc.quantity = Math.max(0, (prodDoc.quantity || 0) - qtyToDeduct);
-                                        await prodDoc.save({ session });
-
-                                        const newEntry = new StockLedger({
-                                            product: prodDoc._id,
-                                            productNo: prodDoc.productNo,
-                                            brand: prodDoc.brand || item.brand || "",
-                                            entryType: "OUT",
-                                            piNo: piNumber || po.poNumber,
-                                            poNo: po.poNumber,
-                                            invoiceNo: inv.invoiceNo,
-                                            date: inv.date || new Date(),
-                                            quantity: qtyToDeduct,
-                                            unitPrice: item.unitPrice || 0,
-                                            balanceAfter: prodDoc.quantity,
-                                            remarks: "Subtracted stock upon PI conversion to Inward PO"
-                                        });
-                                        await newEntry.save({ session });
-                                    }
+                                    const newEntry = new StockLedger({
+                                        product: prodDoc._id,
+                                        productNo: prodDoc.productNo,
+                                        brand: prodDoc.brand || item.brand || "",
+                                        entryType: "OUT",
+                                        piNo: piNumber || po.poNumber,
+                                        poNo: po.poNumber,
+                                        invoiceNo: inv.invoiceNo,
+                                        date: inv.date || new Date(),
+                                        quantity: qtyToDeduct,
+                                        unitPrice: item.unitPrice || 0,
+                                        balanceAfter: prodDoc.quantity,
+                                        remarks: "Subtracted stock upon PI conversion to Inward PO"
+                                    });
+                                    await newEntry.save({ session });
                                 }
                             }
                         }
                     }
-                } catch (ledgerSyncErr) {
-                    console.warn("StockLedger invoice link warning:", ledgerSyncErr.message);
                 }
+            } catch (ledgerSyncErr) {
+                console.warn("StockLedger invoice link warning:", ledgerSyncErr.message);
             }
         }
 
@@ -520,7 +578,9 @@ exports.updatePO = async (req, res) => {
 
                 for (const p of products) {
                     const existingProduct = po.products.find(ep => 
-                        (ep.product && String(ep.product) === String(p.product)) ||
+                        (ep._id && p._id && String(ep._id) === String(p._id)) ||
+                        (ep.product && String(ep.product) === String(p.product) && ep.type === p.type) ||
+                        (ep.productNo && ep.productNo === p.productNo && ep.type === p.type) ||
                         (ep.productNo && ep.productNo === p.productNo)
                     );
 
