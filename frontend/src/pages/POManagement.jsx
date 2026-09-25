@@ -27,8 +27,10 @@ import {
   MessageSquare,
   Send,
   ExternalLink,
-  Copy
+  Copy,
+  Sparkles
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import API from "../api/api";
 import toast from "react-hot-toast";
 import CreateOutwardPO from "../components/po/CreateOutwardPO";
@@ -64,7 +66,8 @@ const POManagement = () => {
     inward: "",
     inward_invoice: "",
     dispatch: "",
-    outward: ""
+    outward: "",
+    completed: ""
   });
   const [pos, setPOs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +113,37 @@ const POManagement = () => {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [dispatchCommData, setDispatchCommData] = useState(null);
 
+  // 🚧 Modern Animated Under Development Toast State & Trigger
+  const [showDevToast, setShowDevToast] = useState(false);
+  const devToastTimerRef = React.useRef(null);
+
+  const triggerDevToast = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.28);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.28);
+    } catch (e) {}
+
+    setShowDevToast(false);
+    if (devToastTimerRef.current) clearTimeout(devToastTimerRef.current);
+
+    setTimeout(() => {
+      setShowDevToast(true);
+      devToastTimerRef.current = setTimeout(() => {
+        setShowDevToast(false);
+      }, 5000);
+    }, 40);
+  };
+
   // Fetch product meta (brands list)
   const fetchMetaBrands = async () => {
     try {
@@ -144,6 +178,8 @@ const POManagement = () => {
         url = "/purchase-orders?type=inward";
       } else if (activeTab === "outward") {
         url = "/purchase-orders?type=outward";
+      } else if (activeTab === "completed") {
+        url = "/purchase-orders";
       }
       const res = await API.get(url);
       setPOs(res.data || []);
@@ -167,7 +203,8 @@ const POManagement = () => {
       inward: "",
       inward_invoice: "",
       dispatch: "",
-      outward: ""
+      outward: "",
+      completed: ""
     });
     fetchPOs();
   }, [activeTab]);
@@ -178,6 +215,7 @@ const POManagement = () => {
     "Pending": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
     "Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
     "Processed": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+    "Completed": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50",
     "Partially Pending": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partial Pending": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
     "Partially Processed": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
@@ -215,6 +253,24 @@ const POManagement = () => {
     return po.products.every(p => (p.dispatchedQuantity || 0) >= (p.quantity || 0));
   };
 
+  const isPOFullyCompleted = (po) => {
+    if (!po || !po.products || po.products.length === 0) return false;
+    const totalQty = po.products.reduce((sum, p) => sum + (p.quantity || 0), 0);
+    if (totalQty === 0) return false;
+
+    // For Inward PO: Must be fully invoiced AND fully dispatched
+    if (po.type === "inward") {
+      const allInvoiced = po.products.every(p => (p.invoicedQuantity || 0) >= (p.quantity || 0));
+      const allDispatched = (po.status === "Dispatched" && po.products.every(p => (p.dispatchedQuantity || 0) > 0)) ||
+        po.products.every(p => (p.dispatchedQuantity || 0) >= (p.quantity || 0));
+      return allInvoiced && allDispatched;
+    }
+
+    // For Outward PO: All items invoiced / processed
+    const allInvoiced = po.products.every(p => (p.invoicedQuantity || 0) >= (p.quantity || 0));
+    return allInvoiced || po.status === "Processed" || po.status === "Completed";
+  };
+
   const getInwardPOInvoiceStatus = (products) => {
     const movedProducts = (products || []).filter(p => p.movedToInvoice === true || p.selected !== false || (p.invoicedQuantity || 0) > 0);
     if (movedProducts.length === 0) return "Pending";
@@ -225,6 +281,9 @@ const POManagement = () => {
   };
 
   const getDisplayStatus = (po, tab) => {
+    if (tab === "completed") {
+      return "Completed";
+    }
     if (tab === "dispatch") {
       const activeProducts = (po.products || []).filter(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0 || p.selected !== false);
       const targetProducts = activeProducts.length > 0 ? activeProducts : (po.products || []);
@@ -281,6 +340,9 @@ const POManagement = () => {
   // Filter based on search query (by PO number, partner name, lead no, pi no, or product SKU) and status
   const filteredPOs = pos.filter(po => {
     // 1. Tab Specific Filtering
+    if (activeTab === "completed") {
+      if (!isPOFullyCompleted(po)) return false;
+    }
     if (activeTab === "outward") {
       if (po.type !== "outward") return false;
     }
@@ -310,7 +372,10 @@ const POManagement = () => {
     // 2. Status Filter
     const displayStatus = getDisplayStatus(po, activeTab);
     if (statusFilter !== "All") {
-      if (activeTab === "inward") {
+      if (activeTab === "completed") {
+        if (statusFilter === "inward" && po.type !== "inward") return false;
+        if (statusFilter === "outward" && po.type !== "outward") return false;
+      } else if (activeTab === "inward") {
         if (statusFilter === "Pending") {
           if (displayStatus !== "Pending") return false;
         } else if (statusFilter === "Partially Pending" || statusFilter === "Partially Processed") {
@@ -433,6 +498,12 @@ const POManagement = () => {
 
   // Sort filtered POs based on tab so latest items always appear at the top
   const sortedPOs = [...filteredPOs].sort((a, b) => {
+    if (activeTab === "completed") {
+      const timeA = getDispatchTimestamp(a) || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const timeB = getDispatchTimestamp(b) || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.poNumber || "").localeCompare(a.poNumber || "", undefined, { numeric: true, sensitivity: 'base' });
+    }
     if (activeTab === "dispatch") {
       const timeA = getDispatchTimestamp(a);
       const timeB = getDispatchTimestamp(b);
@@ -514,7 +585,7 @@ const POManagement = () => {
   };
 
   const handleExportCSV = () => {
-    if (activeTab !== "inward" && activeTab !== "inward_invoice") return;
+    if (activeTab !== "inward" && activeTab !== "inward_invoice" && activeTab !== "completed") return;
 
     if (!filteredPOs || filteredPOs.length === 0) {
       toast.error("No Purchase Orders available to export.");
@@ -613,7 +684,7 @@ const POManagement = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    const fileNameTab = activeTab === "inward_invoice" ? "Inward_Invoice" : (activeTab === "inward" ? "Inward_PO" : activeTab);
+    const fileNameTab = activeTab === "inward_invoice" ? "Inward_Invoice" : (activeTab === "inward" ? "Inward_PO" : (activeTab === "completed" ? "Completed_History" : activeTab));
     link.setAttribute("download", `${fileNameTab}_Export_${formatDateDots(new Date()).replace(/\./g, "-")}.csv`);
     document.body.appendChild(link);
     link.click();
@@ -663,7 +734,9 @@ const POManagement = () => {
       const isAlreadyMoved = !isInvoicePhase && po.type === "inward" && isProductMoved(p, po);
 
       let isSelected;
-      if (isInvoicePhase) {
+      if (activeTab === "completed") {
+        isSelected = true;
+      } else if (isInvoicePhase) {
         isSelected = pending > 0;
       } else if (isAlreadyMoved) {
         isSelected = true; // locked as already processed/sent
@@ -961,7 +1034,7 @@ Thank you for choosing Team Inspire!`;
     const p = modalProducts[index];
     const po = selectedPOForProducts;
     if (!po) return;
-    if (activeTab === "dispatch") return; // Dispatch mode is view-only
+    if (activeTab === "dispatch" || activeTab === "completed") return; // Dispatch and completed modes are view-only
     const isInvoicePhase = activeTab === "inward_invoice";
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
     const processed = p.invoicedQuantity || 0;
@@ -978,7 +1051,7 @@ Thank you for choosing Team Inspire!`;
   const handleToggleAllProducts = () => {
     const po = selectedPOForProducts;
     if (!po) return;
-    if (activeTab === "dispatch") return;
+    if (activeTab === "dispatch" || activeTab === "completed") return;
     const isInvoicePhase = activeTab === "inward_invoice";
     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward";
 
@@ -1415,6 +1488,82 @@ Thank you for choosing Team Inspire!`;
   return (
     <div className="p-6 md:p-8 space-y-6">
       
+      {/* 🚧 Modern Creative Toast: Feature Under Development */}
+      <AnimatePresence>
+        {showDevToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -25, x: 25, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, x: 20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 450, damping: 28 }}
+            className="fixed top-6 right-6 z-[9999] max-w-sm sm:max-w-md w-full pointer-events-auto shadow-2xl"
+          >
+            <div className="relative overflow-hidden rounded-3xl bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl border border-amber-300/80 dark:border-amber-500/40 shadow-2xl shadow-amber-500/20 p-5 ring-1 ring-amber-400/20">
+              {/* Subtle Glowing Background Orbs */}
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-gradient-to-br from-amber-400/25 to-orange-500/25 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-gradient-to-tr from-yellow-400/20 to-amber-500/20 rounded-full blur-xl pointer-events-none" />
+
+              <div className="flex items-start gap-4 relative z-10">
+                {/* 🚧 Animated Construction Icon with Pulse */}
+                <div className="relative shrink-0 mt-0.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/35">
+                    <span className="text-2xl select-none animate-bounce">🚧</span>
+                  </div>
+                  <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500 border-2 border-white dark:border-gray-900"></span>
+                  </span>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 pr-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                      Feature Under Development
+                    </h4>
+                    <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-700/60 uppercase tracking-wider">
+                      Coming Soon
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1.5 leading-relaxed">
+                    We're working on something awesome! An intelligent auto-archiving system is being fine-tuned to keep your daily screens super clean.
+                  </p>
+
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 font-semibold">
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                      <Sparkles size={13} className="text-amber-500 animate-spin" />
+                      Stay tuned!
+                    </span>
+                    <span>•</span>
+                    <span className="text-gray-400 dark:text-gray-500">Launching shortly</span>
+                  </div>
+                </div>
+
+                {/* Dismiss Button */}
+                <button
+                  onClick={() => setShowDevToast(false)}
+                  className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition shrink-0 cursor-pointer"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Animated Progress Bar */}
+              <div className="mt-4 h-1.5 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: "100%" }}
+                  animate={{ width: "0%" }}
+                  transition={{ duration: 5, ease: "linear" }}
+                  className="h-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div>
@@ -1498,6 +1647,19 @@ Thank you for choosing Team Inspire!`;
               <ArrowUpRight size={16} className={activeTab === "outward" ? "text-blue-500" : ""} />
               Outward PO {activeTab === "outward" ? `(${filteredPOs.length})` : ""}
             </button>
+            <button
+              type="button"
+              onClick={triggerDevToast}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-900/30 border border-dashed border-amber-300 dark:border-amber-700/60 shadow-xs hover:shadow-md hover:scale-[1.02] active:scale-95 group"
+              title="🚧 Feature Under Development - Click to view status"
+            >
+              <History size={16} className="text-amber-500 group-hover:rotate-45 transition-transform duration-300" />
+              Completed History
+              <span className="bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700/60 ml-1 tracking-wider uppercase flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                Under Process
+              </span>
+            </button>
           </div>
 
           {/* Search bar & Actions */}
@@ -1521,7 +1683,12 @@ Thank you for choosing Team Inspire!`;
                   title="Filter by Status"
                 >
                   <option value="All" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">All Statuses</option>
-                  {activeTab === "inward_invoice" ? (
+                  {activeTab === "completed" ? (
+                    <>
+                      <option value="inward" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Inward POs</option>
+                      <option value="outward" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Outward POs</option>
+                    </>
+                  ) : activeTab === "inward_invoice" ? (
                     <>
                       <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
                       <option value="Partially Invoiced" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Invoiced</option>
@@ -1578,7 +1745,7 @@ Thank you for choosing Team Inspire!`;
               <Search size={16} className="text-gray-400 mr-2 shrink-0" />
               <input 
                 type="text" 
-                placeholder="Search POs..." 
+                placeholder={activeTab === "completed" ? "Search completed orders..." : "Search POs..."} 
                 className="bg-transparent border-none text-xs outline-none text-gray-700 dark:text-white placeholder-gray-400 w-full"
                 value={searchQueries[activeTab] || ""}
                 onChange={(e) => setSearchQueries({ ...searchQueries, [activeTab]: e.target.value })}
@@ -1594,7 +1761,7 @@ Thank you for choosing Team Inspire!`;
             >
               <Filter size={16} />
             </button>
-            {(activeTab === "inward" || activeTab === "inward_invoice") && (
+            {(activeTab === "inward" || activeTab === "inward_invoice" || activeTab === "completed") && (
               <button 
                 onClick={handleExportCSV}
                 className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition shadow-sm cursor-pointer whitespace-nowrap"
@@ -1623,14 +1790,14 @@ Thank you for choosing Team Inspire!`;
                   )}
                   {activeTab !== "outward" ? (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                        {activeTab === "dispatch" ? "Client / Vendor Name" : (activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name")}
+                        {activeTab === "dispatch" || activeTab === "completed" ? "Client / Vendor Name" : (activeTab === "inward" || activeTab === "inward_invoice" ? "Client Name" : "Vendor Name")}
                       </th>
                   ) : (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">Shipper Name</th>
                   )}
                   {activeTab !== "outward" && (
                       <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                        {activeTab === "dispatch" ? "Dispatch Date" : (activeTab === "inward_invoice" ? "Invoice Date" : "Date")}
+                        {activeTab === "dispatch" ? "Dispatch Date" : (activeTab === "inward_invoice" ? "Invoice Date" : (activeTab === "completed" ? "Completed / Dispatch Date" : "Date"))}
                       </th>
                   )}
                   {activeTab === "outward" && (
@@ -1673,7 +1840,18 @@ Thank you for choosing Team Inspire!`;
                     )}
                     {activeTab !== "outward" ? (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
-                          <div>{po.vendorName}</div>
+                          <div className="flex items-center gap-2">
+                            <span>{po.type === "outward" ? (po.shipper ? (po.shipper.billingName || po.shipper.consigneeName) : (po.vendorName || "-")) : (po.vendorName || "-")}</span>
+                            {activeTab === "completed" && (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                                po.type === "outward" 
+                                  ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800" 
+                                  : "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+                              }`}>
+                                {po.type === "outward" ? "Outward PO" : "Inward PO"}
+                              </span>
+                            )}
+                          </div>
                           {po.products && po.products.length > 0 && (
                             <div className="flex items-center gap-1 flex-wrap mt-1">
                               {Array.from(new Set(po.products.map(p => p.brand || p.product?.brand).filter(Boolean))).slice(0, 3).map((b, bIdx) => (
@@ -1793,6 +1971,26 @@ Thank you for choosing Team Inspire!`;
                               )}
                             </div>
                           )}
+
+                          {/* SKUs display for Completed History */}
+                          {activeTab === "completed" && po.products && po.products.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                              {po.products.slice(0, 4).map((p, pIdx) => (
+                                <span 
+                                  key={pIdx} 
+                                  className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                  title={`${p.name || ''} (Qty: ${p.quantity})`}
+                                >
+                                  {p.productNo} ({p.quantity}) ✓
+                                </span>
+                              ))}
+                              {po.products.length > 4 && (
+                                <span className="text-[9px] font-bold text-gray-400">
+                                  +{po.products.length - 4} more
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                     ) : (
                         <td className="px-6 py-4 text-sm text-gray-950 dark:text-white font-medium">
@@ -1820,6 +2018,23 @@ Thank you for choosing Team Inspire!`;
                     {activeTab !== "outward" && (
                       <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-medium">
                         {(() => {
+                          if (activeTab === "completed") {
+                            const latestDisp = po.dispatchHistory && po.dispatchHistory.length > 0 ? po.dispatchHistory[po.dispatchHistory.length - 1] : null;
+                            const dispDate = latestDisp ? new Date(latestDisp.dispatchDate || latestDisp.createdAt).toLocaleDateString("en-GB") : null;
+                            const poDate = new Date(po.date).toLocaleDateString("en-GB");
+                            return (
+                              <div className="flex flex-col">
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                  {dispDate ? `Dispatched: ${dispDate}` : `Completed: ${poDate}`}
+                                </span>
+                                {dispDate && (
+                                  <span className="text-[10px] text-gray-400">
+                                    PO Date: {poDate}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
                           if (activeTab === "dispatch") {
                             return (
                               <div className="flex flex-col">
@@ -1876,7 +2091,7 @@ Thank you for choosing Team Inspire!`;
                           <button 
                             onClick={() => handleOpenProductsModal(po)}
                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
-                            title={activeTab === "dispatch" ? "View Products & Dispatch Status" : "View Products for Update"}
+                            title={activeTab === "dispatch" ? "View Products & Dispatch Status" : activeTab === "completed" ? "View Completed Products" : "View Products for Update"}
                           >
                             <List size={18} />
                           </button>
@@ -1908,7 +2123,7 @@ Thank you for choosing Team Inspire!`;
                           </button>
                         )}
                         {/* Move to Invoice Icon (Outward only) */}
-                        {activeTab !== "outward" && activeTab !== "inward" && activeTab !== "inward_invoice" && po.type !== "inward" && po.status !== "Processed" && (
+                        {activeTab !== "outward" && activeTab !== "inward" && activeTab !== "inward_invoice" && activeTab !== "completed" && po.type !== "inward" && po.status !== "Processed" && (
                           <button 
                             onClick={() => handleOpenInvoicePrompt(po)}
                             className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
@@ -1945,8 +2160,27 @@ Thank you for choosing Team Inspire!`;
                             </button>
                           </>
                         )}
+                        {/* Direct Email/WhatsApp for Completed Tab */}
+                        {activeTab === "completed" && po.dispatchHistory && po.dispatchHistory.length > 0 && (
+                          <>
+                            <button 
+                              onClick={() => handleOpenEmailModal(po)}
+                              className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="Resend Dispatch Email"
+                            >
+                              <Mail size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleOpenWhatsAppModal(po)}
+                              className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition hover:scale-110 cursor-pointer"
+                              title="Resend WhatsApp Dispatch Notification"
+                            >
+                              <MessageSquare size={18} />
+                            </button>
+                          </>
+                        )}
                         {/* History / Records Icon */}
-                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true) || activeTab === "outward" || activeTab === "dispatch") && ((po.invoiceHistory && po.invoiceHistory.length > 0) || (po.dispatchHistory && po.dispatchHistory.length > 0)) && (
+                        {((activeTab === "inward_invoice") || (activeTab === "inward" && po.isMovedToInvoice === true) || activeTab === "outward" || activeTab === "dispatch" || activeTab === "completed") && ((po.invoiceHistory && po.invoiceHistory.length > 0) || (po.dispatchHistory && po.dispatchHistory.length > 0)) && (
                           <button 
                             onClick={() => {
                               setSelectedPOForHistory(po);
@@ -1975,7 +2209,7 @@ Thank you for choosing Team Inspire!`;
                 {filteredPOs.length === 0 && (
                   <tr>
                     <td colSpan="7" className="px-6 py-12 text-center text-gray-400 uppercase tracking-widest text-xs font-bold">
-                      No PO Records Found
+                      {activeTab === "completed" ? "No Completed PO Records Found" : "No PO Records Found"}
                     </td>
                   </tr>
                 )}
@@ -2151,7 +2385,7 @@ Thank you for choosing Team Inspire!`;
                 const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
                 const isAllMoved = !isInvoicePhase && !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved || isProductMoved(p, selectedPOForProducts));
                 const isAllInvoiced = isInvoicePhase && modalProducts.length > 0 && modalProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity);
-                const isAllDisabled = isAllMoved || isAllInvoiced || activeTab === "dispatch";
+                const isAllDisabled = isAllMoved || isAllInvoiced || activeTab === "dispatch" || activeTab === "completed";
                 
                 const pendingProducts = modalProducts.filter(p => {
                   if (isInvoicePhase) return (p.invoicedQuantity || 0) < p.quantity;
@@ -2178,15 +2412,17 @@ Thank you for choosing Team Inspire!`;
                       <Square size={20} className="text-gray-400 dark:text-gray-500" />
                     )}
                     <span className={`text-sm font-black uppercase tracking-wider ${isAllDisabled ? "text-gray-500" : "text-blue-800 dark:text-blue-300"}`}>
-                      {activeTab === "dispatch"
-                        ? `All Products (${modalProducts.length})`
-                        : isAllInvoiced
-                          ? `All Products Invoiced (${modalProducts.length})`
-                          : isAllMoved 
-                            ? `All Products Processed (${modalProducts.length})` 
-                            : pendingProducts.length < modalProducts.length 
-                              ? `Select All Pending Products (${pendingProducts.length})` 
-                              : `Select All Products (${modalProducts.length})`}
+                      {activeTab === "completed"
+                        ? `All Products Completed (${modalProducts.length})`
+                        : activeTab === "dispatch"
+                          ? `All Products (${modalProducts.length})`
+                          : isAllInvoiced
+                            ? `All Products Invoiced (${modalProducts.length})`
+                            : isAllMoved 
+                              ? `All Products Processed (${modalProducts.length})` 
+                              : pendingProducts.length < modalProducts.length 
+                                ? `Select All Pending Products (${pendingProducts.length})` 
+                                : `Select All Products (${modalProducts.length})`}
                     </span>
                   </div>
                 );
@@ -2211,7 +2447,7 @@ Thank you for choosing Team Inspire!`;
                     const remaining = Math.max(0, p.quantity - processed);
                     const isFullyBilled = (isInvoicePhase || isOutward) && (processed >= p.quantity);
                     const isAlreadyMoved = !isInvoicePhase && !isOutward && (p.isAlreadyMoved || isProductMoved(p, selectedPOForProducts));
-                    const isDisabled = isFullyBilled || isAlreadyMoved || activeTab === "dispatch";
+                    const isDisabled = isFullyBilled || isAlreadyMoved || activeTab === "dispatch" || activeTab === "completed";
 
                     return (
                       <div 
@@ -2229,8 +2465,8 @@ Thank you for choosing Team Inspire!`;
                       >
                         <div className="mt-0.5">
                           {isDisabled ? (
-                            isFullyBilled || isAlreadyMoved ? (
-                              <CheckSquare size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
+                            isFullyBilled || isAlreadyMoved || activeTab === "completed" ? (
+                              <CheckSquare size={18} className="text-emerald-600 dark:text-emerald-400" />
                             ) : (
                               <Square size={18} className="text-gray-400 dark:text-gray-500 opacity-60" />
                             )
@@ -2269,7 +2505,16 @@ Thank you for choosing Team Inspire!`;
                               <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Qty: {p.quantity} × ₹{p.unitPrice?.toLocaleString()}</p>
                               
                               {/* Badges */}
-                              {activeTab === "dispatch" ? (
+                              {activeTab === "completed" ? (
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                    ✓ Invoiced: {p.invoicedQuantity || p.quantity} / {p.quantity}
+                                  </span>
+                                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
+                                    ✓ Dispatched: {p.dispatchedQuantity || p.quantity} / {p.quantity}
+                                  </span>
+                                </div>
+                              ) : activeTab === "dispatch" ? (
                                 <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                                   <span className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">
                                     Invoiced: {p.invoicedQuantity || 0} / {p.quantity}
@@ -2410,7 +2655,7 @@ Thank you for choosing Team Inspire!`;
                 >
                   Cancel
                 </button>
-                {!isInvoicePhase && activeTab !== "dispatch" && (
+                {!isInvoicePhase && activeTab !== "dispatch" && activeTab !== "completed" && (
                   (() => {
                     const isOutward = activeTab !== "inward" && activeTab !== "inward_invoice" && selectedPOForProducts?.type !== "inward";
                     const isAllMoved = !isOutward && modalProducts.length > 0 && modalProducts.every(p => p.isAlreadyMoved);
@@ -2439,6 +2684,11 @@ Thank you for choosing Team Inspire!`;
                     <Truck size={16} />
                     Dispatch Tracking
                   </button>
+                )}
+                {activeTab === "completed" && (
+                  <span className="px-5 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xs font-black uppercase tracking-wider rounded-xl select-none font-bold flex items-center gap-1.5">
+                    ✓ All Items Completed & Dispatched
+                  </span>
                 )}
                 {isInvoicePhase && (
                   modalProducts.length > 0 && modalProducts.every(p => (p.invoicedQuantity || 0) >= p.quantity) ? (
