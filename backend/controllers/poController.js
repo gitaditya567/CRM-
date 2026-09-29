@@ -667,6 +667,42 @@ exports.updatePO = async (req, res) => {
     }
 };
 
+// PATCH /api/purchase-orders/:id/star
+// Lightweight update of only the Gmail-style star marker (no status / stock recalculation)
+const ALLOWED_STAR_MARKS = [
+    "", "yellow-star", "orange-star", "red-star", "purple-star", "blue-star", "green-star",
+    "red-bang", "orange-guillemet", "yellow-bang", "green-check", "blue-info", "purple-question"
+];
+
+exports.updatePOStar = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const starMark = req.body?.starMark ?? "";
+        if (!ALLOWED_STAR_MARKS.includes(starMark)) {
+            return res.status(400).json({ message: "Invalid star marker" });
+        }
+
+        const po = await PurchaseOrder.findByIdAndUpdate(
+            id,
+            { $set: { starMark } },
+            { new: true, projection: { _id: 1, starMark: 1 } }
+        ).lean();
+        if (!po) {
+            return res.status(404).json({ message: "Purchase Order not found" });
+        }
+
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("poStarUpdated", { _id: po._id, starMark: po.starMark });
+        }
+
+        res.json(po);
+    } catch (err) {
+        console.error("Update PO Star Error:", err);
+        res.status(500).json({ message: "Failed to update star marker" });
+    }
+};
+
 // DELETE /api/purchase-orders/:id
 exports.deletePO = async (req, res) => {
     try {

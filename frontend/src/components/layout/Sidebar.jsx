@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
     LayoutDashboard,
@@ -13,8 +13,11 @@ import {
     History,
     RefreshCw,
     List,
-    ExternalLink
+    ExternalLink,
+    BarChart3,
+    ChevronDown
 } from "lucide-react";
+import { REPORTS } from "../../config/reports";
 import { useTheme } from "../../context/ThemeContext";
 import { useSettings } from "../../context/SettingsContext";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +34,12 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const { uiSettings } = useSettings();
+
+    const isOnReports = location.pathname.startsWith("/reports");
+    const [reportsOpen, setReportsOpen] = useState(isOnReports);
+    useEffect(() => {
+        if (isOnReports) setReportsOpen(true);
+    }, [isOnReports]);
 
     const handleLogout = async () => {
         try {
@@ -150,15 +159,15 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
             {/* Sidebar Container */}
             <aside
                 className={`
-          fixed top-0 left-0 z-50 h-screen w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform
+          fixed top-0 left-0 z-50 h-screen h-[100dvh] w-[85vw] max-w-72 md:w-64 flex flex-col bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform shadow-2xl md:shadow-none
           ${isOpen ? "translate-x-0" : "-translate-x-full"} ${isHidden ? "md:-translate-x-full" : "md:translate-x-0"} transition-transform duration-300 ease-in-out
         `}
             >
-                <div className="flex items-center justify-between p-6">
+                <div className="flex items-center justify-between px-5 py-4 md:p-6 shrink-0">
                     <Link to={isSales ? "/sales-dashboard" : "/dashboard"} className="flex items-center gap-2">
                         <img src="/logo.png" alt="TeamInspire Logo" className="h-10 w-auto object-contain" />
                     </Link>
-                    <button onClick={toggleSidebar} className="md:hidden text-gray-500 hover:text-gray-700 dark:text-gray-400">
+                    <button onClick={toggleSidebar} aria-label="Close menu" className="md:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">
                         <X size={24} />
                     </button>
                     {setHidden && (
@@ -174,7 +183,7 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
                     )}
                 </div>
 
-                <nav className="mt-6 px-4 space-y-2">
+                <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 md:px-4 pb-4 space-y-1.5 md:space-y-2">
                     {links.map((link) => 
                         link.external ? (
                             <a
@@ -203,16 +212,64 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
                             </Link>
                         )
                     )}
+
+                    {/* 📊 Reports Section (Admin Only) — entries come from config/reports.js */}
+                    {isAdmin && REPORTS.length > 0 && (
+                        <div className="pt-2">
+                            <button
+                                onClick={() => setReportsOpen((o) => !o)}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium cursor-pointer
+                    ${isOnReports
+                                        ? "text-blue-600 dark:text-blue-400"
+                                        : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}
+                  `}
+                            >
+                                <BarChart3 size={20} />
+                                <span className="flex-1 text-left">Reports</span>
+                                <ChevronDown size={16} className={`transition-transform duration-200 ${reportsOpen ? "rotate-180" : ""}`} />
+                            </button>
+
+                            {reportsOpen && (
+                                <div className="mt-1 ml-5 pl-3 border-l border-gray-200 dark:border-gray-700 space-y-1">
+                                    <Link
+                                        to="/reports"
+                                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 font-medium
+                    ${location.pathname === "/reports"
+                                                ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm"
+                                                : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}
+                  `}
+                                    >
+                                        <List size={16} />
+                                        <span>All Reports</span>
+                                    </Link>
+                                    {REPORTS.map((report) => (
+                                        <Link
+                                            key={report.id}
+                                            to={`/reports/${report.id}`}
+                                            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 font-medium
+                    ${location.pathname === `/reports/${report.id}`
+                                                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm"
+                                                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}
+                  `}
+                                        >
+                                            <report.icon size={16} />
+                                            <span>{report.name}</span>
+                                        </Link>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </nav>
 
-                <div className="absolute bottom-0 w-full p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                <div className="shrink-0 w-full p-3 md:p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+                    <div className="flex items-center justify-between mb-3 md:mb-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 shrink-0 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
                                 {localStorage.getItem("name")?.charAt(0) || "U"}
                             </div>
                             <div className="flex flex-col overflow-hidden">
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[100px]">
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]">
                                     {localStorage.getItem("name")}
                                 </p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
@@ -241,7 +298,7 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
                         <LogOut size={16} />
                         Logout
                     </button>
-                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 text-center">
+                    <div className="mt-3 pt-3 md:mt-4 md:pt-4 border-t border-gray-200 dark:border-gray-800 text-center">
                         <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider font-semibold">
                             Developed by <span className="text-blue-600 dark:text-blue-400">Aditya Sharma</span> © {new Date().getFullYear()}
                         </p>

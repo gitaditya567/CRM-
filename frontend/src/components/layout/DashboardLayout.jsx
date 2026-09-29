@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { Menu } from "lucide-react";
 import ScrollingBanner from "./ScrollingBanner";
@@ -11,6 +12,26 @@ import ChatWidget from "../common/ChatWidget";
 const DashboardLayout = ({ children }) => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [isSidebarHidden, setSidebarHidden] = useState(false);
+    const location = useLocation();
+    const homePath = (localStorage.getItem("role") || "").toLowerCase() === "sales" ? "/sales-dashboard" : "/dashboard";
+
+    // 📱 Mobile drawer: close on navigation
+    useEffect(() => {
+        setSidebarOpen(false);
+    }, [location.pathname, location.search]);
+
+    // 📱 Mobile drawer: Escape to close + lock background scroll while open
+    useEffect(() => {
+        if (!isSidebarOpen) return;
+        const onKey = (e) => e.key === "Escape" && setSidebarOpen(false);
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        window.addEventListener("keydown", onKey);
+        return () => {
+            document.body.style.overflow = prevOverflow;
+            window.removeEventListener("keydown", onKey);
+        };
+    }, [isSidebarOpen]);
 
     return (
         <div className="flex flex-col bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors duration-200">
@@ -22,17 +43,20 @@ const DashboardLayout = ({ children }) => {
                 <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setSidebarOpen(!isSidebarOpen)} isHidden={isSidebarHidden} setHidden={setSidebarHidden} />
 
                 {/* Main Content */}
-                <div className={`flex-1 flex flex-col ${isSidebarHidden ? "md:ml-0" : "md:ml-64"} transition-all duration-300 min-h-screen`}>
+                <div className={`flex-1 min-w-0 flex flex-col ${isSidebarHidden ? "md:ml-0" : "md:ml-64"} transition-all duration-300 min-h-screen`}>
                     {/* Mobile Header */}
-                    <div className="md:hidden flex items-center justify-between bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-30">
+                    <div className="md:hidden flex items-center justify-between bg-white/95 dark:bg-gray-800/95 backdrop-blur px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-30">
                         <button
                             onClick={() => setSidebarOpen(true)}
+                            aria-label="Open menu"
                             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
                         >
                             <Menu size={24} />
                         </button>
-                        <span className="font-bold text-gray-800 dark:text-white">Dashboard</span>
-                        <div className="w-8" /> {/* Spacer for centering */}
+                        <Link to={homePath} className="flex items-center">
+                            <img src="/logo.png" alt="TeamInspire Logo" className="h-8 w-auto object-contain" />
+                        </Link>
+                        <div className="w-10" /> {/* Spacer for centering */}
                     </div>
 
                     {isSidebarHidden && (

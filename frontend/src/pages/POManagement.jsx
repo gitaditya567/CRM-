@@ -28,7 +28,8 @@ import {
   Send,
   ExternalLink,
   Copy,
-  Sparkles
+  Sparkles,
+  Star
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../api/api";
@@ -45,7 +46,66 @@ const getCarrierTrackingLink = (courierName) => {
   return null;
 };
 
-const POManagement = () => {
+// ⭐ Gmail-style "superstars" — each click on the marker moves to the next one, after the last it clears.
+// Keys must match ALLOWED_STAR_MARKS in backend/controllers/poController.js
+const STAR_MARKS = [
+  { key: "yellow-star", label: "Yellow star", type: "star", color: "#F4B400" },
+  { key: "orange-star", label: "Orange star", type: "star", color: "#F57C00" },
+  { key: "red-star", label: "Red star", type: "star", color: "#DB4437" },
+  { key: "purple-star", label: "Purple star", type: "star", color: "#9C27B0" },
+  { key: "blue-star", label: "Blue star", type: "star", color: "#4285F4" },
+  { key: "green-star", label: "Green star", type: "star", color: "#0F9D58" },
+  { key: "red-bang", label: "Red bang", type: "glyph", glyph: "!", color: "#DB4437" },
+  { key: "orange-guillemet", label: "Orange guillemet", type: "glyph", glyph: "»", color: "#F57C00" },
+  { key: "yellow-bang", label: "Yellow bang", type: "glyph", glyph: "!", color: "#F4B400" },
+  { key: "green-check", label: "Green check", type: "glyph", glyph: "✓", color: "#0F9D58" },
+  { key: "blue-info", label: "Blue info", type: "glyph", glyph: "i", color: "#4285F4" },
+  { key: "purple-question", label: "Purple question", type: "glyph", glyph: "?", color: "#9C27B0" },
+];
+
+const getNextStarMark = (current) => {
+  const idx = STAR_MARKS.findIndex((m) => m.key === current);
+  return idx === STAR_MARKS.length - 1 ? "" : STAR_MARKS[idx + 1].key; // idx -1 (none) → first star
+};
+
+const StarMarkButton = ({ value, onChange }) => {
+  const mark = STAR_MARKS.find((m) => m.key === value);
+  const next = STAR_MARKS.find((m) => m.key === getNextStarMark(value));
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(getNextStarMark(value));
+      }}
+      onContextMenu={(e) => {
+        // Right-click clears the marker
+        if (!value) return;
+        e.preventDefault();
+        onChange("");
+      }}
+      title={`${mark ? mark.label : "Not starred"} — click for ${next ? next.label : "none"}${mark ? " · right-click to clear" : ""}`}
+      aria-label={mark ? mark.label : "Not starred"}
+      className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-90 transition cursor-pointer"
+    >
+      {!mark ? (
+        <Star size={24} strokeWidth={2.25} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" />
+      ) : mark.type === "star" ? (
+        <Star size={24} strokeWidth={2.25} style={{ color: mark.color, fill: mark.color }} />
+      ) : (
+        <span
+          className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-white text-sm font-black leading-none"
+          style={{ backgroundColor: mark.color }}
+        >
+          {mark.glyph}
+        </span>
+      )}
+    </button>
+  );
+};
+
+// reportTab: when set (e.g. "completed"), page is locked to that view and rendered as a Report (tab bar hidden)
+const POManagement = ({ reportTab } = {}) => {
   const userRole = (localStorage.getItem("role") || "").toLowerCase();
   const isAdmin = userRole === "admin" || userRole === "superadmin";
 
@@ -60,7 +120,8 @@ const POManagement = () => {
     );
   }
 
-  const [activeTab, setActiveTab] = useState("inward");
+  const isReportMode = Boolean(reportTab);
+  const [activeTab, setActiveTab] = useState(reportTab || "inward");
   const [isCreateOutwardOpen, setIsCreateOutwardOpen] = useState(false);
   const [searchQueries, setSearchQueries] = useState({
     inward: "",
@@ -188,6 +249,19 @@ const POManagement = () => {
       toast.error("Failed to load Purchase Orders");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ⭐ Update Gmail-style star marker (optimistic, reverted on failure)
+  const handleStarMarkChange = async (poId, starMark) => {
+    const previous = pos.find((p) => p._id === poId)?.starMark || "";
+    setPOs((prev) => prev.map((p) => (p._id === poId ? { ...p, starMark } : p)));
+    try {
+      await API.patch(`/purchase-orders/${poId}/star`, { starMark });
+    } catch (err) {
+      console.error("Error updating star marker:", err);
+      setPOs((prev) => prev.map((p) => (p._id === poId ? { ...p, starMark: previous } : p)));
+      toast.error("Failed to update star");
     }
   };
 
@@ -334,11 +408,19 @@ const POManagement = () => {
     return po.status;
   };
 
+  // PO that would show as "Dispatched" in Dispatch Management.
+  // Such POs are auto-moved out of Dispatch Management into Completed History.
+  const isDispatchStatusDispatched = (po) => {
+    const isEligible = (po.type === "inward" && po.isMovedToInvoice === true) || po.type === "outward";
+    if (!isEligible) return false;
+    return getDisplayStatus(po, "dispatch") === "Dispatched";
+  };
+
   // Filter based on search query (by PO number, partner name, lead no, pi no, or product SKU) and status
   const filteredPOs = pos.filter(po => {
     // 1. Tab Specific Filtering
     if (activeTab === "completed") {
-      if (!isPOFullyCompleted(po)) return false;
+      if (!isPOFullyCompleted(po) && !isDispatchStatusDispatched(po)) return false;
     }
     if (activeTab === "outward") {
       if (po.type !== "outward") return false;
@@ -360,6 +442,8 @@ const POManagement = () => {
         (po.dispatchHistory && po.dispatchHistory.length > 0) ||
         (po.products || []).some(p => (p.invoicedQuantity || 0) > 0 || (p.dispatchedQuantity || 0) > 0);
       if (!hasInvoicedOrDispatched) return false;
+      // Fully dispatched POs live in Completed History, not here
+      if (isDispatchStatusDispatched(po)) return false;
     }
 
     // 2. Status Filter
@@ -1016,7 +1100,9 @@ Thank you for choosing Team Inspire!`;
         status: newStatus,
         dispatchHistory: [...(selectedPOForDispatch.dispatchHistory || []), newDispatch]
       });
-      toast.success("Dispatch tracking details updated successfully!");
+      toast.success(newStatus === "Dispatched"
+        ? `PO ${selectedPOForDispatch.poNumber || ""} fully dispatched — moved to Reports → Completed History`
+        : "Dispatch tracking details updated successfully!");
       setIsDispatchModalOpen(false);
       fetchPOs();
     } catch (err) {
@@ -1565,13 +1651,16 @@ Thank you for choosing Team Inspire!`;
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
         <div>
           <h1 className="text-3xl font-black text-gray-800 dark:text-white flex items-center gap-3">
-            PO Management
+            {isReportMode && <History className="text-emerald-500" size={28} />}
+            {isReportMode ? "Completed History" : "PO Management"}
             <span className="text-sm font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2.5 py-0.5 rounded-full">
               {filteredPOs.length}
             </span>
           </h1>
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">
-            Manage your inward supplier purchases and outward client purchase orders in one place.
+            {isReportMode
+              ? "Report · Fully completed & dispatched Inward / Outward purchase orders."
+              : "Manage your inward supplier purchases and outward client purchase orders in one place."}
           </p>
         </div>
         
@@ -1598,7 +1687,8 @@ Thank you for choosing Team Inspire!`;
         {/* Tab Switcher & Search Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           
-          {/* Glassmorphic Tabs Button List */}
+          {/* Glassmorphic Tabs Button List (hidden in Report mode) */}
+          {isReportMode ? <div /> : (
           <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-fit border border-gray-200/50 dark:border-gray-800 flex-wrap gap-1">
             <button
               onClick={() => setActiveTab("inward")}
@@ -1644,18 +1734,9 @@ Thank you for choosing Team Inspire!`;
               <ArrowUpRight size={16} className={activeTab === "outward" ? "text-blue-500" : ""} />
               Outward PO {activeTab === "outward" ? `(${filteredPOs.length})` : ""}
             </button>
-            <button
-              onClick={() => setActiveTab("completed")}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer ${
-                activeTab === "completed"
-                  ? "bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-gray-100 dark:border-gray-700 font-bold"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
-              }`}
-            >
-              <History size={16} className={activeTab === "completed" ? "text-emerald-500" : ""} />
-              Completed History {activeTab === "completed" ? `(${filteredPOs.length})` : ""}
-            </button>
+            {/* Completed History moved to Sidebar → Reports → Completed History (/reports/completed-history) */}
           </div>
+          )}
 
           {/* Search bar & Actions */}
           <div className="flex items-center gap-3 flex-wrap md:flex-nowrap">
@@ -1692,7 +1773,7 @@ Thank you for choosing Team Inspire!`;
                   ) : activeTab === "dispatch" ? (
                     <>
                       <option value="Pending" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Pending</option>
-                      <option value="Dispatched" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Dispatched</option>
+                      <option value="Partially Dispatched" className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">Partially Dispatched</option>
                     </>
                   ) : (
                     <>
@@ -1811,10 +1892,16 @@ Thank you for choosing Team Inspire!`;
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <div className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                          {activeTab === "inward" && (
+                            <StarMarkButton
+                              value={po.starMark || ""}
+                              onChange={(mark) => handleStarMarkChange(po._id, mark)}
+                            />
+                          )}
                           <FileText size={16} />
                           {po.poNumber}
                         </div>
-                        <span className="text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5 ml-6">
+                        <span className={`text-[10px] font-semibold text-lime-600 dark:text-lime-400 mt-0.5 ${activeTab === "inward" ? "ml-16" : "ml-6"}`}>
                           PO Date: {po.pi?.poDate ? new Date(po.pi.poDate).toLocaleDateString("en-GB") : new Date(po.date).toLocaleDateString("en-GB")}
                         </span>
                       </div>

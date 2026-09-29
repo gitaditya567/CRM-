@@ -62,6 +62,11 @@ const purchaseOrderSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    // Gmail-style star / marker shown in front of the PO row ("" = no marker)
+    starMark: {
+        type: String,
+        default: ""
+    },
     terms: {
         deliveryLeadTime: { type: String, default: "" },
         payment: { type: String, default: "" },

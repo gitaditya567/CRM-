@@ -20,6 +20,7 @@ const POManagement = lazy(() => import("./pages/POManagement"));
 const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 const DeveloperRequests = lazy(() => import("./pages/DeveloperRequests"));
 const MasterDashboard = lazy(() => import("./pages/MasterDashboard"));
+const Reports = lazy(() => import("./pages/Reports"));
 
 const GlobalLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-[#070F2B] text-white">
@@ -209,6 +210,28 @@ const App = () => {
                 element={
                   <PrivateRoute>
                     <POManagement />
+                  </PrivateRoute>
+                }
+              />
+
+              {/* Reports (Admin Only) */}
+              <Route
+                path="/reports"
+                element={
+                  <PrivateRoute>
+                    <AdminRoute>
+                      <Reports />
+                    </AdminRoute>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/reports/:reportId"
+                element={
+                  <PrivateRoute>
+                    <AdminRoute>
+                      <Reports />
+                    </AdminRoute>
                   </PrivateRoute>
                 }
               />
