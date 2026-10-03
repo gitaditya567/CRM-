@@ -37,6 +37,11 @@ const settingSchema = new mongoose.Schema(
             enableBulkDelete: { type: Boolean, default: true },
             enableEdit: { type: Boolean, default: true },
             loginAccessCode: { type: String, default: "" }
+        },
+        // Auto-notify client when dispatch details are saved in Dispatch Management
+        communications: {
+            autoDispatchEmail: { type: Boolean, default: true },
+            autoDispatchWhatsApp: { type: Boolean, default: false }
         }
     },
     { timestamps: true }

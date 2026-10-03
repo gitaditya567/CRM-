@@ -257,6 +257,9 @@ exports.updatePO = async (req, res) => {
             }
         }
 
+        // Remember existing dispatch entries → new ones trigger auto Email / WhatsApp after save
+        const prevDispatchIds = new Set((po.dispatchHistory || []).map(d => String(d._id)));
+
         // Invoice validation (Rule #13-17)
         const prevInvLen = po.invoiceHistory ? po.invoiceHistory.length : 0;
         const newInvLen = invoiceHistory ? invoiceHistory.length : prevInvLen;
@@ -656,6 +659,18 @@ exports.updatePO = async (req, res) => {
         const io = req.app.get("io");
         if (io) {
             io.emit("poUpdated", updatedPO);
+        }
+
+        // 📨 Auto-notify client for newly added dispatch entries (runs in background, logged in CommunicationLog)
+        // Guard: never more than the number of entries actually added (protects old dispatches from re-mailing)
+        const addedCount = Math.max(0, (updatedPO.dispatchHistory || []).length - prevDispatchIds.size);
+        const newDispatchIds = addedCount === 0 ? [] : (updatedPO.dispatchHistory || [])
+            .map(d => String(d._id))
+            .filter(dId => !prevDispatchIds.has(dId))
+            .slice(-addedCount);
+        if (newDispatchIds.length > 0) {
+            const { autoNotifyDispatch } = require("./communicationController");
+            setImmediate(() => autoNotifyDispatch(req, updatedPO._id, newDispatchIds));
         }
 
         res.json(updatedPO);
@@ -1177,60 +1192,4 @@ exports.createOutwardPO = async (req, res) => {
     }
 };
 
-// POST /api/purchase-orders/send-email
-exports.sendDispatchEmail = async (req, res) => {
-    try {
-        const { to, cc, subject, htmlBody } = req.body;
-        if (!to || !subject || !htmlBody) {
-            return res.status(400).json({ message: "To email, Subject, and Body are required." });
-        }
-
-        const nodemailer = require("nodemailer");
-        const smtpHost = process.env.SMTP_HOST || "mail.teaminspire.co.in";
-        const smtpPort = parseInt(process.env.SMTP_PORT || "465", 10);
-        const smtpUser = process.env.SMTP_USER || "dispatch@teaminspire.co.in";
-        const smtpPass = process.env.SMTP_PASS;
-
-        if (!smtpPass) {
-            return res.status(400).json({ 
-                message: "SMTP Password not configured in server .env file. Please set SMTP_PASS in backend/.env." 
-            });
-        }
-
-        const transporter = nodemailer.createTransport({
-            host: smtpHost,
-            port: smtpPort,
-            secure: smtpPort === 465,
-            auth: {
-                user: smtpUser,
-                pass: smtpPass
-            },
-            tls: {
-                rejectUnauthorized: false
-            }
-        });
-
-        const mailOptions = {
-            from: `"Dispatch TeamInspire" <${smtpUser}>`,
-            to,
-            cc: cc || undefined,
-            subject,
-            html: htmlBody
-        };
-
-        const info = await transporter.sendMail(mailOptions);
-        console.log("Dispatch email sent cleanly via SMTP:", info.messageId);
-
-        res.status(200).json({ 
-            success: true, 
-            message: "Email sent successfully!", 
-            messageId: info.messageId 
-        });
-    } catch (err) {
-        console.error("Direct SMTP Send Error:", err);
-        res.status(500).json({ 
-            success: false, 
-            message: err.message || "Failed to send email via SMTP" 
-        });
-    }
-};
+// Dispatch email sending moved to controllers/communicationController.js (sendEmail) — now logs Sent / Failed status

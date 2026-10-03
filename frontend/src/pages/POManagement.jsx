@@ -29,10 +29,14 @@ import {
   ExternalLink,
   Copy,
   Sparkles,
-  Star
+  Star,
+  RotateCcw,
+  RefreshCw,
+  Activity
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import API from "../api/api";
+import { io } from "socket.io-client";
+import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
 import CreateOutwardPO from "../components/po/CreateOutwardPO";
 
@@ -100,6 +104,38 @@ const StarMarkButton = ({ value, onChange }) => {
           {mark.glyph}
         </span>
       )}
+    </button>
+  );
+};
+
+// 📨 Email / WhatsApp delivery status chips
+const COMM_STATUS_STYLES = {
+  queued: { label: "Sending", cls: "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700" },
+  sent: { label: "Sent", cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800" },
+  delivered: { label: "Delivered", cls: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800" },
+  read: { label: "Read", cls: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800" },
+  failed: { label: "Failed", cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800" },
+};
+
+const formatCommTime = (d) => (d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
+
+const CommStatusChip = ({ channel, log, onClick }) => {
+  const Icon = channel === "email" ? Mail : MessageSquare;
+  const style = log ? COMM_STATUS_STYLES[log.status] || COMM_STATUS_STYLES.queued : null;
+  const title = log
+    ? `${channel === "email" ? "Email" : "WhatsApp"}: ${style.label} · ${log.recipient || ""} · ${formatCommTime(log.updatedAt || log.createdAt)}${log.error ? `\nError: ${log.error}` : ""}${log.attempts > 1 ? `\n${log.attempts} attempts` : ""}`
+    : `${channel === "email" ? "Email" : "WhatsApp"}: not sent yet`;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider transition hover:opacity-80 cursor-pointer ${
+        style ? style.cls : "bg-gray-50 text-gray-400 border-dashed border-gray-200 dark:bg-gray-900 dark:text-gray-500 dark:border-gray-700"
+      }`}
+    >
+      <Icon size={11} />
+      {style ? style.label : "Not sent"}
     </button>
   );
 };
@@ -173,6 +209,105 @@ const POManagement = ({ reportTab } = {}) => {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [dispatchCommData, setDispatchCommData] = useState(null);
+
+  // 📨 Email / WhatsApp status tracking
+  const [commStatus, setCommStatus] = useState({}); // { [poId]: { email, whatsapp } }
+  const [waConfig, setWaConfig] = useState({ enabled: false, mode: "text", templateName: "" });
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isSendingWA, setIsSendingWA] = useState(false);
+  const [commLogPO, setCommLogPO] = useState(null);
+  const [commLogs, setCommLogs] = useState([]);
+  const [commLogsLoading, setCommLogsLoading] = useState(false);
+  const [retryingLogId, setRetryingLogId] = useState(null);
+  const [commSettings, setCommSettings] = useState({ autoDispatchEmail: false, autoDispatchWhatsApp: false });
+
+  const updateCommSetting = async (key, value) => {
+    const prev = commSettings;
+    setCommSettings({ ...commSettings, [key]: value });
+    try {
+      const res = await API.put("/communications/settings", { [key]: value });
+      setCommSettings(res.data);
+      toast.success(`Auto ${key === "autoDispatchEmail" ? "Email" : "WhatsApp"} on dispatch ${value ? "ON" : "OFF"}`);
+    } catch (err) {
+      setCommSettings(prev);
+      toast.error(err.response?.data?.message || "Failed to update setting");
+    }
+  };
+  const commLogPORef = React.useRef(null);
+  commLogPORef.current = commLogPO;
+
+  const fetchCommStatus = async () => {
+    try {
+      const res = await API.get("/communications/latest");
+      setCommStatus(res.data || {});
+    } catch (err) {
+      console.error("Error fetching message statuses:", err);
+    }
+  };
+
+  const fetchCommLogs = async (poId) => {
+    setCommLogsLoading(true);
+    try {
+      const res = await API.get(`/communications/po/${poId}`);
+      setCommLogs(res.data || []);
+    } catch (err) {
+      console.error("Error fetching message history:", err);
+      toast.error("Failed to load message history");
+    } finally {
+      setCommLogsLoading(false);
+    }
+  };
+
+  const openCommLogModal = (po) => {
+    setCommLogPO(po);
+    setCommLogs([]);
+    fetchCommLogs(po._id);
+  };
+
+  const handleRetryComm = async (log) => {
+    setRetryingLogId(log._id);
+    try {
+      const res = await API.post(`/communications/${log._id}/retry`);
+      toast.success(res.data?.message || "Message re-sent!");
+    } catch (err) {
+      toast.error(`Retry failed: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setRetryingLogId(null);
+      fetchCommStatus();
+      if (commLogPORef.current) fetchCommLogs(commLogPORef.current._id);
+    }
+  };
+
+  useEffect(() => {
+    API.get("/communications/whatsapp/config")
+      .then(res => setWaConfig(res.data || { enabled: false }))
+      .catch(() => setWaConfig({ enabled: false, mode: "text", templateName: "" }));
+    API.get("/communications/settings")
+      .then(res => setCommSettings(res.data))
+      .catch(() => {});
+  }, []);
+
+  // Live status updates (WhatsApp delivered / read / failed arrive later via Meta webhook)
+  useEffect(() => {
+    if (activeTab !== "dispatch" && activeTab !== "completed") return;
+    fetchCommStatus();
+    const socketUrl = API_BASE_URL.replace(/\/api$/, "") || window.location.origin;
+    const socket = io(socketUrl, { transports: ["websocket", "polling"] });
+    let timer = null;
+    socket.on("communicationStatusUpdated", (update) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        fetchCommStatus();
+        if (commLogPORef.current && String(commLogPORef.current._id) === String(update?.po)) {
+          fetchCommLogs(commLogPORef.current._id);
+        }
+      }, 400);
+    });
+    return () => {
+      clearTimeout(timer);
+      socket.disconnect();
+    };
+  }, [activeTab]);
 
   // 🚧 Modern Animated Under Development Toast State & Trigger
   const [showDevToast, setShowDevToast] = useState(false);
@@ -1103,6 +1238,14 @@ Thank you for choosing Team Inspire!`;
       toast.success(newStatus === "Dispatched"
         ? `PO ${selectedPOForDispatch.poNumber || ""} fully dispatched — moved to Reports → Completed History`
         : "Dispatch tracking details updated successfully!");
+      const autoChannels = [
+        commSettings.autoDispatchEmail && "Email",
+        commSettings.autoDispatchWhatsApp && waConfig.enabled && "WhatsApp"
+      ].filter(Boolean);
+      if (autoChannels.length > 0) {
+        toast(`📨 Auto ${autoChannels.join(" & ")} is being sent to the client — check the status chip`, { duration: 5000 });
+        setTimeout(fetchCommStatus, 4000);
+      }
       setIsDispatchModalOpen(false);
       fetchPOs();
     } catch (err) {
@@ -1849,6 +1992,44 @@ Thank you for choosing Team Inspire!`;
           </div>
         </div>
 
+        {/* ⚡ Auto-send on dispatch (Dispatch Management only) */}
+        {activeTab === "dispatch" && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 px-4 py-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/30">
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+              <Sparkles size={15} /> Auto-send on dispatch
+            </div>
+            {[
+              { key: "autoDispatchEmail", label: "Email", icon: Mail, available: true },
+              { key: "autoDispatchWhatsApp", label: "WhatsApp", icon: MessageSquare, available: waConfig.enabled }
+            ].map(({ key, label, icon: Icon, available }) => {
+              const on = Boolean(commSettings[key]) && available;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  disabled={!available}
+                  onClick={() => updateCommSetting(key, !commSettings[key])}
+                  title={available
+                    ? `When dispatch details are saved, ${label} is sent to the client automatically`
+                    : "WhatsApp Business API not configured in backend/.env"}
+                  className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span className={`relative w-9 h-5 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : ""}`} />
+                  </span>
+                  <Icon size={14} /> {label} {on ? "ON" : "OFF"}
+                  {!available && <span className="text-[10px] font-semibold text-gray-400">(API not set up)</span>}
+                </button>
+              );
+            })}
+            <span className="text-[11px] text-indigo-600/70 dark:text-indigo-300/60 font-medium sm:ml-auto">
+              Sent to the client's contact from Clients → status shows in each row
+            </span>
+          </div>
+        )}
+
         {/* PO Table list */}
         <div className="overflow-auto custom-scrollbar max-h-[600px] rounded-2xl border border-gray-100 dark:border-gray-700/70 shadow-xs bg-white dark:bg-gray-800 relative">
           {loading ? (
@@ -2285,6 +2466,13 @@ Thank you for choosing Team Inspire!`;
                           </button>
                         )}
                       </div>
+                      {/* 📨 Email / WhatsApp delivery status (click → full history) */}
+                      {(activeTab === "dispatch" || activeTab === "completed") && (
+                        <div className="flex items-center justify-center gap-1.5 mt-1.5">
+                          <CommStatusChip channel="email" log={commStatus[po._id]?.email} onClick={() => openCommLogModal(po)} />
+                          <CommStatusChip channel="whatsapp" log={commStatus[po._id]?.whatsapp} onClick={() => openCommLogModal(po)} />
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -3742,28 +3930,36 @@ Thank you for choosing Team Inspire!`;
                     }
                     const bodyElement = document.getElementById("email-body-container");
                     const htmlContent = bodyElement ? bodyElement.innerHTML : "";
+                    setIsSendingEmail(true);
                     try {
-                      const res = await API.post("/purchase-orders/send-email", {
+                      const res = await API.post("/communications/email/send", {
                         to: dispatchCommData.recipientEmail,
                         cc: dispatchCommData.ccEmail || undefined,
                         subject: dispatchCommData.subject,
-                        htmlBody: htmlContent
+                        htmlBody: htmlContent,
+                        poId: dispatchCommData.po?._id,
+                        dispatchId: dispatchCommData.dispatch?._id
                       });
                       if (res.data?.success) {
-                        toast.success("Dispatch Email triggered directly from server!");
+                        toast.success(`Email sent to ${dispatchCommData.recipientEmail}`);
                         setIsEmailModalOpen(false);
                       } else {
                         toast.error(res.data?.message || "Failed to send email");
                       }
                     } catch (err) {
                       console.error("Direct Email Error:", err);
-                      toast.error(err.response?.data?.message || "Failed to send direct email. Check SMTP_PASS in backend/.env!");
+                      toast.error(`Email failed: ${err.response?.data?.message || "Check SMTP_PASS in backend/.env!"}`);
+                    } finally {
+                      setIsSendingEmail(false);
+                      fetchCommStatus();
                     }
                   }}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
+                  disabled={isSendingEmail}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
                   title="Send directly from server via dispatch@teaminspire.co.in"
                 >
-                  <Send size={15} /> Send Direct Email (SMTP)
+                  {isSendingEmail ? <RefreshCw size={15} className="animate-spin" /> : <Send size={15} />}
+                  {isSendingEmail ? "Sending..." : "Send Direct Email (SMTP)"}
                 </button>
                 <button
                   onClick={() => {
@@ -3825,9 +4021,24 @@ Thank you for choosing Team Inspire!`;
 
             {/* Modal Body */}
             <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 font-medium">
-                💬 Direct WhatsApp messaging. Clicking 'Send via WhatsApp' will open WhatsApp Web/App with this text pre-filled.
-              </div>
+              {waConfig.enabled ? (
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 font-medium space-y-1">
+                  <p>✅ WhatsApp Business API connected — 'Send via API' sends from the company number and tracks Sent / Delivered / Read / Failed.</p>
+                  {waConfig.mode === "template" ? (
+                    <p className="text-emerald-700/80 dark:text-emerald-300/80">
+                      📋 Approved template <span className="font-black">{waConfig.templateName}</span> will be sent with this PO's client, PO no., transporter, tracking no., dispatch date and items. The text box below is used only for 'Open WhatsApp Web'.
+                    </p>
+                  ) : (
+                    <p className="text-amber-700 dark:text-amber-300">
+                      ⚠️ No template configured — the text below is sent as-is. WhatsApp delivers it only if the client messaged you in the last 24 hours, otherwise it will show as Failed.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-3 rounded-2xl text-xs text-amber-800 dark:text-amber-300 font-medium">
+                  💬 WhatsApp Business API is not configured yet, so 'Open WhatsApp Web' opens WhatsApp with this text pre-filled (status can't be tracked for that). Add the WhatsApp credentials in backend/.env to enable direct sending with status.
+                </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Recipient Phone Number (With Country Code e.g. 919876543210)</label>
@@ -3853,8 +4064,10 @@ Thank you for choosing Team Inspire!`;
 
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-              <span className="text-[11px] text-gray-400 font-semibold">Direct 1-Click WhatsApp integration</span>
-              <div className="flex gap-2">
+              <span className="text-[11px] text-gray-400 font-semibold hidden sm:inline">
+                {waConfig.enabled ? "WhatsApp Business API" : "WhatsApp Web (manual)"}
+              </span>
+              <div className="flex gap-2 flex-wrap justify-end">
                 <button
                   onClick={() => setIsWhatsAppModalOpen(false)}
                   className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition cursor-pointer"
@@ -3872,11 +4085,160 @@ Thank you for choosing Team Inspire!`;
                     toast.success("Opening WhatsApp...");
                     setIsWhatsAppModalOpen(false);
                   }}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer font-bold"
+                  className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center gap-2 cursor-pointer ${
+                    waConfig.enabled
+                      ? "text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+                  }`}
+                  title="Opens WhatsApp Web / App with the text pre-filled (status not tracked)"
                 >
-                  <ExternalLink size={15} /> Send via WhatsApp
+                  <ExternalLink size={15} /> Open WhatsApp Web
+                </button>
+                {waConfig.enabled && (
+                  <button
+                    onClick={async () => {
+                      if (!dispatchCommData.recipientPhone || dispatchCommData.recipientPhone.length < 11) {
+                        toast.error("Enter mobile number with country code, e.g. 919876543210");
+                        return;
+                      }
+                      setIsSendingWA(true);
+                      try {
+                        const res = await API.post("/communications/whatsapp/send", {
+                          to: dispatchCommData.recipientPhone,
+                          message: dispatchCommData.whatsappMessage,
+                          poId: dispatchCommData.po?._id,
+                          dispatchId: dispatchCommData.dispatch?._id
+                        });
+                        toast.success(res.data?.message || "WhatsApp message sent!");
+                        setIsWhatsAppModalOpen(false);
+                      } catch (err) {
+                        console.error("WhatsApp API Error:", err);
+                        toast.error(`WhatsApp failed: ${err.response?.data?.message || err.message}`);
+                      } finally {
+                        setIsSendingWA(false);
+                        fetchCommStatus();
+                      }
+                    }}
+                    disabled={isSendingWA}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
+                    title="Send from company WhatsApp Business number and track status"
+                  >
+                    {isSendingWA ? <RefreshCw size={15} className="animate-spin" /> : <Send size={15} />}
+                    {isSendingWA ? "Sending..." : "Send via API"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📨 Email / WhatsApp Message History Modal */}
+      {commLogPO && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setCommLogPO(null)}>
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700 animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Activity size={22} />
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-wider">Message Status</h3>
+                  <p className="text-xs text-blue-100 font-medium">PO: {commLogPO.poNumber} · Email & WhatsApp history</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => fetchCommLogs(commLogPO._id)}
+                  className="p-2 text-white/80 hover:text-white rounded-xl transition hover:bg-white/10 cursor-pointer"
+                  title="Refresh"
+                >
+                  <RefreshCw size={16} className={commLogsLoading ? "animate-spin" : ""} />
+                </button>
+                <button
+                  onClick={() => setCommLogPO(null)}
+                  className="p-2 text-white/80 hover:text-white rounded-xl transition hover:bg-white/10 cursor-pointer"
+                >
+                  <X size={18} />
                 </button>
               </div>
+            </div>
+
+            <div className="p-4 sm:p-6 max-h-[65vh] overflow-y-auto custom-scrollbar space-y-3">
+              {commLogsLoading && commLogs.length === 0 ? (
+                <div className="py-12 flex justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                </div>
+              ) : commLogs.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-400">No messages sent for this PO yet</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Use the ✉️ Email or 💬 WhatsApp buttons in the row to notify the client.</p>
+                </div>
+              ) : (
+                commLogs.map((log) => {
+                  const style = COMM_STATUS_STYLES[log.status] || COMM_STATUS_STYLES.queued;
+                  const Icon = log.channel === "email" ? Mail : MessageSquare;
+                  return (
+                    <div key={log._id} className="border border-gray-100 dark:border-gray-700 rounded-2xl p-4 bg-gray-50/60 dark:bg-gray-900/40">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className={`p-2 rounded-xl shrink-0 ${log.channel === "email" ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300" : "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300"}`}>
+                            <Icon size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-gray-900 dark:text-white break-all">
+                              {log.recipient}
+                              {log.cc ? <span className="text-xs font-medium text-gray-400"> · cc {log.cc}</span> : null}
+                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              {log.channel === "email" ? (log.subject || "Email") : (log.templateName ? `Template: ${log.templateName}` : "Text message")}
+                              {" · "}{formatCommTime(log.createdAt)}
+                              {log.sentByName ? ` · by ${log.sentByName}` : ""}
+                              {log.retryOf ? " · retry" : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider ${style.cls}`}>{style.label}</span>
+                          {log.status === "failed" && (
+                            <button
+                              onClick={() => handleRetryComm(log)}
+                              disabled={retryingLogId === log._id}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 disabled:opacity-60 transition cursor-pointer"
+                              title="Send this message again"
+                            >
+                              <RotateCcw size={12} className={retryingLogId === log._id ? "animate-spin" : ""} /> Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {log.error && (
+                        <p className="mt-2.5 text-[11px] font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/50 rounded-lg px-3 py-2 break-words">
+                          ⚠️ {log.error}
+                        </p>
+                      )}
+
+                      {/* Status timeline */}
+                      {log.statusHistory?.length > 0 && (
+                        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-semibold text-gray-400">
+                          {log.statusHistory.map((h, i) => (
+                            <span key={i} className="flex items-center gap-1">
+                              {i > 0 && <ChevronRight size={10} />}
+                              <span className={h.status === "failed" ? "text-red-500" : h.status === "read" ? "text-blue-500" : h.status === "queued" ? "" : "text-emerald-600 dark:text-emerald-400"}>
+                                {(COMM_STATUS_STYLES[h.status] || {}).label || h.status}
+                              </span>
+                              <span>{formatCommTime(h.at)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 text-[11px] text-gray-400 font-medium">
+              Email: Sent = accepted by mail server. WhatsApp: Sent → Delivered → Read updates automatically from WhatsApp.
             </div>
           </div>
         </div>

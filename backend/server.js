@@ -25,7 +25,12 @@ app.use((req, res, next) => {
 // Middleware
 app.use(compression()); 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  // Keep raw body for WhatsApp webhook signature verification (X-Hub-Signature-256)
+  verify: (req, res, buf) => {
+    if (req.originalUrl.startsWith("/api/communications/whatsapp/webhook")) req.rawBody = buf;
+  }
+}));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Request logger
@@ -60,6 +65,8 @@ app.use("/api/quotations", require("./routes/quotationRoutes"));
 console.log("Quotation routes loaded");
 app.use("/api/purchase-orders", require("./routes/poRoutes"));
 console.log("Purchase Order routes loaded");
+app.use("/api/communications", require("./routes/communicationRoutes"));
+console.log("Communication (Email / WhatsApp) routes loaded");
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 console.log("Dashboard routes loaded");
 app.use("/api/settings", require("./routes/settingRoutes"));
