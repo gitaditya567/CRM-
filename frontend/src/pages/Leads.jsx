@@ -19,6 +19,10 @@ const DESIGNATIONS = [
 
 const COUNTRIES = ["India", "United States", "United Kingdom", "United Arab Emirates", "Singapore", "Australia"];
 
+// Lead form loads ALL clients of the selected group for the name suggestions.
+// (Was 100 — groups like "Dealers" grew past that and older clients disappeared from suggestions.)
+const GROUP_CLIENTS_LIMIT = 5000;
+
 const EMPTY_QUICK_PRODUCT = { type: "Spare Part", brand: "", productNo: "", name: "", hsnCode: "", uom: "PCS", retailPriceINR: "", dealerPriceINR: "" };
 
 const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select Product..." }) => {
@@ -2075,7 +2079,7 @@ const TeamInspire = () => {
                 notes: "" // Clear notes for adding new remark
             });
             if (lead.group) {
-                API.get(`/clients?group=${lead.group?._id || lead.group}&limit=100`).then(res => setModalClients(res.data.clients)).catch(err => console.error(err));
+                API.get(`/clients?group=${lead.group?._id || lead.group}&limit=${GROUP_CLIENTS_LIMIT}`).then(res => setModalClients(res.data.clients)).catch(err => console.error(err));
             }
             setShowRemarksHistory(false); // Reset history view
         } else {
@@ -2126,7 +2130,7 @@ const TeamInspire = () => {
             setFormData({ ...formData, [name]: value });
             if (value) {
                 // Fetch all clients for this group specifically for the dropdown
-                API.get(`/clients?group=${value}&limit=100`)
+                API.get(`/clients?group=${value}&limit=${GROUP_CLIENTS_LIMIT}`)
                     .then(res => {
                         setModalClients(res.data.clients || []);
                     })
