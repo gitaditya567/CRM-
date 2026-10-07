@@ -222,7 +222,7 @@ const ProductHistory = () => {
                                     <th className="px-5 py-4 w-32 min-w-[110px]">DATE ADDED</th>
                                     <th className="px-5 py-4 w-32 min-w-[110px] text-right">DEALER PRICE</th>
                                     <th className="px-5 py-4 w-32 min-w-[110px] text-right">RETAILER PRICE</th>
-                                    <th className="px-5 py-4 w-44 min-w-[160px] text-center sticky right-0 bg-gray-100/95 dark:bg-gray-700/95 z-10 shadow-[-4px_0_10px_rgba(0,0,0,0.06)]">
+                                    <th className="px-5 py-4 w-36 min-w-[140px] text-center sticky right-0 bg-gray-100/95 dark:bg-gray-700/95 z-10 shadow-[-4px_0_10px_rgba(0,0,0,0.06)]">
                                         ACTIONS
                                     </th>
                                 </tr>
@@ -324,20 +324,30 @@ const ProductHistory = () => {
 
                                             {/* Actions (Sticky Right Column with full Edit and Delete buttons) */}
                                             <td className="px-5 py-4 whitespace-nowrap text-center sticky right-0 bg-white dark:bg-gray-800 z-10 shadow-[-4px_0_10px_rgba(0,0,0,0.06)] group-hover:bg-blue-50/40 dark:group-hover:bg-gray-800">
-                                                <div className="flex items-center justify-center gap-2">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <button
+                                                        onClick={() => navigate(`/edit-product/${p._id}?addStock=1`)}
+                                                        className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-xl transition-all hover:scale-110 cursor-pointer"
+                                                        title="Add Part in Stock"
+                                                        aria-label="Add Part in Stock"
+                                                    >
+                                                        <Plus size={16} />
+                                                    </button>
                                                     <button
                                                         onClick={() => navigate(`/edit-product/${p._id}`)}
-                                                        className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer"
+                                                        className="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-xl transition-all hover:scale-110 cursor-pointer"
                                                         title="Edit Product Details"
+                                                        aria-label="Edit Product"
                                                     >
-                                                        <Edit2 size={12} /> Edit
+                                                        <Edit2 size={16} />
                                                     </button>
                                                     <button
                                                         onClick={() => handleDelete(p._id)}
-                                                        className="px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer"
+                                                        className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-xl transition-all hover:scale-110 cursor-pointer"
                                                         title="Delete Product"
+                                                        aria-label="Delete Product"
                                                     >
-                                                        <Trash2 size={12} /> Delete
+                                                        <Trash2 size={16} />
                                                     </button>
                                                 </div>
                                             </td>

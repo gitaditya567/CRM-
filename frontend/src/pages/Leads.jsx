@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText, Search, Filter, Calendar, SlidersHorizontal, X, Briefcase, Grid, FileSpreadsheet, Package } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
@@ -18,11 +19,53 @@ const DESIGNATIONS = [
 
 const COUNTRIES = ["India", "United States", "United Kingdom", "United Arab Emirates", "Singapore", "Australia"];
 
+const EMPTY_QUICK_PRODUCT = { type: "Spare Part", brand: "", productNo: "", name: "", hsnCode: "", uom: "PCS", retailPriceINR: "", dealerPriceINR: "" };
+
 const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select Product..." }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [searchedTerm, setSearchedTerm] = useState("");
+
+    // ➕ Quick-add a product that is not in the catalog yet (right from the quotation item row)
+    const [showQuickAdd, setShowQuickAdd] = useState(false);
+    const [quickForm, setQuickForm] = useState(EMPTY_QUICK_PRODUCT);
+    const [quickSaving, setQuickSaving] = useState(false);
+
+    const openQuickAdd = () => {
+        const term = searchTerm.trim();
+        const looksLikeCode = term && !/\s/.test(term) && /\d/.test(term);
+        setQuickForm({ ...EMPTY_QUICK_PRODUCT, productNo: looksLikeCode ? term : "", name: looksLikeCode ? "" : term });
+        setIsOpen(false);
+        setShowQuickAdd(true);
+    };
+
+    const saveQuickAdd = async () => {
+        if (!quickForm.productNo.trim() || !quickForm.name.trim()) {
+            toast.error("Part Code and Product Name are required");
+            return;
+        }
+        setQuickSaving(true);
+        try {
+            const payload = { ...quickForm, productNo: quickForm.productNo.trim(), name: quickForm.name.trim(), brand: quickForm.brand.trim() };
+            if (!payload.retailPriceINR) delete payload.retailPriceINR;
+            if (!payload.dealerPriceINR) delete payload.dealerPriceINR;
+            const res = await API.post("/products/create", payload);
+            const created = res.data?.product;
+            if (created) {
+                onChange(created);
+                setSearchTerm(`${created.name} (${created.productNo})`);
+                setResults([]);
+            }
+            toast.success("✅ New product added and selected");
+            setShowQuickAdd(false);
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Failed to add product");
+        } finally {
+            setQuickSaving(false);
+        }
+    };
 
     // Initial load for value display
     useEffect(() => {
@@ -44,10 +87,12 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
             API.get(`/products/search/${searchTerm}`)
                 .then(res => {
                     setResults(res.data || []);
+                    setSearchedTerm(searchTerm);
                     setLoading(false);
                 })
                 .catch(() => {
                     setResults([]);
+                    setSearchedTerm(searchTerm);
                     setLoading(false);
                 });
         }, 500);
@@ -105,7 +150,99 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
                             <div className="text-xs text-gray-500 dark:text-gray-400">Part Code: {p.productNo} | Brand: {p.brand} | Rate: ₹{p.retailPriceINR || 0}</div>
                         </div>
                     ))}
+                    <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm font-bold text-teal-700 dark:text-teal-300 bg-teal-50/60 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 sticky bottom-0 border-t border-teal-100 dark:border-teal-800 cursor-pointer"
+                    >
+                        <PlusCircle size={15} /> Not in list? Add new product
+                    </button>
                 </div>
+            )}
+            {/* Nothing found → offer to add it as a new product straight away */}
+            {isOpen && !loading && results.length === 0 && searchTerm.trim().length >= 2 && !searchTerm.includes("(") && searchedTerm === searchTerm && (
+                <div className="absolute z-50 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg mt-1 p-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-300 mb-2">
+                        No product found for "<span className="font-bold text-gray-700 dark:text-white">{searchTerm}</span>"
+                    </p>
+                    <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 transition cursor-pointer"
+                    >
+                        <PlusCircle size={15} /> Add "{searchTerm.trim()}" as new product
+                    </button>
+                </div>
+            )}
+
+            {/* Quick Add Product modal (portal → not clipped by the quotation modal) */}
+            {showQuickAdd && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onMouseDown={() => !quickSaving && setShowQuickAdd(false)}>
+                    <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+                        <div className="px-5 py-4 bg-gradient-to-r from-teal-600 to-emerald-600 text-white flex items-center justify-between">
+                            <div>
+                                <h3 className="font-black uppercase tracking-wider text-sm">Add New Product</h3>
+                                <p className="text-[11px] text-teal-100">Saved to the catalog and selected in this quotation item</p>
+                            </div>
+                            <button type="button" onClick={() => setShowQuickAdd(false)} className="p-1.5 rounded-lg hover:bg-white/10 cursor-pointer"><X size={18} /></button>
+                        </div>
+                        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {[
+                                { key: "productNo", label: "Part / Model Code *", placeholder: "e.g. HBH755R-CE" },
+                                { key: "name", label: "Product Name *", placeholder: "e.g. High-Performance Blender" },
+                                { key: "brand", label: "Brand", placeholder: "e.g. Hamilton Beach" },
+                                { key: "hsnCode", label: "HSN Code", placeholder: "e.g. 84189090" },
+                                { key: "retailPriceINR", label: "Retail Price (₹)", placeholder: "0", type: "number" },
+                                { key: "dealerPriceINR", label: "Dealer Price (₹)", placeholder: "0", type: "number" },
+                            ].map(f => (
+                                <div key={f.key}>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">{f.label}</label>
+                                    <input
+                                        type={f.type || "text"}
+                                        value={quickForm[f.key]}
+                                        onChange={(e) => setQuickForm({ ...quickForm, [f.key]: e.target.value })}
+                                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveQuickAdd(); } }}
+                                        placeholder={f.placeholder}
+                                        className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                                    />
+                                </div>
+                            ))}
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Type</label>
+                                <select
+                                    value={quickForm.type}
+                                    onChange={(e) => setQuickForm({ ...quickForm, type: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                                >
+                                    <option value="Spare Part">Spare Part</option>
+                                    <option value="Equipment">Equipment</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Unit (UOM)</label>
+                                <input
+                                    type="text"
+                                    value={quickForm.uom}
+                                    onChange={(e) => setQuickForm({ ...quickForm, uom: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                                />
+                            </div>
+                        </div>
+                        <div className="px-5 py-3 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+                            <button type="button" onClick={() => setShowQuickAdd(false)} className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-pointer">Cancel</button>
+                            <button
+                                type="button"
+                                onClick={saveQuickAdd}
+                                disabled={quickSaving}
+                                className="px-5 py-2 text-xs font-black uppercase tracking-wider text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-60 rounded-lg flex items-center gap-2 cursor-pointer"
+                            >
+                                {quickSaving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />}
+                                {quickSaving ? "Saving..." : "Add & Select"}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
         </div>
     );

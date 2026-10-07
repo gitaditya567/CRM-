@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import API from "../api/api";
 import toast from "react-hot-toast";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 
 const DEFAULT_BRANDS = [];
@@ -12,6 +12,10 @@ const AddProduct = () => {
     const navigate = useNavigate();
     const { id } = useParams();
     const isEdit = !!id;
+    // ?addStock=1 (from Product History "+" icon) → open "Add Part in Stock" form directly
+    const [searchParams] = useSearchParams();
+    const openAddStockOnLoad = isEdit && searchParams.get("addStock") === "1";
+    const autoOpenedAddStockRef = useRef(false);
 
     const [loading, setLoading] = useState(false);
     const [productType, setProductType] = useState("Spare Part");
@@ -388,6 +392,10 @@ const AddProduct = () => {
             await API.post(`/products/${targetId}/add-stock`, stockForm);
             toast.success("✅ Stock added to ledger successfully!");
             setShowAddStockModal(false);
+            if (openAddStockOnLoad) {
+                navigate("/product-history");
+                return;
+            }
             // Refresh live stock
             fetchLiveStock(targetId);
             if (showLedgerModal) {
@@ -423,6 +431,14 @@ const AddProduct = () => {
     };
 
     // Active Display Data for the Live Card (Priority: Live Form Input > Found DB Product)
+    // Auto-open Add Stock form once the product (and its price) has loaded
+    useEffect(() => {
+        if (openAddStockOnLoad && !autoOpenedAddStockRef.current && !loading && liveStock?.product?._id) {
+            autoOpenedAddStockRef.current = true;
+            handleOpenAddStock();
+        }
+    }, [openAddStockOnLoad, loading, liveStock]);
+
     const isMatchedInDB = !!(selectedProduct?._id || liveStock?.product?._id || id);
     const activeName = formData.name || selectedProduct?.name || liveStock?.product?.name || "Enter Part Name...";
     const activeBrand = formData.brand || selectedProduct?.brand || liveStock?.product?.brand || "Brand";
