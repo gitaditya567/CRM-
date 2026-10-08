@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import ProductFormFields, { ProductTypeSwitch, DEFAULT_CURRENCIES, DEFAULT_UOMS, EMPTY_PRODUCT_FORM, buildProductPayload } from "../components/product/ProductFormFields";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, Pencil, Trash2, List, Users, CheckCircle, CreditCard, TrendingUp, PlusCircle, Clock, Download, RefreshCw, Flag, ArrowDownLeft, Phone, FileText, Search, Filter, Calendar, SlidersHorizontal, X, Briefcase, Grid, FileSpreadsheet, Package } from "lucide-react";
 import API, { API_BASE_URL } from "../api/api";
@@ -23,7 +24,6 @@ const COUNTRIES = ["India", "United States", "United Kingdom", "United Arab Emir
 // (Was 100 — groups like "Dealers" grew past that and older clients disappeared from suggestions.)
 const GROUP_CLIENTS_LIMIT = 5000;
 
-const EMPTY_QUICK_PRODUCT = { type: "Spare Part", brand: "", productNo: "", name: "", hsnCode: "", uom: "PCS", retailPriceINR: "", dealerPriceINR: "" };
 
 const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select Product..." }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -32,29 +32,50 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
     const [loading, setLoading] = useState(false);
     const [searchedTerm, setSearchedTerm] = useState("");
 
-    // ➕ Quick-add a product that is not in the catalog yet (right from the quotation item row)
+    // ➕ Add a product that is not in the catalog yet — same full form as the "Add Product" page
     const [showQuickAdd, setShowQuickAdd] = useState(false);
-    const [quickForm, setQuickForm] = useState(EMPTY_QUICK_PRODUCT);
+    const [quickType, setQuickType] = useState("Spare Part");
+    const [quickForm, setQuickForm] = useState(EMPTY_PRODUCT_FORM);
     const [quickSaving, setQuickSaving] = useState(false);
+    const [quickBrands, setQuickBrands] = useState([]);
+    const [quickCurrencies, setQuickCurrencies] = useState(DEFAULT_CURRENCIES);
+    const [quickCustomUom, setQuickCustomUom] = useState(false);
+    const [quickCustomCurrency, setQuickCustomCurrency] = useState(false);
 
     const openQuickAdd = () => {
         const term = searchTerm.trim();
         const looksLikeCode = term && !/\s/.test(term) && /\d/.test(term);
-        setQuickForm({ ...EMPTY_QUICK_PRODUCT, productNo: looksLikeCode ? term : "", name: looksLikeCode ? "" : term });
+        setQuickType("Spare Part");
+        setQuickForm({ ...EMPTY_PRODUCT_FORM, productNo: looksLikeCode ? term : "", name: looksLikeCode ? "" : term });
+        setQuickCustomUom(false);
+        setQuickCustomCurrency(false);
         setIsOpen(false);
         setShowQuickAdd(true);
+        // Existing brands & currencies for the dropdowns (same source as Add Product page)
+        API.get("/products/meta").then(res => {
+            setQuickBrands(Array.from(new Set(res.data?.brands || [])).filter(Boolean).sort());
+            setQuickCurrencies(Array.from(new Set([...DEFAULT_CURRENCIES, ...(res.data?.currencies || [])])));
+        }).catch(() => {});
     };
 
-    const saveQuickAdd = async () => {
+    const saveQuickAdd = async (e) => {
+        if (e) {
+            e.preventDefault();
+            // React bubbles portal events through the component tree — never let this submit reach the quotation <form>
+            e.stopPropagation();
+        }
         if (!quickForm.productNo.trim() || !quickForm.name.trim()) {
-            toast.error("Part Code and Product Name are required");
+            toast.error(`${quickType === "Spare Part" ? "Part Code & Part Name" : "Model Code & Equipment Name"} are required`);
             return;
         }
         setQuickSaving(true);
         try {
-            const payload = { ...quickForm, productNo: quickForm.productNo.trim(), name: quickForm.name.trim(), brand: quickForm.brand.trim() };
-            if (!payload.retailPriceINR) delete payload.retailPriceINR;
-            if (!payload.dealerPriceINR) delete payload.dealerPriceINR;
+            const payload = buildProductPayload(quickType, {
+                ...quickForm,
+                productNo: quickForm.productNo.trim(),
+                name: quickForm.name.trim(),
+                brand: quickForm.brand.trim()
+            });
             const res = await API.post("/products/create", payload);
             const created = res.data?.product;
             if (created) {
@@ -179,72 +200,53 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
                 </div>
             )}
 
-            {/* Quick Add Product modal (portal → not clipped by the quotation modal) */}
+            {/* Add New Product popup — same full form as the Add Product page (portal → not clipped by the quotation modal) */}
             {showQuickAdd && createPortal(
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onMouseDown={() => !quickSaving && setShowQuickAdd(false)}>
-                    <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
-                        <div className="px-5 py-4 bg-gradient-to-r from-teal-600 to-emerald-600 text-white flex items-center justify-between">
+                    <form
+                        onSubmit={saveQuickAdd}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="w-full max-w-3xl max-h-[92vh] flex flex-col bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden"
+                    >
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white flex items-start justify-between gap-4 shrink-0">
                             <div>
-                                <h3 className="font-black uppercase tracking-wider text-sm">Add New Product</h3>
-                                <p className="text-[11px] text-teal-100">Saved to the catalog and selected in this quotation item</p>
+                                <h3 className="text-xl md:text-2xl font-extrabold tracking-tight">Add New Product</h3>
+                                <p className="opacity-90 mt-1 text-blue-100 text-sm">Saved to the product catalog and selected in this quotation item.</p>
                             </div>
-                            <button type="button" onClick={() => setShowQuickAdd(false)} className="p-1.5 rounded-lg hover:bg-white/10 cursor-pointer"><X size={18} /></button>
+                            <button type="button" onClick={() => setShowQuickAdd(false)} className="p-1.5 rounded-lg hover:bg-white/10 cursor-pointer shrink-0"><X size={20} /></button>
                         </div>
-                        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {[
-                                { key: "productNo", label: "Part / Model Code *", placeholder: "e.g. HBH755R-CE" },
-                                { key: "name", label: "Product Name *", placeholder: "e.g. High-Performance Blender" },
-                                { key: "brand", label: "Brand", placeholder: "e.g. Hamilton Beach" },
-                                { key: "hsnCode", label: "HSN Code", placeholder: "e.g. 84189090" },
-                                { key: "retailPriceINR", label: "Retail Price (₹)", placeholder: "0", type: "number" },
-                                { key: "dealerPriceINR", label: "Dealer Price (₹)", placeholder: "0", type: "number" },
-                            ].map(f => (
-                                <div key={f.key}>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">{f.label}</label>
-                                    <input
-                                        type={f.type || "text"}
-                                        value={quickForm[f.key]}
-                                        onChange={(e) => setQuickForm({ ...quickForm, [f.key]: e.target.value })}
-                                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveQuickAdd(); } }}
-                                        placeholder={f.placeholder}
-                                        className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
-                                    />
-                                </div>
-                            ))}
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Type</label>
-                                <select
-                                    value={quickForm.type}
-                                    onChange={(e) => setQuickForm({ ...quickForm, type: e.target.value })}
-                                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
-                                >
-                                    <option value="Spare Part">Spare Part</option>
-                                    <option value="Equipment">Equipment</option>
-                                </select>
+            
+                        <div className="p-6 overflow-y-auto custom-scrollbar">
+                            <div className="mb-6">
+                                <ProductTypeSwitch productType={quickType} setProductType={setQuickType} />
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Unit (UOM)</label>
-                                <input
-                                    type="text"
-                                    value={quickForm.uom}
-                                    onChange={(e) => setQuickForm({ ...quickForm, uom: e.target.value })}
-                                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 text-sm dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
-                                />
-                            </div>
+                            <ProductFormFields
+                                productType={quickType}
+                                formData={quickForm}
+                                setFormData={setQuickForm}
+                                brands={quickBrands}
+                                setBrands={setQuickBrands}
+                                currencies={quickCurrencies}
+                                uoms={DEFAULT_UOMS}
+                                isCustomUom={quickCustomUom}
+                                setIsCustomUom={setQuickCustomUom}
+                                isCustomCurrency={quickCustomCurrency}
+                                setIsCustomCurrency={setQuickCustomCurrency}
+                            />
                         </div>
-                        <div className="px-5 py-3 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
-                            <button type="button" onClick={() => setShowQuickAdd(false)} className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-pointer">Cancel</button>
+            
+                        <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2 shrink-0">
+                            <button type="button" onClick={() => setShowQuickAdd(false)} className="px-5 py-3 text-sm font-bold text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl cursor-pointer">Cancel</button>
                             <button
-                                type="button"
-                                onClick={saveQuickAdd}
+                                type="submit"
                                 disabled={quickSaving}
-                                className="px-5 py-2 text-xs font-black uppercase tracking-wider text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-60 rounded-lg flex items-center gap-2 cursor-pointer"
+                                className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed text-sm tracking-wide flex items-center gap-2 cursor-pointer"
                             >
-                                {quickSaving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />}
-                                {quickSaving ? "Saving..." : "Add & Select"}
+                                {quickSaving ? <RefreshCw size={16} className="animate-spin" /> : <PlusCircle size={16} />}
+                                {quickSaving ? "Saving..." : "Save Product & Select"}
                             </button>
                         </div>
-                    </div>
+                    </form>
                 </div>,
                 document.body
             )}
