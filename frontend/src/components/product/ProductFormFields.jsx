@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import API from "../../api/api";
 
 // Shared Add / Edit Product form — used by the Add Product page and the
 // "Add new product" popup in the Quotation form, so both always stay identical.
@@ -62,10 +64,36 @@ const ProductFormFields = ({
     setIsCustomUom,
     isCustomCurrency,
     setIsCustomCurrency,
-    onDeleteBrand, // optional (brand, event) => void
+    onDeleteBrand, // optional async (brand) => void — called only after the user confirms
 }) => {
     const [isBrandOpen, setIsBrandOpen] = useState(false);
     const brandRef = useRef(null);
+
+    // 🗑️ Brand delete confirmation (Yes / No) — never delete straight from the ✕ click
+    const [brandToDelete, setBrandToDelete] = useState(null);
+    const [affectedCount, setAffectedCount] = useState(null);
+    const [deletingBrand, setDeletingBrand] = useState(false);
+
+    const askDeleteBrand = (brand, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsBrandOpen(false);
+        setBrandToDelete(brand);
+        setAffectedCount(null);
+        API.get(`/products/recent?brand=${encodeURIComponent(brand)}&limit=1`)
+            .then(res => setAffectedCount(res.data?.total ?? 0))
+            .catch(() => setAffectedCount(-1));
+    };
+
+    const confirmDeleteBrand = async () => {
+        setDeletingBrand(true);
+        try {
+            await onDeleteBrand(brandToDelete);
+        } finally {
+            setDeletingBrand(false);
+            setBrandToDelete(null);
+        }
+    };
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -126,7 +154,7 @@ const ProductFormFields = ({
                                     {onDeleteBrand && (
                                         <button
                                             type="button"
-                                            onClick={(e) => onDeleteBrand(brand, e)}
+                                            onClick={(e) => askDeleteBrand(brand, e)}
                                             className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full text-gray-400 hover:text-red-500 transition-colors"
                                             title="Remove from list"
                                         >
@@ -356,6 +384,60 @@ const ProductFormFields = ({
                     step="0.01"
                 />
             </div>
+
+            {/* Delete Brand — Yes / No confirmation */}
+            {brandToDelete && createPortal(
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onMouseDown={() => !deletingBrand && setBrandToDelete(null)}>
+                    <div
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="delete-brand-title"
+                        className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden"
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-6">
+                            <div className="flex items-start gap-4">
+                                <div className="w-11 h-11 shrink-0 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center text-xl">⚠️</div>
+                                <div>
+                                    <h3 id="delete-brand-title" className="text-lg font-extrabold text-gray-900 dark:text-white">
+                                        Delete brand "{brandToDelete}"?
+                                    </h3>
+                                    <p className="mt-1.5 text-sm text-gray-600 dark:text-gray-300">
+                                        {affectedCount === null
+                                            ? "Checking products using this brand..."
+                                            : affectedCount > 0
+                                                ? <>This brand will be removed from <b className="text-red-600 dark:text-red-400">{affectedCount} product{affectedCount === 1 ? "" : "s"}</b> (their brand will become empty).</>
+                                                : affectedCount === 0
+                                                    ? "No products use this brand. It will just be removed from the list."
+                                                    : "Every product with this brand will have its brand removed."}
+                                    </p>
+                                    <p className="mt-2 text-xs font-semibold text-gray-400">This cannot be undone.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                autoFocus
+                                onClick={() => setBrandToDelete(null)}
+                                disabled={deletingBrand}
+                                className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                            >
+                                No, Keep
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmDeleteBrand}
+                                disabled={deletingBrand || affectedCount === null}
+                                className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                                {deletingBrand ? "Deleting..." : "Yes, Delete"}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
         </div>
     );

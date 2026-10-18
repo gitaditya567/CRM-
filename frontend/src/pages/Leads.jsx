@@ -25,7 +25,14 @@ const COUNTRIES = ["India", "United States", "United Kingdom", "United Arab Emir
 const GROUP_CLIENTS_LIMIT = 5000;
 
 
+// Only Admin / SuperAdmin may create new catalog products from the quotation item search
+const canAddNewProduct = () => {
+    const role = (localStorage.getItem("role") || "").toLowerCase();
+    return role === "admin" || role === "superadmin";
+};
+
 const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select Product..." }) => {
+    const allowAddProduct = canAddNewProduct();
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [results, setResults] = useState([]);
@@ -43,6 +50,7 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
     const [quickCustomCurrency, setQuickCustomCurrency] = useState(false);
 
     const openQuickAdd = () => {
+        if (!allowAddProduct) return;
         const term = searchTerm.trim();
         const looksLikeCode = term && !/\s/.test(term) && /\d/.test(term);
         setQuickType("Spare Part");
@@ -175,13 +183,15 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
                             <div className="text-xs text-gray-500 dark:text-gray-400">Part Code: {p.productNo} | Brand: {p.brand} | Rate: ₹{p.retailPriceINR || 0}</div>
                         </div>
                     ))}
-                    <button
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm font-bold text-teal-700 dark:text-teal-300 bg-teal-50/60 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 sticky bottom-0 border-t border-teal-100 dark:border-teal-800 cursor-pointer"
-                    >
-                        <PlusCircle size={15} /> Not in list? Add new product
-                    </button>
+                    {allowAddProduct && (
+                        <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm font-bold text-teal-700 dark:text-teal-300 bg-teal-50/60 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 sticky bottom-0 border-t border-teal-100 dark:border-teal-800 cursor-pointer"
+                        >
+                            <PlusCircle size={15} /> Not in list? Add new product
+                        </button>
+                    )}
                 </div>
             )}
             {/* Nothing found → offer to add it as a new product straight away */}
@@ -190,18 +200,24 @@ const ProductSearchSelect = React.memo(({ value, onChange, placeholder = "Select
                     <p className="text-xs text-gray-500 dark:text-gray-300 mb-2">
                         No product found for "<span className="font-bold text-gray-700 dark:text-white">{searchTerm}</span>"
                     </p>
-                    <button
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 transition cursor-pointer"
-                    >
-                        <PlusCircle size={15} /> Add "{searchTerm.trim()}" as new product
-                    </button>
+                    {allowAddProduct ? (
+                        <button
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); openQuickAdd(); }}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 transition cursor-pointer"
+                        >
+                            <PlusCircle size={15} /> Add "{searchTerm.trim()}" as new product
+                        </button>
+                    ) : (
+                        <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-2.5 py-1.5">
+                            Ask an Admin to add this product to the catalog.
+                        </p>
+                    )}
                 </div>
             )}
 
             {/* Add New Product popup — same full form as the Add Product page (portal → not clipped by the quotation modal) */}
-            {showQuickAdd && createPortal(
+            {allowAddProduct && showQuickAdd && createPortal(
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onMouseDown={() => !quickSaving && setShowQuickAdd(false)}>
                     <form
                         onSubmit={saveQuickAdd}

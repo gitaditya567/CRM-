@@ -309,24 +309,21 @@ const AddProduct = () => {
         }
     };
 
-    const handleDeleteBrand = async (brandToDelete, e) => {
-        if (e) e.stopPropagation();
+    // Called by ProductFormFields only AFTER the user clicks "Yes, Delete" in its confirmation popup
+    const handleDeleteBrand = async (brandToDelete) => {
         if (!brandToDelete) return;
-
-        if (window.confirm(`Are you sure you want to delete "${brandToDelete}"?`)) {
-            try {
-                if (!DEFAULT_BRANDS.includes(brandToDelete)) {
-                    await API.delete(`/products/brand/${encodeURIComponent(brandToDelete)}`);
-                }
-                setBrands(prev => prev.filter(b => b !== brandToDelete));
-                if (formData.brand === brandToDelete) {
-                    setFormData(prev => ({ ...prev, brand: "" }));
-                }
-                toast.error(`Brand '${brandToDelete}' removed.`);
-            } catch (err) {
-                console.error("Delete Brand Error:", err);
-                toast.error("Failed to delete brand.");
+        try {
+            if (!DEFAULT_BRANDS.includes(brandToDelete)) {
+                await API.delete(`/products/brand/${encodeURIComponent(brandToDelete)}`);
             }
+            setBrands(prev => prev.filter(b => b !== brandToDelete));
+            if (formData.brand === brandToDelete) {
+                setFormData(prev => ({ ...prev, brand: "" }));
+            }
+            toast.success(`Brand '${brandToDelete}' deleted.`);
+        } catch (err) {
+            console.error("Delete Brand Error:", err);
+            toast.error("Failed to delete brand.");
         }
     };
 
