@@ -21,6 +21,7 @@ const SalesDashboard = lazy(() => import("./pages/SalesDashboard"));
 const DeveloperRequests = lazy(() => import("./pages/DeveloperRequests"));
 const MasterDashboard = lazy(() => import("./pages/MasterDashboard"));
 const Reports = lazy(() => import("./pages/Reports"));
+const Expenses = lazy(() => import("./pages/Expenses"));
 
 const GlobalLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-[#070F2B] text-white">
@@ -231,6 +232,18 @@ const App = () => {
                   <PrivateRoute>
                     <AdminRoute>
                       <Reports />
+                    </AdminRoute>
+                  </PrivateRoute>
+                }
+              />
+
+              {/* Travel & Expenses (Admin Only for now) */}
+              <Route
+                path="/expenses"
+                element={
+                  <PrivateRoute>
+                    <AdminRoute>
+                      <Expenses />
                     </AdminRoute>
                   </PrivateRoute>
                 }

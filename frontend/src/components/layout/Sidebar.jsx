@@ -15,7 +15,8 @@ import {
     List,
     ExternalLink,
     BarChart3,
-    ChevronDown
+    ChevronDown,
+    Wallet
 } from "lucide-react";
 import { REPORTS } from "../../config/reports";
 import { useTheme } from "../../context/ThemeContext";
@@ -122,6 +123,7 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
         }
 
         if (role === 'admin' || role === 'superadmin') {
+            links.push({ name: "Travel & Expenses", path: "/expenses", icon: Wallet });
             links.push({ name: "Developer Desk", path: "/developer-requests", icon: RefreshCw });
         }
     }
