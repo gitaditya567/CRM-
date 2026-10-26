@@ -237,14 +237,12 @@ const App = () => {
                 }
               />
 
-              {/* Travel & Expenses (Admin Only for now) */}
+              {/* Travel & Expenses (all users; data scoped per user by the API) */}
               <Route
                 path="/expenses"
                 element={
                   <PrivateRoute>
-                    <AdminRoute>
-                      <Expenses />
-                    </AdminRoute>
+                    <Expenses />
                   </PrivateRoute>
                 }
               />

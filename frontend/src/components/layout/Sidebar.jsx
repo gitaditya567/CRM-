@@ -90,6 +90,7 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
         if (isServices) {
             links.push({ name: "Support Hub", path: "/client-support", icon: Users });
         }
+        links.push({ name: "Travel & Expenses", path: "/expenses", icon: Wallet });
     } else {
         if (canViewMenu('Dashboard', 'showDashboard')) {
             links.push({ name: "Dashboard", path: "/dashboard", icon: LayoutDashboard });
@@ -122,8 +123,10 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
             links.push({ name: "Permissions", path: "/permissions", icon: Settings });
         }
 
+        // Everyone records their own tours & expenses; admins see and approve all
+        links.push({ name: "Travel & Expenses", path: "/expenses", icon: Wallet });
+
         if (role === 'admin' || role === 'superadmin') {
-            links.push({ name: "Travel & Expenses", path: "/expenses", icon: Wallet });
             links.push({ name: "Developer Desk", path: "/developer-requests", icon: RefreshCw });
         }
     }

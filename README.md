@@ -14,10 +14,12 @@ Internal CRM and inventory system for TeamInspire Business Solutions: leads, quo
 | **Products & Stock** | Add / edit products, live stock, stock ledger (IN / OUT entries) and Product History. |
 | **Clients** | Clients grouped by group (e.g. Dealers), secret / visible clients per user. |
 | **Staff & Permissions** | Staff accounts, roles and menu / module permissions. |
-| **Travel & Expenses** | Placeholder tab (admin only), module in planning. |
+| **Travel & Expenses** | Staff tours with advances, expense claims with bill uploads, approval flow (Submitted → Approved / Rejected → Paid), advance settlement, dashboard charts and CSV export. Every user records their own; admins see and approve all. |
 | **Developer Desk** | Internal requests to the developer. |
 
-User roles: `admin`, `SuperAdmin`, `sales`, `services`, `staff`. PO Management, Reports and Travel & Expenses are admin / SuperAdmin only.
+User roles: `admin`, `SuperAdmin`, `sales`, `services`, `staff`. PO Management and Reports are admin / SuperAdmin only.
+
+Expense bills are stored in `backend/uploads/expenses/` (images / PDF, max 5 MB each). They are git-ignored, so back this folder up on the server.
 
 ## Tech stack
 

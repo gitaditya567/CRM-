@@ -66,6 +66,8 @@ console.log("Quotation routes loaded");
 app.use("/api/purchase-orders", require("./routes/poRoutes"));
 console.log("Purchase Order routes loaded");
 app.use("/api/communications", require("./routes/communicationRoutes"));
+app.use("/api/expenses", require("./routes/expenseRoutes"));
+console.log("Travel & Expenses routes loaded");
 console.log("Communication (Email / WhatsApp) routes loaded");
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 console.log("Dashboard routes loaded");
