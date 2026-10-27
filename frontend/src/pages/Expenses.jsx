@@ -6,6 +6,7 @@ import {
     Save, Send, FileText
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import API, { API_BASE_URL } from "../api/api";
 import toast from "react-hot-toast";
 
@@ -65,52 +66,102 @@ const rangeFor = (preset) => {
     return { from: "", to: "" }; // all time / custom
 };
 
-const inputCls = "w-full px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500";
+// text-base (16px) on phones stops iOS Safari from zooming the page when a field is focused
+const inputCls = "w-full px-3 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-base sm:text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500";
 const labelCls = "block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1";
 const btnPrimary = "flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition cursor-pointer";
 const btnGhost = "px-4 py-2.5 text-xs font-black uppercase tracking-wider text-gray-500 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition cursor-pointer";
 const iconBtn = "p-2 rounded-xl transition hover:scale-110 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100";
 
-// Pass onSubmit to make the panel itself the <form> (keeps native validation inside the portal)
+// true below the Tailwind `sm` breakpoint (640px) — used where layout can't be done with CSS alone (charts)
+const useIsMobile = () => {
+    const query = "(max-width: 639px)";
+    const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+    useEffect(() => {
+        const mq = window.matchMedia(query);
+        const onChange = () => setMobile(mq.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+    return mobile;
+};
+
+// Pass onSubmit to make the panel itself the <form> (keeps native validation inside the portal).
+// Phones: full-width bottom sheet sliding up · larger screens: centred dialog scaling in.
 const Modal = ({ title, subtitle, icon: Icon, onClose, children, footer, wide, onSubmit }) => {
-    const Panel = onSubmit ? "form" : "div";
+    const Panel = onSubmit ? motion.form : motion.div;
+    const isMobile = useIsMobile();
+
+    // Lock page scroll behind the dialog; Esc closes it
+    const closeRef = React.useRef(onClose);
+    useEffect(() => { closeRef.current = onClose; });
+    useEffect(() => {
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        const onKey = (e) => e.key === "Escape" && closeRef.current?.();
+        window.addEventListener("keydown", onKey);
+        return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+    }, []);
+
     return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onMouseDown={onClose}>
+    <motion.div
+        className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm"
+        onMouseDown={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.18 }}
+    >
         <Panel
             onSubmit={onSubmit}
-            className={`w-full ${wide ? "max-w-4xl" : "max-w-2xl"} max-h-[92vh] flex flex-col bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden`}
+            className={`w-full ${wide ? "sm:max-w-4xl" : "sm:max-w-2xl"} max-h-[94dvh] sm:max-h-[92vh] flex flex-col bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-gray-100 dark:border-gray-700 overflow-hidden`}
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
+            initial={isMobile ? { y: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+            animate={isMobile ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+            transition={isMobile ? { type: "spring", damping: 30, stiffness: 320 } : { duration: 0.2, ease: "easeOut" }}
         >
-            <div className="px-6 py-5 bg-gradient-to-r from-teal-600 to-emerald-600 text-white flex items-center justify-between gap-4 shrink-0">
+            {/* drag handle hint on phones */}
+            <div className="sm:hidden flex justify-center pt-2 bg-gradient-to-r from-teal-600 to-emerald-600"><span className="w-10 h-1 rounded-full bg-white/50" /></div>
+            <div className="px-4 sm:px-6 py-3.5 sm:py-5 bg-gradient-to-r from-teal-600 to-emerald-600 text-white flex items-center justify-between gap-3 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                     {Icon && <Icon size={22} className="shrink-0" />}
                     <div className="min-w-0">
-                        <h3 className="text-lg font-black uppercase tracking-wider truncate">{title}</h3>
-                        {subtitle && <p className="text-xs text-teal-50 font-medium truncate">{subtitle}</p>}
+                        <h3 className="text-base sm:text-lg font-black uppercase tracking-wider truncate">{title}</h3>
+                        {subtitle && <p className="text-[11px] sm:text-xs text-teal-50 font-medium line-clamp-2 sm:truncate">{subtitle}</p>}
                     </div>
                 </div>
                 <button type="button" onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 cursor-pointer shrink-0" aria-label="Close"><X size={18} /></button>
             </div>
-            <div className="p-6 overflow-y-auto custom-scrollbar">{children}</div>
-            {footer && <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2 shrink-0">{footer}</div>}
+            <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain custom-scrollbar">{children}</div>
+            {footer && (
+                // phones: buttons share the full width and wrap; a full-width info line (basis-full) sits on top
+                <div className="px-4 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex flex-wrap justify-end items-center gap-2 shrink-0 max-sm:*:flex-1 max-sm:*:justify-center">
+                    {footer}
+                </div>
+            )}
         </Panel>
-    </div>,
+    </motion.div>,
     document.body
     );
 };
 
 // ---------- Stat tile ----------
-const StatTile = ({ label, value, hint, icon: Icon, tone = "text-teal-600 dark:text-teal-400" }) => (
-    <div className="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-            <p className="text-[11px] font-black uppercase tracking-wider text-gray-400">{label}</p>
-            <Icon size={18} className={tone} />
+const StatTile = ({ label, value, hint, icon: Icon, tone = "text-teal-600 dark:text-teal-400", index = 0 }) => (
+    <motion.div
+        className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: index * 0.06 }}
+        whileHover={{ y: -3 }}
+    >
+        <div className="flex items-start justify-between gap-2">
+            <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-gray-400 leading-tight">{label}</p>
+            <Icon size={18} className={`${tone} shrink-0`} />
         </div>
-        <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{value}</p>
-        {hint && <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mt-1">{hint}</p>}
-    </div>
+        <p className="mt-2 text-lg sm:text-2xl font-black text-gray-900 dark:text-white break-words">{value}</p>
+        {hint && <p className="text-[11px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 mt-1">{hint}</p>}
+    </motion.div>
 );
 
 const ChartTooltip = ({ active, payload, label }) => {
@@ -132,17 +183,20 @@ const ChartCard = ({ title, children, empty }) => (
 );
 
 // One-series horizontal bar chart (categories / staff) — single hue, thin bars, value tooltip
-const HBarChart = ({ data, dataKey, nameKey }) => (
-    <ResponsiveContainer width="100%" height={Math.max(160, data.length * 36)}>
-        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-            <CartesianGrid horizontal={false} stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
-            <XAxis type="number" tickFormatter={(v) => `₹${(v / 1000).toFixed(v >= 1000 ? 0 : 1)}k`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-            <YAxis type="category" dataKey={nameKey} width={120} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(13,148,136,0.08)" }} />
-            <Bar dataKey={dataKey} fill={CHART_COLOR} barSize={14} radius={[0, 4, 4, 0]} />
-        </BarChart>
-    </ResponsiveContainer>
-);
+const HBarChart = ({ data, dataKey, nameKey }) => {
+    const isMobile = useIsMobile();
+    return (
+        <ResponsiveContainer width="100%" height={Math.max(160, data.length * 36)}>
+            <BarChart data={data} layout="vertical" margin={{ top: 4, right: isMobile ? 8 : 16, left: isMobile ? 0 : 8, bottom: 4 }}>
+                <CartesianGrid horizontal={false} stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
+                <XAxis type="number" tickFormatter={(v) => `₹${(v / 1000).toFixed(v >= 1000 ? 0 : 1)}k`} tick={{ fontSize: isMobile ? 10 : 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey={nameKey} width={isMobile ? 86 : 120} tick={{ fontSize: isMobile ? 10 : 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(13,148,136,0.08)" }} />
+                <Bar dataKey={dataKey} fill={CHART_COLOR} barSize={14} radius={[0, 4, 4, 0]} animationDuration={700} />
+            </BarChart>
+        </ResponsiveContainer>
+    );
+};
 
 // ================= Expense form =================
 const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved }) => {
@@ -631,14 +685,14 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                         ].map(([k, v, h]) => (
                             <div key={k} className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
                                 <p className={labelCls}>{k}</p>
-                                <p className="text-lg font-black text-gray-900 dark:text-white">{v}</p>
+                                <p className="text-base sm:text-lg font-black text-gray-900 dark:text-white break-words">{v}</p>
                                 {h && <p className="text-[11px] text-gray-500">{h}</p>}
                             </div>
                         ))}
                     </div>
 
                     <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
-                        <table className="w-full text-left text-xs">
+                        <table className="w-full min-w-[600px] text-left text-xs">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
                                 <tr><th className="px-3 py-2">Date</th>{meta.isAdmin && <th className="px-3 py-2">Staff</th>}<th className="px-3 py-2">Category</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Bills</th></tr>
                             </thead>
@@ -826,7 +880,7 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
         }
     };
 
-    const cell = "w-full px-2.5 py-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60";
+    const cell = "w-full px-2.5 py-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-base sm:text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60";
 
     return (
         <Modal
@@ -837,8 +891,9 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
             onClose={onClose}
             onSubmit={save}
             footer={<>
-                <div className="mr-auto text-xs font-bold text-gray-500 dark:text-gray-300 self-center">
-                    {rows.length} row(s) · Total <span className="text-base font-black text-gray-900 dark:text-white">{inr(total)}</span>
+                <div className="basis-full sm:basis-auto sm:mr-auto text-xs font-bold text-gray-500 dark:text-gray-300 self-center max-sm:flex max-sm:justify-between">
+                    <span>{rows.length} row(s)</span>
+                    <span className="sm:ml-1">Total <span className="text-base font-black text-gray-900 dark:text-white">{inr(total)}</span></span>
                 </div>
                 <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
                 {/* Drafts are private to their owner — available for your own claim only */}
@@ -885,14 +940,23 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                     </div>
 
                     <div className="space-y-3">
+                        <AnimatePresence initial={false}>
                         {rows.map((r, i) => {
                             const locked = LOCKED.includes(r.status);
                             const kept = r.attachments.filter(a => !r.removeAttachments.includes(a.url));
                             return (
-                                <div key={r.key} className={`rounded-2xl border p-3 ${locked ? "border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30" : "border-gray-200 dark:border-gray-700"}`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className="w-6 h-6 rounded-full bg-teal-600 text-white text-[11px] font-black flex items-center justify-center">{i + 1}</span>
+                                <motion.div
+                                    key={r.key}
+                                    layout
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, x: -24, transition: { duration: 0.18 } }}
+                                    transition={{ duration: 0.22 }}
+                                    className={`rounded-2xl border p-3 ${locked ? "border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30" : "border-gray-200 dark:border-gray-700"}`}
+                                >
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                            <span className="w-6 h-6 shrink-0 rounded-full bg-teal-600 text-white text-[11px] font-black flex items-center justify-center">{i + 1}</span>
                                             {r.status && <StatusChip status={r.status} />}
                                             {r.status === "Rejected" && r.rejectionReason && <span className="text-[11px] font-semibold text-red-600">{r.rejectionReason}</span>}
                                             {locked && <span className="text-[11px] text-gray-400">Already submitted — read only</span>}
@@ -980,9 +1044,10 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                </motion.div>
                             );
                         })}
+                        </AnimatePresence>
                     </div>
 
                     <button type="button" onClick={addRow} disabled={rows.length >= 50}
@@ -1034,7 +1099,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
     return (
         <Modal wide title={`Claim ${claim.claimNumber}`} subtitle={`${claim.staffName}${claim.tour ? ` · ${claim.tour.tourNumber} ${claim.tour.title}` : ""}`} icon={FileText} onClose={onClose}
             footer={<>
-                <div className="mr-auto self-center"><StatusChip status={claim.status} /></div>
+                <div className="basis-full sm:basis-auto sm:mr-auto self-center"><StatusChip status={claim.status} /></div>
                 {canEditClaim && <button type="button" className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={onEdit}><Edit2 size={14} /> {claim.counts.draft > 0 ? "Continue" : "Fix & Re-submit"}</button>}
                 {mine && claim.counts.draft > 0 && <button type="button" className={btnPrimary} onClick={onSubmit}><Send size={14} /> Submit Claim</button>}
                 {claim.pdfReady && <button type="button" className={btnPrimary} onClick={() => downloadClaimPdf(claim.claimNumber)}><Download size={14} /> Download PDF</button>}
@@ -1050,7 +1115,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
                 ].map(([k, v]) => (
                     <div key={k} className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
                         <p className={labelCls}>{k}</p>
-                        <p className="text-lg font-black text-gray-900 dark:text-white">{inr(v)}</p>
+                        <p className="text-base sm:text-lg font-black text-gray-900 dark:text-white break-words">{inr(v)}</p>
                     </div>
                 ))}
             </div>
@@ -1062,7 +1127,35 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
             {!data ? (
                 <div className="py-10 flex justify-center"><RefreshCw className="animate-spin text-teal-600" /></div>
             ) : (
-                <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+                <>
+                {/* phones: one card per row */}
+                <div className="md:hidden space-y-2.5">
+                    {data.items.map((x, i) => (
+                        <motion.div key={x._id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.04, 0.4) }}
+                            className="rounded-2xl border border-gray-100 dark:border-gray-700 p-3 bg-gray-50/60 dark:bg-gray-900/40">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                    <p className="text-sm font-black text-gray-900 dark:text-white">{i + 1}. {x.category}</p>
+                                    <p className="text-[11px] text-gray-500">{fmtExpenseDate(x)}{x.place ? ` · ${x.place}` : ""}</p>
+                                </div>
+                                <p className={`text-sm font-black whitespace-nowrap ${x.status === "Rejected" ? "line-through text-gray-400" : "text-gray-900 dark:text-white"}`}>{inr(x.amount)}</p>
+                            </div>
+                            {x.description && <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">{x.description}</p>}
+                            {x.status === "Rejected" && x.rejectionReason && <p className="mt-1 text-[11px] font-semibold text-red-600">Rejected: {x.rejectionReason}</p>}
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <StatusChip status={x.status} />
+                                <div className="flex flex-wrap gap-1.5 justify-end">
+                                    {(x.attachments || []).map(f => (
+                                        <a key={f.url} href={`${FILE_BASE}${f.url}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-[11px] font-bold text-teal-700 dark:text-teal-300" title={f.name}>
+                                            <Paperclip size={11} /> Bill
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        </motion.div>
+                    ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                     <table className="w-full min-w-[720px] text-left text-xs">
                         <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
                             <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Place</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Bills</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th></tr>
@@ -1088,6 +1181,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
                         </tbody>
                     </table>
                 </div>
+                </>
             )}
         </Modal>
     );
@@ -1135,11 +1229,12 @@ const Expenses = () => {
         return p;
     }, [filters]);
 
+    const { from: fFrom, to: fTo, staff: fStaff } = filters;
     const loadSummary = useCallback(() => {
         const p = new URLSearchParams();
-        ["from", "to", "staff"].forEach(k => filters[k] && p.append(k, filters[k]));
+        Object.entries({ from: fFrom, to: fTo, staff: fStaff }).forEach(([k, v]) => v && p.append(k, v));
         API.get(`/expenses/summary?${p}`).then(res => setSummary(res.data)).catch(() => {});
-    }, [filters.from, filters.to, filters.staff]);
+    }, [fFrom, fTo, fStaff]);
 
     const loadExpenses = useCallback((pg = page) => {
         setLoading(true);
@@ -1295,39 +1390,103 @@ const Expenses = () => {
     const allSubmitted = selectedItems.length > 0 && selectedItems.every(x => x.status === "Submitted");
     const allApproved = selectedItems.length > 0 && selectedItems.every(x => x.status === "Approved");
 
+    // Action buttons — shared by the desktop tables and the phone cards
+    const claimActions = (c) => {
+        const mine = String(c.staff) === String(myId);
+        return (
+            <>
+                <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View claim" aria-label="View claim" onClick={() => setClaimView(c)}><Eye size={16} /></button>
+                {mine && (c.counts.draft > 0 || c.counts.rejected > 0) && (
+                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={c.counts.draft > 0 ? "Continue claim" : "Fix rejected rows & re-submit"} aria-label="Edit claim" onClick={() => setClaimForm({ claimNumber: c.claimNumber })}><Edit2 size={16} /></button>
+                )}
+                {mine && c.counts.draft > 0 && (
+                    <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit claim" aria-label="Submit claim" onClick={() => submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft })}><Send size={16} /></button>
+                )}
+                {c.pdfReady && (
+                    <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer" title={`Download claim PDF (marked ${c.status.toUpperCase()})`} onClick={() => downloadClaimPdf(c.claimNumber)}>
+                        <Download size={13} /> PDF
+                    </button>
+                )}
+            </>
+        );
+    };
+
+    const expenseActions = (x) => (
+        <>
+            <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View" aria-label="View" onClick={() => setExpenseDetail(x)}><Eye size={16} /></button>
+            {isAdmin && x.status === "Submitted" && <>
+                <button className={`${iconBtn} text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Approve" aria-label="Approve" onClick={() => changeStatus([x._id], "Approved")}><CheckCircle2 size={16} /></button>
+                <button className={`${iconBtn} text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Reject" aria-label="Reject" onClick={() => setRejecting([x._id])}><XCircle size={16} /></button>
+            </>}
+            {isAdmin && x.status === "Approved" && (
+                <button className={`${iconBtn} text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20`} title="Mark Paid" aria-label="Mark paid" onClick={() => changeStatus([x._id], "Paid")}><BadgeCheck size={16} /></button>
+            )}
+            {x.status === "Draft" && isMine(x) && (
+                <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit for approval" aria-label="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
+            )}
+            <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status) ? "Open claim to edit" : "Edit"} aria-label="Edit" disabled={!canEdit(x)}
+                onClick={() => (x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status)
+                    ? setClaimForm({ claimNumber: x.claimNumber })
+                    : setExpenseForm({ expense: x }))}><Edit2 size={16} /></button>
+            <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete" aria-label="Delete" disabled={!canEdit(x)} onClick={() => deleteExpense(x)}><Trash2 size={16} /></button>
+        </>
+    );
+
+    // staggered entrance for list cards / rows
+    const enter = (i) => ({ initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.25, delay: Math.min(i * 0.035, 0.35) } });
+
     return (
-        <div className="p-4 md:p-8 space-y-6">
+        <MotionConfig reducedMotion="user">
+        <div className="p-3 sm:p-4 md:p-8 space-y-4 sm:space-y-6">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                <div>
-                    <h1 className="text-3xl font-black text-gray-800 dark:text-white flex items-center gap-3">
-                        <Wallet className="text-teal-600" size={28} /> Travel & Expenses
+            <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700"
+            >
+                <div className="min-w-0">
+                    <h1 className="text-2xl sm:text-3xl font-black text-gray-800 dark:text-white flex items-center gap-2 sm:gap-3">
+                        <Wallet className="text-teal-600 shrink-0" size={26} /> Travel & Expenses
                     </h1>
-                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">
-                        {isAdmin ? "Track every tour and spend across staff — approve claims, settle advances, export." : "Record your own expenses with bills — save as draft or submit for approval, and track their status."}
+                    <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">
+                        {isAdmin ? "Track every event and spend across staff — approve claims, watch budgets, export." : "Record your own expenses with bills — save as draft or submit for approval, and track their status."}
                     </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    {isAdmin && <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}><CalendarPlus size={14} /> Create Event</button>}
-                    <button className={btnPrimary} onClick={() => setClaimForm({})}><Plus size={14} /> Add Expenses</button>
+                <div className="flex gap-2 w-full md:w-auto max-md:*:flex-1 max-md:*:justify-center">
+                    {isAdmin && (
+                        <motion.button whileTap={{ scale: 0.96 }} className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}>
+                            <CalendarPlus size={14} /> Create Event
+                        </motion.button>
+                    )}
+                    <motion.button whileTap={{ scale: 0.96 }} className={btnPrimary} onClick={() => setClaimForm({})}><Plus size={14} /> Add Expenses</motion.button>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Tabs + filters */}
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
-                <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-fit gap-1 flex-wrap">
-                    {visibleTabs.map(({ key, label, icon: Icon }) => (
-                        <button key={key} onClick={() => setTab(key)}
-                            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer ${tab === key ? "bg-white dark:bg-gray-800 text-teal-600 dark:text-teal-400 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"}`}>
-                            <Icon size={15} /> {label}
-                            {key === "expenses" && isAdmin && summary?.pendingApproval?.count > 0 && (
-                                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px]">{summary.pendingApproval.count}</span>
-                            )}
-                        </button>
-                    ))}
+            <div className="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
+                {/* tabs scroll sideways on phones; the active pill slides between tabs */}
+                <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-max gap-1">
+                        {visibleTabs.map(({ key, label, icon: Icon }) => (
+                            <button key={key} onClick={() => setTab(key)}
+                                className={`relative flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-colors cursor-pointer ${tab === key ? "text-teal-600 dark:text-teal-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"}`}>
+                                {tab === key && (
+                                    <motion.span layoutId="expenses-tab-pill" className="absolute inset-0 rounded-xl bg-white dark:bg-gray-800 shadow-sm"
+                                        transition={{ type: "spring", stiffness: 420, damping: 34 }} />
+                                )}
+                                <span className="relative flex items-center gap-2">
+                                    <Icon size={15} /> {label}
+                                    {key === "expenses" && isAdmin && summary?.pendingApproval?.count > 0 && (
+                                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px]">{summary.pendingApproval.count}</span>
+                                    )}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
                     <div>
                         <label className={labelCls}>Period</label>
                         <select className={inputCls} value={preset} onChange={e => applyPreset(e.target.value)}>
@@ -1390,7 +1549,7 @@ const Expenses = () => {
                         </>
                     )}
                     {tab !== "overview" && (
-                        <div className="flex-1 min-w-[180px]">
+                        <div className="col-span-2 sm:flex-1 sm:min-w-[180px]">
                             <label className={labelCls}>Search</label>
                             <div className="relative">
                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1399,10 +1558,13 @@ const Expenses = () => {
                         </div>
                     )}
                     {tab === "expenses" && (
-                        <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={exportCSV}><Download size={14} /> Export CSV</button>
+                        <button className={btnGhost + " col-span-2 justify-center border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={exportCSV}><Download size={14} /> Export CSV</button>
                     )}
                 </div>
             </div>
+
+            {/* Tab content fades / slides in when the tab changes */}
+            <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }} className="space-y-4 sm:space-y-6">
 
             {/* ===== My draft claims (private until submitted) ===== */}
             {tab !== "tours" && draftClaims.length > 0 && (
@@ -1437,15 +1599,15 @@ const Expenses = () => {
             {/* ===== Overview ===== */}
             {tab === "overview" && (
                 <div className="space-y-6">
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <StatTile label="Total spent" value={inr(summary?.spent)} hint="Approved + paid in this period" icon={IndianRupee} />
-                        <StatTile label="Pending approval" value={inr(summary?.pendingApproval?.amount)} hint={`${summary?.pendingApproval?.count || 0} claim(s) waiting`} icon={Clock} tone="text-amber-500" />
-                        <StatTile label="Approved, to pay" value={inr(summary?.approvedUnpaid?.amount)} hint={`${summary?.approvedUnpaid?.count || 0} claim(s) not yet paid`} icon={CheckCircle2} tone="text-blue-500" />
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                        <StatTile index={0} label="Total spent" value={inr(summary?.spent)} hint="Approved + paid in this period" icon={IndianRupee} />
+                        <StatTile index={1} label="Pending approval" value={inr(summary?.pendingApproval?.amount)} hint={`${summary?.pendingApproval?.count || 0} claim(s) waiting`} icon={Clock} tone="text-amber-500" />
+                        <StatTile index={2} label="Approved, to pay" value={inr(summary?.approvedUnpaid?.amount)} hint={`${summary?.approvedUnpaid?.count || 0} claim(s) not yet paid`} icon={CheckCircle2} tone="text-blue-500" />
                         {isAdmin
-                            ? <StatTile label="Active events" value={summary?.activeTours ?? 0} hint={summary?.openAdvances > 0 ? `Open advances ${inr(summary.openAdvances)}` : "Planned + ongoing events"} icon={CalendarDays} />
-                            : <StatTile label="My drafts" value={summary?.drafts?.count ?? 0} hint={`${inr(summary?.drafts?.amount)} not yet submitted`} icon={FileText} tone="text-gray-500" />}
+                            ? <StatTile index={3} label="Active events" value={summary?.activeTours ?? 0} hint={summary?.openAdvances > 0 ? `Open advances ${inr(summary.openAdvances)}` : "Planned + ongoing events"} icon={CalendarDays} />
+                            : <StatTile index={3} label="My drafts" value={summary?.drafts?.count ?? 0} hint={`${inr(summary?.drafts?.amount)} not yet submitted`} icon={FileText} tone="text-gray-500" />}
                     </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                         <ChartCard title="Spend by category" empty={!summary?.byCategory?.length}>
                             <HBarChart data={summary?.byCategory || []} dataKey="amount" nameKey="category" />
                         </ChartCard>
@@ -1470,10 +1632,49 @@ const Expenses = () => {
             {/* ===== Claims ===== */}
             {tab === "claims" && (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                    <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500 dark:text-gray-400">
-                        {claims.length} claim(s){isAdmin ? "" : " · your claims"} — download the PDF any time; its watermark shows the claim's current status
+                    <div className="px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500 dark:text-gray-400">
+                        {claims.length} claim(s){isAdmin ? "" : " · your claims"}<span className="hidden sm:inline"> — download the PDF any time; its watermark shows the claim's current status</span>
                     </div>
-                    <div className="overflow-x-auto">
+
+                    {/* phones: one card per claim */}
+                    <div className="md:hidden p-3 space-y-3">
+                        {claimsLoading ? (
+                            <div className="py-12 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></div>
+                        ) : claims.length === 0 ? (
+                            <p className="py-12 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No claims yet — tap "Add Expenses"</p>
+                        ) : claims.map((c, i) => (
+                            <motion.div key={c.claimNumber} {...enter(i)} className="rounded-2xl border border-gray-100 dark:border-gray-700 p-3.5 bg-gray-50/50 dark:bg-gray-900/40">
+                                <div className="flex items-start justify-between gap-2">
+                                    <button className="text-left min-w-0" onClick={() => setClaimView(c)}>
+                                        <p className="font-mono text-sm font-black text-teal-700 dark:text-teal-400">{c.claimNumber}</p>
+                                        <p className="text-[11px] text-gray-500">
+                                            {isAdmin ? `${c.staffName} · ` : ""}{c.count} row(s){c.counts.rejected ? ` · ${c.counts.rejected} rejected` : ""}
+                                        </p>
+                                    </button>
+                                    <StatusChip status={c.status} />
+                                </div>
+                                <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                        <p className={labelCls + " mb-0"}>Claimed</p>
+                                        <p className="font-black text-gray-900 dark:text-white">{inr(c.amounts.claimed + c.amounts.draft)}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className={labelCls + " mb-0"}>Approved</p>
+                                        <p className="font-black text-gray-900 dark:text-white">{c.amounts.approved > 0 ? inr(c.amounts.approved) : "—"}</p>
+                                    </div>
+                                </div>
+                                <p className="mt-2 text-[11px] text-gray-500 flex items-center gap-1">
+                                    <Calendar size={11} /> {fmtDate(c.from)}{toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}
+                                    {c.tour && <span className="truncate"> · {c.tour.tourNumber} {c.tour.title}</span>}
+                                </p>
+                                <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-end gap-1">
+                                    {claimActions(c)}
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full min-w-[900px] text-left text-sm">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
                                 <tr>
@@ -1492,11 +1693,10 @@ const Expenses = () => {
                                     <tr><td colSpan="8" className="px-4 py-14 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></td></tr>
                                 ) : claims.length === 0 ? (
                                     <tr><td colSpan="8" className="px-4 py-14 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No claims yet — use "Add Expenses" to create one</td></tr>
-                                ) : claims.map(c => {
-                                    const mine = String(c.staff) === String(myId);
+                                ) : claims.map((c, i) => {
                                     const claimed = c.amounts.claimed + c.amounts.draft;
                                     return (
-                                        <tr key={c.claimNumber} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
+                                        <motion.tr key={c.claimNumber} {...enter(i)} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                                             <td className="px-4 py-3">
                                                 <button className="font-mono text-xs font-black text-teal-700 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setClaimView(c)}>{c.claimNumber}</button>
                                                 <p className="text-[11px] text-gray-500">{c.count} row(s){c.counts.rejected ? ` · ${c.counts.rejected} rejected` : ""}</p>
@@ -1508,22 +1708,9 @@ const Expenses = () => {
                                             <td className="px-4 py-3 text-right font-black text-gray-900 dark:text-white whitespace-nowrap">{c.amounts.approved > 0 ? inr(c.amounts.approved) : "—"}</td>
                                             <td className="px-4 py-3"><StatusChip status={c.status} /></td>
                                             <td className="px-4 py-3">
-                                                <div className="flex items-center justify-center gap-1">
-                                                    <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View claim" onClick={() => setClaimView(c)}><Eye size={16} /></button>
-                                                    {mine && (c.counts.draft > 0 || c.counts.rejected > 0) && (
-                                                        <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={c.counts.draft > 0 ? "Continue claim" : "Fix rejected rows & re-submit"} onClick={() => setClaimForm({ claimNumber: c.claimNumber })}><Edit2 size={16} /></button>
-                                                    )}
-                                                    {mine && c.counts.draft > 0 && (
-                                                        <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit claim" onClick={() => submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft })}><Send size={16} /></button>
-                                                    )}
-                                                    {c.pdfReady && (
-                                                        <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer" title={`Download claim PDF (marked ${c.status.toUpperCase()})`} onClick={() => downloadClaimPdf(c.claimNumber)}>
-                                                            <Download size={13} /> PDF
-                                                        </button>
-                                                    )}
-                                                </div>
+                                                <div className="flex items-center justify-center gap-1">{claimActions(c)}</div>
                                             </td>
-                                        </tr>
+                                        </motion.tr>
                                     );
                                 })}
                             </tbody>
@@ -1535,10 +1722,17 @@ const Expenses = () => {
             {/* ===== Expenses ===== */}
             {tab === "expenses" && (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-gray-100 dark:border-gray-700">
-                        <p className="text-xs font-bold text-gray-500 dark:text-gray-400">
-                            {expenses.total} expense(s) · <span className="text-gray-900 dark:text-white font-black">{inr(expenses.totalAmount)}</span>
-                        </p>
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center gap-2">
+                            {isAdmin && selectable.length > 0 && (
+                                <input type="checkbox" className="md:hidden" aria-label="Select all"
+                                    checked={selectable.every(x => selected.includes(x._id))}
+                                    onChange={e => setSelected(e.target.checked ? selectable.map(x => x._id) : [])} />
+                            )}
+                            <p className="text-xs font-bold text-gray-500 dark:text-gray-400">
+                                {expenses.total} expense(s) · <span className="text-gray-900 dark:text-white font-black">{inr(expenses.totalAmount)}</span>
+                            </p>
+                        </div>
                         {isAdmin && selected.length > 0 && (
                             <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-xs font-bold text-gray-500">{selected.length} selected</span>
@@ -1549,7 +1743,50 @@ const Expenses = () => {
                             </div>
                         )}
                     </div>
-                    <div className="overflow-x-auto">
+                    {/* phones: one card per expense */}
+                    <div className="md:hidden p-3 space-y-3">
+                        {loading ? (
+                            <div className="py-12 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></div>
+                        ) : expenses.items.length === 0 ? (
+                            <p className="py-12 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No expenses for these filters</p>
+                        ) : expenses.items.map((x, i) => (
+                            <motion.div key={x._id} {...enter(i)}
+                                className={`rounded-2xl border p-3.5 ${selected.includes(x._id) ? "border-teal-400 bg-teal-50/50 dark:bg-teal-900/20" : "border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/40"}`}>
+                                <div className="flex items-start gap-2.5">
+                                    {isAdmin && ["Submitted", "Approved"].includes(x.status) && (
+                                        <input type="checkbox" className="mt-1" aria-label={`Select ${x.expenseNumber}`}
+                                            checked={selected.includes(x._id)}
+                                            onChange={e => setSelected(s => e.target.checked ? [...s, x._id] : s.filter(id => id !== x._id))} />
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-black text-gray-900 dark:text-white">{x.category}</p>
+                                                <p className="text-[11px] text-gray-500">
+                                                    {fmtExpenseDate(x)}{x.place ? ` · ${x.place}` : ""}{isAdmin ? ` · ${x.staffName}` : ""}
+                                                </p>
+                                            </div>
+                                            <p className="text-sm font-black text-gray-900 dark:text-white whitespace-nowrap">{inr(x.amount)}</p>
+                                        </div>
+                                        {x.description && <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 line-clamp-2">{x.description}</p>}
+                                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono font-bold text-gray-500">
+                                            <StatusChip status={x.status} />
+                                            <span>{x.expenseNumber}</span>
+                                            {x.claimNumber && <span className="text-teal-600 dark:text-teal-400">{x.claimNumber}</span>}
+                                            {x.tour && <button className="text-teal-600 dark:text-teal-400 underline" onClick={() => setTourDetail(x.tour._id)}>{x.tour.tourNumber}</button>}
+                                            {x.attachments?.length > 0 && <span className="text-teal-600 flex items-center gap-0.5"><Paperclip size={10} />{x.attachments.length}</span>}
+                                        </div>
+                                        {x.status === "Rejected" && x.rejectionReason && <p className="mt-1 text-[11px] font-semibold text-red-600">Rejected: {x.rejectionReason}</p>}
+                                    </div>
+                                </div>
+                                <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-end gap-1">
+                                    {expenseActions(x)}
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full min-w-[960px] text-left text-sm">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
                                 <tr>
@@ -1574,8 +1811,8 @@ const Expenses = () => {
                                     <tr><td colSpan="8" className="px-4 py-14 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></td></tr>
                                 ) : expenses.items.length === 0 ? (
                                     <tr><td colSpan="8" className="px-4 py-14 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No expenses for these filters</td></tr>
-                                ) : expenses.items.map(x => (
-                                    <tr key={x._id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
+                                ) : expenses.items.map((x, i) => (
+                                    <motion.tr key={x._id} {...enter(i)} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                                         {isAdmin && (
                                             <td className="px-4 py-3">
                                                 <input type="checkbox" aria-label={`Select ${x.expenseNumber}`}
@@ -1604,32 +1841,15 @@ const Expenses = () => {
                                             {x.status === "Rejected" && x.rejectionReason && <p className="text-[10px] text-red-500 mt-1 line-clamp-1" title={x.rejectionReason}>{x.rejectionReason}</p>}
                                         </td>
                                         <td className="px-4 py-3">
-                                            <div className="flex items-center justify-center gap-1">
-                                                <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View" onClick={() => setExpenseDetail(x)}><Eye size={16} /></button>
-                                                {isAdmin && x.status === "Submitted" && <>
-                                                    <button className={`${iconBtn} text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Approve" onClick={() => changeStatus([x._id], "Approved")}><CheckCircle2 size={16} /></button>
-                                                    <button className={`${iconBtn} text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Reject" onClick={() => setRejecting([x._id])}><XCircle size={16} /></button>
-                                                </>}
-                                                {isAdmin && x.status === "Approved" && (
-                                                    <button className={`${iconBtn} text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20`} title="Mark Paid" onClick={() => changeStatus([x._id], "Paid")}><BadgeCheck size={16} /></button>
-                                                )}
-                                                {x.status === "Draft" && isMine(x) && (
-                                                    <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
-                                                )}
-                                                <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status) ? "Open claim to edit" : "Edit"} disabled={!canEdit(x)}
-                                                    onClick={() => (x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status)
-                                                        ? setClaimForm({ claimNumber: x.claimNumber })
-                                                        : setExpenseForm({ expense: x }))}><Edit2 size={16} /></button>
-                                                <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete" disabled={!canEdit(x)} onClick={() => deleteExpense(x)}><Trash2 size={16} /></button>
-                                            </div>
+                                            <div className="flex items-center justify-center gap-1">{expenseActions(x)}</div>
                                         </td>
-                                    </tr>
+                                    </motion.tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
                     {expenses.pages > 1 && (
-                        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500">
+                        <div className="flex items-center justify-center sm:justify-end gap-2 px-4 sm:px-5 py-3 border-t border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500">
                             <button className={`${iconBtn} border border-gray-200 dark:border-gray-700`} disabled={page <= 1} onClick={() => setPage(p => p - 1)} aria-label="Previous page"><ChevronLeft size={14} /></button>
                             Page {page} of {expenses.pages}
                             <button className={`${iconBtn} border border-gray-200 dark:border-gray-700`} disabled={page >= expenses.pages} onClick={() => setPage(p => p + 1)} aria-label="Next page"><ChevronRight size={14} /></button>
@@ -1640,15 +1860,16 @@ const Expenses = () => {
 
             {/* ===== Tours ===== */}
             {tab === "tours" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                     {tours.length === 0 ? (
                         <div className="md:col-span-2 xl:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-700">
                             <CalendarDays className="mx-auto text-gray-300" size={36} />
                             <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No events yet</p>
                             <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Create Event</button>
                         </div>
-                    ) : tours.map(t => (
-                        <div key={t._id} className="bg-white dark:bg-gray-800 rounded-3xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex flex-col gap-3">
+                    ) : tours.map((t, i) => (
+                        <motion.div key={t._id} {...enter(i)} whileHover={{ y: -3 }}
+                            className="bg-white dark:bg-gray-800 rounded-3xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                     <p className="text-[11px] font-mono font-bold text-teal-600 dark:text-teal-400">{t.tourNumber}</p>
@@ -1688,13 +1909,14 @@ const Expenses = () => {
                                 <button className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setTourDetail(t._id)}>Open · {t.count} expense(s)</button>
                                 <div className="flex gap-1">
                                     <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit tour" disabled={!isAdmin && t.settled} onClick={() => setTourForm({ tour: t })}><Edit2 size={15} /></button>
-                                    <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete tour" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={15} /></button>
+                                    <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete event" aria-label="Delete event" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={15} /></button>
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
                     ))}
                 </div>
             )}
+            </motion.div>
 
             {/* ===== Modals ===== */}
             {claimView && (
@@ -1723,6 +1945,7 @@ const Expenses = () => {
                     onConfirm={(reason) => { const ids = rejecting; setRejecting(null); changeStatus(ids, "Rejected", reason); }} />
             )}
         </div>
+        </MotionConfig>
     );
 };
 
