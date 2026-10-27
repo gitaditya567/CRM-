@@ -270,6 +270,7 @@ const pickTourFields = (b) => {
         if (b[k] !== undefined) out[k] = b[k] ? new Date(b[k]) : null;
     });
     if (b.advanceAmount !== undefined) out.advanceAmount = Math.max(0, Number(b.advanceAmount) || 0);
+    if (b.approvedBudget !== undefined) out.approvedBudget = Math.round(Math.max(0, Number(b.approvedBudget) || 0) * 100) / 100;
     if (b.status !== undefined) out.status = b.status;
     return out;
 };
@@ -718,6 +719,174 @@ exports.saveClaim = async (req, res) => {
         cleanupUploads();
         console.error("Save claim error:", err.message);
         res.status(400).json({ message: err.message || "Failed to save claim" });
+    }
+};
+
+// ---------- claim status & PDF ----------
+// Claim status is derived from its rows:
+//   Draft → Pending Approval → (Partially) Approved / Rejected → Paid
+const deriveClaimStatus = (c) => {
+    const decided = c.approved + c.paid;
+    if (c.draft === c.count) return "Draft";
+    if (c.submitted > 0 || c.draft > 0) return decided > 0 ? "Partially Approved" : "Pending Approval";
+    if (decided === 0) return "Rejected";
+    if (c.paid === decided) return "Paid";               // every approved row is paid (rejected rows don't block)
+    if (c.rejected > 0) return "Partially Approved";
+    return "Approved";
+};
+
+const countBy = (status) => ({ $sum: { $cond: [{ $eq: ["$status", status] }, 1, 0] } });
+const sumBy = (statuses) => ({ $sum: { $cond: [{ $in: ["$status", statuses] }, "$amount", 0] } });
+
+// GET /api/expenses/claim-list?staff&status&search   → claims with derived status (admin: all, staff: own)
+exports.listClaims = async (req, res) => {
+    try {
+        const match = { ...scopeFilter(req, req.query.staff), ...hideOthersDrafts(req), claimNumber: { $ne: "" } };
+        if (req.query.search) {
+            const rx = new RegExp(escapeRegex(req.query.search), "i");
+            match.$and = [...(match.$and || []), { $or: [{ claimNumber: rx }, { staffName: rx }, { place: rx }, { description: rx }] }];
+        }
+        const groups = await Expense.aggregate([
+            { $match: match },
+            { $group: {
+                _id: "$claimNumber",
+                staff: { $first: "$staff" }, staffName: { $first: "$staffName" }, tour: { $max: "$tour" },
+                count: { $sum: 1 },
+                draft: countBy("Draft"), submitted: countBy("Submitted"), approved: countBy("Approved"),
+                paid: countBy("Paid"), rejected: countBy("Rejected"),
+                claimed: { $sum: { $cond: [{ $ne: ["$status", "Draft"] }, "$amount", 0] } },
+                draftAmount: sumBy(["Draft"]), pendingAmount: sumBy(["Submitted"]),
+                approvedAmount: sumBy(["Approved", "Paid"]), paidAmount: sumBy(["Paid"]), rejectedAmount: sumBy(["Rejected"]),
+                from: { $min: "$date" }, to: { $max: { $ifNull: ["$endDate", "$date"] } },
+                updatedAt: { $max: "$updatedAt" }
+            } },
+            { $sort: { updatedAt: -1 } },
+            { $limit: 500 }
+        ]);
+        const tourIds = [...new Set(groups.map(g => g.tour).filter(Boolean).map(String))];
+        const tours = await Tour.find({ _id: { $in: tourIds } }).select("tourNumber title").lean();
+        const tourMap = new Map(tours.map(t => [String(t._id), t]));
+        let claims = groups.map(g => {
+            const status = deriveClaimStatus(g);
+            return {
+                claimNumber: g._id, staff: g.staff, staffName: g.staffName, status,
+                pdfReady: true, // PDF in every status — watermark & colours follow the status
+                tour: g.tour ? tourMap.get(String(g.tour)) || null : null,
+                count: g.count,
+                counts: { draft: g.draft, submitted: g.submitted, approved: g.approved, paid: g.paid, rejected: g.rejected },
+                amounts: { claimed: g.claimed, draft: g.draftAmount, pending: g.pendingAmount, approved: g.approvedAmount, paid: g.paidAmount, rejected: g.rejectedAmount },
+                from: g.from, to: g.to, updatedAt: g.updatedAt
+            };
+        });
+        if (req.query.status && req.query.status !== "All") claims = claims.filter(c => c.status === req.query.status);
+        res.json(claims);
+    } catch (err) {
+        console.error("List claims error:", err);
+        res.status(500).json({ message: "Failed to load claims" });
+    }
+};
+
+// GET /api/expenses/claims/:claimNumber/pdf   → claim PDF in its current status (owner or admin)
+// Watermark / colours follow the claim status: APPROVED, PAID, PARTIALLY APPROVED, PENDING APPROVAL, REJECTED, DRAFT
+exports.claimPdf = async (req, res) => {
+    try {
+        const { buildClaimPdfWithBills } = require("../utils/expenseClaimPdf");
+        const items = await Expense.find({ claimNumber: req.params.claimNumber, ...scopeFilter(req), ...hideOthersDrafts(req) })
+            .sort({ date: 1, createdAt: 1 }).lean();
+        if (!items.length) return res.status(404).json({ message: "Claim not found" });
+
+        const c = items.reduce((acc, x) => { acc[x.status.toLowerCase()]++; return acc; },
+            { draft: 0, submitted: 0, approved: 0, paid: 0, rejected: 0, count: items.length });
+        const status = deriveClaimStatus(c);
+
+        // Latest rejection (who / when) from the rows' history
+        const lastRejection = items.flatMap(x => (x.statusHistory || []).filter(h => h.status === "Rejected"))
+            .sort((a, b) => new Date(b.at) - new Date(a.at))[0];
+
+        const decided = items.filter(x => SPENT_STATUSES.includes(x.status));
+        const latest = decided.reduce((a, x) => (!a || new Date(x.approvedAt || 0) > new Date(a.approvedAt || 0) ? x : a), null);
+        const submittedAt = items.flatMap(x => (x.statusHistory || []).filter(h => h.status === "Submitted").map(h => new Date(h.at)))
+            .sort((a, b) => a - b)[0] || items[0].createdAt;
+        const tourId = items.find(x => x.tour)?.tour;
+        const [tour, user] = await Promise.all([
+            tourId ? Tour.findById(tourId).select("tourNumber title startDate endDate").lean() : null,
+            User.findById(items[0].staff).select("role").lean()
+        ]);
+
+        const byCat = {};
+        decided.forEach(x => {
+            byCat[x.category] = byCat[x.category] || { amount: 0, count: 0 };
+            byCat[x.category].amount += x.amount;
+            byCat[x.category].count += 1;
+        });
+        const sum = (arr) => Math.round(arr.reduce((s, x) => s + x.amount, 0) * 100) / 100;
+
+        const claim = {
+            claimNumber: req.params.claimNumber,
+            status,
+            rejectedBy: lastRejection?.by || "",
+            rejectedAt: lastRejection?.at || null,
+            staffName: items[0].staffName,
+            staffRole: user?.role || "",
+            tour,
+            items,
+            periodFrom: items.reduce((m, x) => (new Date(x.date) < m ? new Date(x.date) : m), new Date(items[0].date)),
+            periodTo: items.reduce((m, x) => { const d = new Date(x.endDate || x.date); return d > m ? d : m; }, new Date(items[0].endDate || items[0].date)),
+            submittedAt,
+            approvedBy: latest?.approvedBy || "",
+            approvedAt: latest?.approvedAt || null,
+            paidAt: c.paid > 0 && c.paid === c.approved + c.paid ? items.reduce((m, x) => (x.paidAt && (!m || new Date(x.paidAt) > m) ? new Date(x.paidAt) : m), null) : null,
+            totals: {
+                claimed: sum(items),
+                rejected: sum(items.filter(x => x.status === "Rejected")),
+                approved: sum(decided),
+                pending: sum(items.filter(x => ["Submitted", "Draft"].includes(x.status))),
+                paid: sum(items.filter(x => x.status === "Paid")),
+                byCategory: Object.entries(byCat).map(([category, v]) => ({ category, amount: Math.round(v.amount * 100) / 100, count: v.count })).sort((a, b) => b.amount - a.amount)
+            }
+        };
+
+        // Bills attached after the claim as Annexure A-1, A-2, ...
+        //   final approval → bills of approved / paid rows · rejected claim → all bills · pending / draft → all but rejected rows
+        const finalApproval = ["Approved", "Paid", "Partially Approved"].includes(status) && c.submitted === 0 && c.draft === 0;
+        const includeBillsOf = (x) => (finalApproval ? SPENT_STATUSES.includes(x.status)
+            : status === "Rejected" ? true
+            : x.status !== "Rejected");
+        const kindOf = (f) => {
+            const ext = path.extname(f.url || f.name || "").toLowerCase();
+            if (f.mimeType === "application/pdf" || ext === ".pdf") return "pdf";
+            if (f.mimeType === "image/png" || ext === ".png") return "png";
+            if (["image/jpeg", "image/jpg"].includes(f.mimeType) || [".jpg", ".jpeg"].includes(ext)) return "jpg";
+            return ext.replace(".", "") || "file";
+        };
+        const uploadsRoot = path.join(__dirname, "..");
+        const billsDir = path.resolve(uploadsRoot, "uploads", "expenses") + path.sep;
+        let n = 0;
+        claim.annexures = items.flatMap((x, i) => includeBillsOf(x)
+            ? (x.attachments || [])
+                .filter(f => f.url && path.resolve(path.join(uploadsRoot, f.url)).startsWith(billsDir))
+                .map(f => ({
+                    label: `A-${++n}`,
+                    row: i + 1,
+                    date: x.endDate ? `${new Date(x.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "Asia/Kolkata" })} - ${new Date(x.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}`
+                        : new Date(x.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }),
+                    category: x.category,
+                    amount: x.amount,
+                    name: f.name || path.basename(f.url),
+                    path: path.join(uploadsRoot, f.url),
+                    kind: kindOf(f)
+                }))
+            : []);
+
+        const pdf = await buildClaimPdfWithBills(claim);
+        const safeName = `${claim.claimNumber}_${claim.staffName}`.replace(/[^\w.-]+/g, "_");
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="Expense_Claim_${safeName}.pdf"`);
+        res.setHeader("Content-Length", pdf.length);
+        res.end(pdf);
+    } catch (err) {
+        console.error("Claim PDF error:", err);
+        if (!res.headersSent) res.status(500).json({ message: "Failed to generate claim PDF" });
     }
 };
 

@@ -61,6 +61,8 @@ router.delete("/tours/:id", protect, adminOnly, c.deleteTour);
 
 // Claims — several expense rows saved as draft / submitted together
 router.get("/claims", protect, c.listMyClaims);
+router.get("/claim-list", protect, c.listClaims);
+router.get("/claims/:claimNumber/pdf", protect, c.claimPdf);
 router.post("/claims", protect, withClaimBills, c.saveClaim);
 router.get("/claims/:claimNumber", protect, c.getClaim);
 router.put("/claims/:claimNumber", protect, withClaimBills, c.saveClaim);

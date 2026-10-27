@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
-    Wallet, Plane, Receipt, Plus, X, Search, Download, Edit2, Trash2, Eye, CheckCircle2, XCircle,
+    Wallet, CalendarDays, CalendarPlus, CalendarClock, Receipt, Plus, X, Search, Download, Edit2, Trash2, Eye, CheckCircle2, XCircle,
     IndianRupee, Clock, Paperclip, RefreshCw, MapPin, Calendar, User, BadgeCheck, Ban, ChevronLeft, ChevronRight,
     Save, Send, FileText
 } from "lucide-react";
@@ -34,9 +34,12 @@ const STATUS_STYLES = {
     Rejected: { cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800", icon: XCircle },
     Paid: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800", icon: BadgeCheck },
     Planned: { cls: "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600", icon: Calendar },
-    Ongoing: { cls: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800", icon: Plane },
+    Ongoing: { cls: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800", icon: CalendarClock },
     Completed: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800", icon: CheckCircle2 },
     Cancelled: { cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800", icon: Ban },
+    // Claim-level statuses
+    "Pending Approval": { cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800", icon: Clock },
+    "Partially Approved": { cls: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-800", icon: CheckCircle2 },
 };
 
 const StatusChip = ({ status }) => {
@@ -383,9 +386,7 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
         startDate: toInputDate(tour?.startDate) || todayStr(),
         endDate: toInputDate(tour?.endDate) || todayStr(),
         status: tour?.status || "Planned",
-        advanceAmount: tour?.advanceAmount ?? "",
-        advanceDate: toInputDate(tour?.advanceDate),
-        advanceMode: tour?.advanceMode || "",
+        approvedBudget: tour?.approvedBudget ? tour.approvedBudget : "",
         notes: tour?.notes || "",
     }));
     const [saving, setSaving] = useState(false);
@@ -396,10 +397,11 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
         if (!form.title.trim()) return toast.error("Tour title is required");
         if (form.endDate < form.startDate) return toast.error("End date cannot be before start date");
         if (meta.isAdmin && form.members.length === 0) return toast.error("Assign at least one staff member");
+        if (form.approvedBudget !== "" && !(Number(form.approvedBudget) >= 0)) return toast.error("Enter a valid approved budget");
         setSaving(true);
         try {
             const payload = { ...form };
-            if (!meta.isAdmin) { delete payload.members; delete payload.advanceAmount; delete payload.advanceDate; delete payload.advanceMode; }
+            if (!meta.isAdmin) delete payload.members;
             if (isEdit) await API.put(`/expenses/tours/${tour._id}`, payload);
             else await API.post("/expenses/tours", payload);
             toast.success(isEdit ? "Tour updated" : "Tour created");
@@ -413,16 +415,16 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
 
     return (
             <Modal
-                title={isEdit ? `Edit Trip ${tour.tourNumber}` : "Plan Trip"}
+                title={isEdit ? `Edit Event ${tour.tourNumber}` : "Create Event"}
                 subtitle="Plan the trip; expenses and advance are tracked against it"
-                icon={Plane}
+                icon={CalendarPlus}
                 onClose={onClose}
                 onSubmit={submit}
                 footer={<>
                     <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
                     <button type="submit" className={btnPrimary} disabled={saving}>
                         {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                        {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Trip"}
+                        {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Event"}
                     </button>
                 </>}
             >
@@ -463,25 +465,14 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
                             {meta.tourStatuses.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
-                    {meta.isAdmin && (
-                        <>
-                            <div>
-                                <label className={labelCls}>Advance Given (₹)</label>
-                                <input type="number" min="0" step="0.01" className={inputCls} value={form.advanceAmount} onChange={e => set("advanceAmount", e.target.value)} placeholder="0" />
-                            </div>
-                            <div>
-                                <label className={labelCls}>Advance Date</label>
-                                <input type="date" className={inputCls} value={form.advanceDate} onChange={e => set("advanceDate", e.target.value)} />
-                            </div>
-                            <div>
-                                <label className={labelCls}>Advance Mode</label>
-                                <select className={inputCls} value={form.advanceMode} onChange={e => set("advanceMode", e.target.value)}>
-                                    <option value="">—</option>
-                                    {meta.paymentModes.map(m => <option key={m} value={m}>{m}</option>)}
-                                </select>
-                            </div>
-                        </>
-                    )}
+                    <div>
+                        <label className={labelCls}>Approved Budget (₹)</label>
+                        <input type="number" min="0" step="0.01" className={inputCls + " font-bold"} value={form.approvedBudget}
+                            onChange={e => set("approvedBudget", e.target.value)} placeholder="e.g. 25000" />
+                        {Number(form.approvedBudget) > 0 && (
+                            <p className="text-[11px] text-gray-500 mt-1">{inr(form.approvedBudget)} sanctioned — spend is tracked against it</p>
+                        )}
+                    </div>
                     <div className="sm:col-span-2">
                         <label className={labelCls}>Notes</label>
                         <textarea rows={2} className={inputCls} value={form.notes} onChange={e => set("notes", e.target.value)} />
@@ -588,7 +579,7 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
 
     const t = data?.tour;
     return (
-        <Modal wide title={t ? `${t.tourNumber} · ${t.title}` : "Tour"} subtitle={t ? `${(t.memberNames?.length ? t.memberNames : [t.staffName]).join(", ")} · ${fmtDate(t.startDate)} – ${fmtDate(t.endDate)}` : ""} icon={Plane} onClose={onClose}
+        <Modal wide title={t ? `${t.tourNumber} · ${t.title}` : "Event"} subtitle={t ? `${(t.memberNames?.length ? t.memberNames : [t.staffName]).join(", ")} · ${fmtDate(t.startDate)} – ${fmtDate(t.endDate)}` : ""} icon={CalendarDays} onClose={onClose}
             footer={t && <>
                 {meta.isAdmin && (t.advanceAmount > 0) && (
                     <button type="button" className={btnGhost} onClick={toggleSettled}>{t.settled ? "Mark Not Settled" : "Mark Advance Settled"}</button>
@@ -624,13 +615,19 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                         </div>
                     )}
 
+                    {/* Approved budget vs. spend */}
+                    <BudgetBar budget={t.approvedBudget} spent={t.spent} pending={t.pending} />
+
                     {/* Settlement */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className={`grid grid-cols-2 ${t.advanceAmount > 0 ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3`}>
                         {[
-                            ["Advance", inr(t.advanceAmount), t.advanceDate ? `${fmtDate(t.advanceDate)} · ${t.advanceMode || ""}` : "Not given"],
+                            // Advance is no longer entered on trips — shown only for older trips that have one
+                            ...(t.advanceAmount > 0 ? [["Advance", inr(t.advanceAmount), t.advanceDate ? `${fmtDate(t.advanceDate)} · ${t.advanceMode || ""}` : ""]] : []),
                             ["Spent (approved)", inr(t.spent), `${t.count} entries`],
                             ["Pending approval", inr(t.pending), ""],
-                            [t.balance >= 0 ? "Staff to return" : "Company to pay", inr(Math.abs(t.balance)), t.balance === 0 ? "Fully settled" : ""],
+                            ...(t.advanceAmount > 0
+                                ? [[t.balance >= 0 ? "Staff to return" : "Company to pay", inr(Math.abs(t.balance)), t.balance === 0 ? "Fully settled" : ""]]
+                                : [["Total claimed", inr(t.spent + t.pending), "Approved + pending"]]),
                         ].map(([k, v, h]) => (
                             <div key={k} className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
                                 <p className={labelCls}>{k}</p>
@@ -690,6 +687,32 @@ const AutoTextarea = ({ value, onChange, className, ...rest }) => {
     };
     useEffect(fit, [value]);
     return <textarea ref={ref} rows={2} value={value} onChange={onChange} className={className} style={{ minHeight: 64 }} {...rest} />;
+};
+
+// Approved budget vs. spend — progress bar used on event cards and in event detail
+const BudgetBar = ({ budget, spent, pending = 0, compact }) => {
+    if (!(budget > 0)) return null;
+    const used = spent / budget;
+    const withPending = (spent + pending) / budget;
+    const over = spent > budget;
+    const remaining = budget - spent;
+    const barColor = over ? "bg-red-500" : used >= 0.9 ? "bg-amber-500" : "bg-teal-600";
+    return (
+        <div className={compact ? "" : "p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700"}>
+            <div className="flex items-center justify-between text-[11px] font-bold">
+                <span className="text-gray-500 dark:text-gray-400">Budget {inr(budget)}</span>
+                <span className={over ? "text-red-600" : "text-gray-700 dark:text-gray-200"}>{Math.round(used * 100)}% used</span>
+            </div>
+            <div className="mt-1.5 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden relative" role="progressbar" aria-valuenow={Math.round(used * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Budget used">
+                {pending > 0 && <div className="absolute inset-y-0 left-0 bg-amber-300/60" style={{ width: `${Math.min(withPending, 1) * 100}%` }} />}
+                <div className={`absolute inset-y-0 left-0 rounded-full ${barColor}`} style={{ width: `${Math.min(used, 1) * 100}%` }} />
+            </div>
+            <p className={`mt-1 text-[11px] font-semibold ${over ? "text-red-600" : "text-gray-500 dark:text-gray-400"}`}>
+                {over ? `Over budget by ${inr(-remaining)}` : `${inr(remaining)} remaining`}
+                {pending > 0 && <span className="text-amber-600"> · {inr(pending)} pending approval</span>}
+            </p>
+        </div>
+    );
 };
 
 // Tours a staff member is assigned to (older tours: the single `staff`)
@@ -972,11 +995,110 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
     );
 };
 
+// ================= Claim PDF download =================
+const downloadClaimPdf = async (claimNumber) => {
+    const tId = toast.loading("Preparing PDF...");
+    try {
+        const res = await API.get(`/expenses/claims/${encodeURIComponent(claimNumber)}/pdf`, { responseType: "blob" });
+        const name = /filename="([^"]+)"/.exec(res.headers["content-disposition"] || "")?.[1] || `Expense_Claim_${claimNumber}.pdf`;
+        const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        toast.success("PDF downloaded", { id: tId });
+    } catch (err) {
+        // Error body arrives as a Blob because of responseType
+        let message = "Failed to download PDF";
+        try { message = JSON.parse(await err.response.data.text()).message || message; } catch { /* keep default */ }
+        toast.error(message, { id: tId });
+    }
+};
+
+// ================= Claim view (status of every row + PDF) =================
+const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
+    const [data, setData] = useState(null);
+    useEffect(() => {
+        API.get(`/expenses/claims/${encodeURIComponent(claim.claimNumber)}`)
+            .then(res => setData(res.data))
+            .catch(err => { toast.error(err.response?.data?.message || "Failed to load claim"); onClose(); });
+    }, [claim.claimNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const mine = String(claim.staff) === String(MY_ID());
+    const canEditClaim = mine && (claim.counts.draft > 0 || claim.counts.rejected > 0);
+    const a = claim.amounts;
+
+    return (
+        <Modal wide title={`Claim ${claim.claimNumber}`} subtitle={`${claim.staffName}${claim.tour ? ` · ${claim.tour.tourNumber} ${claim.tour.title}` : ""}`} icon={FileText} onClose={onClose}
+            footer={<>
+                <div className="mr-auto self-center"><StatusChip status={claim.status} /></div>
+                {canEditClaim && <button type="button" className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={onEdit}><Edit2 size={14} /> {claim.counts.draft > 0 ? "Continue" : "Fix & Re-submit"}</button>}
+                {mine && claim.counts.draft > 0 && <button type="button" className={btnPrimary} onClick={onSubmit}><Send size={14} /> Submit Claim</button>}
+                {claim.pdfReady && <button type="button" className={btnPrimary} onClick={() => downloadClaimPdf(claim.claimNumber)}><Download size={14} /> Download PDF</button>}
+            </>}
+        >
+            {/* Amount summary */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                {[
+                    ["Claimed", a.claimed + a.draft],
+                    ["Pending approval", a.pending],
+                    ["Approved", a.approved],
+                    [a.paid > 0 ? "Paid" : "Rejected", a.paid > 0 ? a.paid : a.rejected],
+                ].map(([k, v]) => (
+                    <div key={k} className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
+                        <p className={labelCls}>{k}</p>
+                        <p className="text-lg font-black text-gray-900 dark:text-white">{inr(v)}</p>
+                    </div>
+                ))}
+            </div>
+            {["Pending Approval", "Draft"].includes(claim.status) && (
+                <p className="mb-4 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                    The PDF can be downloaded now, but it is marked "{claim.status.toUpperCase()}" — it is not a final approved document yet.
+                </p>
+            )}
+            {!data ? (
+                <div className="py-10 flex justify-center"><RefreshCw className="animate-spin text-teal-600" /></div>
+            ) : (
+                <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+                    <table className="w-full min-w-[720px] text-left text-xs">
+                        <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
+                            <tr><th className="px-3 py-2">#</th><th className="px-3 py-2">Date</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Place</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Bills</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {data.items.map((x, i) => (
+                                <tr key={x._id}>
+                                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap">{fmtExpenseDate(x)}</td>
+                                    <td className="px-3 py-2">{x.category}</td>
+                                    <td className="px-3 py-2">{x.place || "-"}</td>
+                                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                                        {x.description || "-"}
+                                        {x.status === "Rejected" && x.rejectionReason && <p className="text-[11px] font-semibold text-red-600 mt-0.5">Rejected: {x.rejectionReason}</p>}
+                                    </td>
+                                    <td className="px-3 py-2">{x.attachments?.length ? x.attachments.map(f => (
+                                        <a key={f.url} href={`${FILE_BASE}${f.url}`} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline mr-2" title={f.name}><Paperclip size={13} className="inline" /></a>
+                                    )) : "-"}</td>
+                                    <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${x.status === "Rejected" ? "line-through text-gray-400" : ""}`}>{inr(x.amount)}</td>
+                                    <td className="px-3 py-2"><StatusChip status={x.status} /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </Modal>
+    );
+};
+
 // ================= Page =================
 const TABS = [
     { key: "overview", label: "Overview", icon: Wallet },
+    { key: "claims", label: "Claims", icon: FileText },
     { key: "expenses", label: "Expenses", icon: Receipt },
-    { key: "tours", label: "Tours", icon: Plane },
+    { key: "tours", label: "Events", icon: CalendarDays },
 ];
 
 const Expenses = () => {
@@ -994,6 +1116,10 @@ const Expenses = () => {
     const [expenseForm, setExpenseForm] = useState(null); // { expense } — single-row edit (old / non-claim rows)
     const [claimForm, setClaimForm] = useState(null);     // { claimNumber?, defaultTour? }
     const [draftClaims, setDraftClaims] = useState([]);
+    const [claims, setClaims] = useState([]);
+    const [claimsLoading, setClaimsLoading] = useState(false);
+    const [claimStatus, setClaimStatus] = useState("All");
+    const [claimView, setClaimView] = useState(null); // claim row object
     const [tourForm, setTourForm] = useState(null);       // { tour? }
     const [tourDetail, setTourDetail] = useState(null);   // tourId
     const [expenseDetail, setExpenseDetail] = useState(null);
@@ -1033,11 +1159,27 @@ const Expenses = () => {
         API.get(`/expenses/tours?${p}`).then(res => setTours(res.data || [])).catch(() => {});
     }, [filters.staff, filters.search, tab]);
 
+    const loadClaims = useCallback(() => {
+        const p = new URLSearchParams();
+        if (filters.staff) p.append("staff", filters.staff);
+        if (claimStatus !== "All") p.append("status", claimStatus);
+        if (filters.search && tab === "claims") p.append("search", filters.search);
+        setClaimsLoading(true);
+        API.get(`/expenses/claim-list?${p}`)
+            .then(res => setClaims(res.data || []))
+            .catch(() => toast.error("Failed to load claims"))
+            .finally(() => setClaimsLoading(false));
+    }, [filters.staff, filters.search, claimStatus, tab]);
+    useEffect(() => { if (meta && tab === "claims") loadClaims(); }, [meta, tab, loadClaims]);
+
     const loadDraftClaims = useCallback(() => {
         API.get("/expenses/claims?status=Draft").then(res => setDraftClaims(res.data || [])).catch(() => {});
     }, []);
 
-    const refreshAll = useCallback(() => { loadSummary(); loadExpenses(); loadTours(); loadDraftClaims(); }, [loadSummary, loadExpenses, loadTours, loadDraftClaims]);
+    const refreshAll = useCallback(() => {
+        loadSummary(); loadExpenses(); loadTours(); loadDraftClaims();
+        if (tab === "claims") loadClaims();
+    }, [loadSummary, loadExpenses, loadTours, loadDraftClaims, loadClaims, tab]);
     useEffect(() => { if (meta) loadDraftClaims(); }, [meta, loadDraftClaims]);
 
     const submitClaim = async (c) => {
@@ -1046,6 +1188,7 @@ const Expenses = () => {
             const res = await API.post(`/expenses/claims/${encodeURIComponent(c.claimNumber)}/submit`);
             toast.success(`${c.claimNumber} submitted — ${res.data.submitted} row(s), ${inr(res.data.amount)}`);
             refreshAll();
+            setTab("claims");
         } catch (err) {
             toast.error(err.response?.data?.message || "Failed to submit claim");
         }
@@ -1165,7 +1308,7 @@ const Expenses = () => {
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {isAdmin && <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}><Plane size={14} /> Plan Trip</button>}
+                    {isAdmin && <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}><CalendarPlus size={14} /> Create Event</button>}
                     <button className={btnPrimary} onClick={() => setClaimForm({})}><Plus size={14} /> Add Expenses</button>
                 </div>
             </div>
@@ -1210,6 +1353,16 @@ const Expenses = () => {
                             </select>
                         </div>
                     )}
+                    {tab === "claims" && (
+                        <div>
+                            <label className={labelCls}>Claim Status</label>
+                            <select className={inputCls} value={claimStatus} onChange={e => setClaimStatus(e.target.value)}>
+                                {["All", "Draft", "Pending Approval", "Partially Approved", "Approved", "Paid", "Rejected"].map(s => (
+                                    <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     {tab === "expenses" && (
                         <>
                             <div>
@@ -1241,7 +1394,7 @@ const Expenses = () => {
                             <label className={labelCls}>Search</label>
                             <div className="relative">
                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                <input className={inputCls + " pl-9"} value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder={tab === "tours" ? "Tour, city, staff..." : "Description, bill no, staff..."} />
+                                <input className={inputCls + " pl-9"} value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder={tab === "tours" ? "Event, city, staff..." : "Description, bill no, staff..."} />
                             </div>
                         </div>
                     )}
@@ -1289,7 +1442,7 @@ const Expenses = () => {
                         <StatTile label="Pending approval" value={inr(summary?.pendingApproval?.amount)} hint={`${summary?.pendingApproval?.count || 0} claim(s) waiting`} icon={Clock} tone="text-amber-500" />
                         <StatTile label="Approved, to pay" value={inr(summary?.approvedUnpaid?.amount)} hint={`${summary?.approvedUnpaid?.count || 0} claim(s) not yet paid`} icon={CheckCircle2} tone="text-blue-500" />
                         {isAdmin
-                            ? <StatTile label="Active tours" value={summary?.activeTours ?? 0} hint={`Open advances ${inr(summary?.openAdvances)}`} icon={Plane} />
+                            ? <StatTile label="Active events" value={summary?.activeTours ?? 0} hint={summary?.openAdvances > 0 ? `Open advances ${inr(summary.openAdvances)}` : "Planned + ongoing events"} icon={CalendarDays} />
                             : <StatTile label="My drafts" value={summary?.drafts?.count ?? 0} hint={`${inr(summary?.drafts?.amount)} not yet submitted`} icon={FileText} tone="text-gray-500" />}
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1311,6 +1464,71 @@ const Expenses = () => {
                             <MonthChart data={summary?.byMonth || []} />
                         </ChartCard>
                     )}
+                </div>
+            )}
+
+            {/* ===== Claims ===== */}
+            {tab === "claims" && (
+                <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500 dark:text-gray-400">
+                        {claims.length} claim(s){isAdmin ? "" : " · your claims"} — download the PDF any time; its watermark shows the claim's current status
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[900px] text-left text-sm">
+                            <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
+                                <tr>
+                                    <th className="px-4 py-3">Claim</th>
+                                    {isAdmin && <th className="px-4 py-3">Staff</th>}
+                                    <th className="px-4 py-3">Event</th>
+                                    <th className="px-4 py-3">Period</th>
+                                    <th className="px-4 py-3 text-right">Claimed</th>
+                                    <th className="px-4 py-3 text-right">Approved</th>
+                                    <th className="px-4 py-3">Status</th>
+                                    <th className="px-4 py-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                {claimsLoading ? (
+                                    <tr><td colSpan="8" className="px-4 py-14 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></td></tr>
+                                ) : claims.length === 0 ? (
+                                    <tr><td colSpan="8" className="px-4 py-14 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No claims yet — use "Add Expenses" to create one</td></tr>
+                                ) : claims.map(c => {
+                                    const mine = String(c.staff) === String(myId);
+                                    const claimed = c.amounts.claimed + c.amounts.draft;
+                                    return (
+                                        <tr key={c.claimNumber} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
+                                            <td className="px-4 py-3">
+                                                <button className="font-mono text-xs font-black text-teal-700 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setClaimView(c)}>{c.claimNumber}</button>
+                                                <p className="text-[11px] text-gray-500">{c.count} row(s){c.counts.rejected ? ` · ${c.counts.rejected} rejected` : ""}</p>
+                                            </td>
+                                            {isAdmin && <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200">{c.staffName}</td>}
+                                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">{c.tour ? `${c.tour.tourNumber} · ${c.tour.title}` : "—"}</td>
+                                            <td className="px-4 py-3 text-xs whitespace-nowrap">{fmtDate(c.from)}{toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}</td>
+                                            <td className="px-4 py-3 text-right font-bold whitespace-nowrap">{inr(claimed)}</td>
+                                            <td className="px-4 py-3 text-right font-black text-gray-900 dark:text-white whitespace-nowrap">{c.amounts.approved > 0 ? inr(c.amounts.approved) : "—"}</td>
+                                            <td className="px-4 py-3"><StatusChip status={c.status} /></td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View claim" onClick={() => setClaimView(c)}><Eye size={16} /></button>
+                                                    {mine && (c.counts.draft > 0 || c.counts.rejected > 0) && (
+                                                        <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={c.counts.draft > 0 ? "Continue claim" : "Fix rejected rows & re-submit"} onClick={() => setClaimForm({ claimNumber: c.claimNumber })}><Edit2 size={16} /></button>
+                                                    )}
+                                                    {mine && c.counts.draft > 0 && (
+                                                        <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit claim" onClick={() => submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft })}><Send size={16} /></button>
+                                                    )}
+                                                    {c.pdfReady && (
+                                                        <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer" title={`Download claim PDF (marked ${c.status.toUpperCase()})`} onClick={() => downloadClaimPdf(c.claimNumber)}>
+                                                            <Download size={13} /> PDF
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
@@ -1345,7 +1563,7 @@ const Expenses = () => {
                                     <th className="px-4 py-3">Expense</th>
                                     <th className="px-4 py-3">Staff</th>
                                     <th className="px-4 py-3">Category / Description</th>
-                                    <th className="px-4 py-3">Tour</th>
+                                    <th className="px-4 py-3">Event</th>
                                     <th className="px-4 py-3 text-right">Amount</th>
                                     <th className="px-4 py-3">Status</th>
                                     <th className="px-4 py-3 text-center">Actions</th>
@@ -1425,9 +1643,9 @@ const Expenses = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {tours.length === 0 ? (
                         <div className="md:col-span-2 xl:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-700">
-                            <Plane className="mx-auto text-gray-300" size={36} />
-                            <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No tours yet</p>
-                            <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Plan Trip</button>
+                            <CalendarDays className="mx-auto text-gray-300" size={36} />
+                            <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No events yet</p>
+                            <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Create Event</button>
                         </div>
                     ) : tours.map(t => (
                         <div key={t._id} className="bg-white dark:bg-gray-800 rounded-3xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex flex-col gap-3">
@@ -1449,15 +1667,23 @@ const Expenses = () => {
                                 <p className="flex items-center gap-1"><Calendar size={12} /> {fmtDate(t.startDate)} – {fmtDate(t.endDate)}</p>
                                 {(t.fromCity || t.toCities) && <p className="flex items-center gap-1"><MapPin size={12} /> {[t.fromCity, t.toCities].filter(Boolean).join(" → ")}</p>}
                             </div>
-                            <div className="grid grid-cols-3 gap-2 text-center">
-                                <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Advance</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.advanceAmount)}</p></div>
-                                <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Spent</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.spent)}</p></div>
-                                <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2">
-                                    <p className="text-[10px] font-black uppercase text-gray-400">{t.balance >= 0 ? "To return" : "To pay"}</p>
-                                    <p className="text-sm font-black text-gray-900 dark:text-white">{inr(Math.abs(t.balance))}</p>
+                            {t.advanceAmount > 0 ? (
+                                <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Advance</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.advanceAmount)}</p></div>
+                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Spent</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.spent)}</p></div>
+                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2">
+                                        <p className="text-[10px] font-black uppercase text-gray-400">{t.balance >= 0 ? "To return" : "To pay"}</p>
+                                        <p className="text-sm font-black text-gray-900 dark:text-white">{inr(Math.abs(t.balance))}</p>
+                                    </div>
                                 </div>
-                            </div>
-                            {t.pending > 0 && <p className="text-[11px] font-semibold text-amber-600">{inr(t.pending)} pending approval</p>}
+                            ) : (
+                                <div className="grid grid-cols-2 gap-2 text-center">
+                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Spent (approved)</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.spent)}</p></div>
+                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Pending</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.pending)}</p></div>
+                                </div>
+                            )}
+                            {t.advanceAmount > 0 && t.pending > 0 && !(t.approvedBudget > 0) && <p className="text-[11px] font-semibold text-amber-600">{inr(t.pending)} pending approval</p>}
+                            <BudgetBar budget={t.approvedBudget} spent={t.spent} pending={t.pending} compact />
                             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-700">
                                 <button className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setTourDetail(t._id)}>Open · {t.count} expense(s)</button>
                                 <div className="flex gap-1">
@@ -1471,9 +1697,14 @@ const Expenses = () => {
             )}
 
             {/* ===== Modals ===== */}
+            {claimView && (
+                <ClaimViewModal meta={meta} claim={claimView} onClose={() => setClaimView(null)}
+                    onEdit={() => { const n = claimView.claimNumber; setClaimView(null); setClaimForm({ claimNumber: n }); }}
+                    onSubmit={() => { const c = claimView; setClaimView(null); submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft }); }} />
+            )}
             {claimForm && (
                 <ClaimFormModal meta={meta} tours={tours} claimNumber={claimForm.claimNumber} defaultTour={claimForm.defaultTour}
-                    onClose={() => setClaimForm(null)} onSaved={() => { setClaimForm(null); refreshAll(); }} />
+                    onClose={() => setClaimForm(null)} onSaved={() => { setClaimForm(null); refreshAll(); setTab("claims"); }} />
             )}
             {expenseForm && (
                 <ExpenseFormModal meta={meta} tours={tours} expense={expenseForm.expense} defaultTour={expenseForm.defaultTour}

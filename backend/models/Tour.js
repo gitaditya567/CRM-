@@ -19,6 +19,7 @@ const tourSchema = new mongoose.Schema({
         enum: ["Planned", "Ongoing", "Completed", "Cancelled"],
         default: "Planned"
     },
+    approvedBudget: { type: Number, default: 0 },   // budget sanctioned for the event (0 = not set)
     advanceAmount: { type: Number, default: 0 },
     advanceDate: { type: Date, default: null },
     advanceMode: { type: String, default: "" },
