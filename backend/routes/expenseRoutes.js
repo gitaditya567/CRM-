@@ -24,14 +24,30 @@ const uploadBills = multer({
     }
 }).array("bills", 5);
 
+// Claim uploads: one field per row ("bills_<rowKey>"), up to 100 files in total
+const uploadClaimBills = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+        filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${path.extname(file.originalname).toLowerCase()}`)
+    }),
+    limits: { fileSize: 5 * 1024 * 1024, files: 100 },
+    fileFilter: (req, file, cb) => {
+        if (!/^bills_[\w-]{1,40}$/.test(file.fieldname)) return cb(new Error("Invalid upload field"));
+        if (ALLOWED.includes(file.mimetype)) return cb(null, true);
+        cb(new Error("Only image (JPG, PNG, WEBP, HEIC) or PDF bills are allowed"));
+    }
+}).any();
+
 // Turn multer errors into a clean 400
-const withBills = (req, res, next) => uploadBills(req, res, (err) => {
+const multerErrors = (upload, countMsg) => (req, res, next) => upload(req, res, (err) => {
     if (!err) return next();
     const message = err.code === "LIMIT_FILE_SIZE" ? "Each bill must be 5 MB or smaller"
-        : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE" ? "You can attach up to 5 bills"
+        : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE" ? countMsg
         : err.message;
     res.status(400).json({ message });
 });
+const withBills = multerErrors(uploadBills, "You can attach up to 5 bills");
+const withClaimBills = multerErrors(uploadClaimBills, "Too many bills in one claim (max 100)");
 
 router.get("/meta", protect, c.getMeta);
 router.get("/summary", protect, c.getSummary);
@@ -42,6 +58,13 @@ router.post("/tours", protect, adminOnly, c.createTour);
 router.get("/tours/:id", protect, c.getTour);
 router.put("/tours/:id", protect, adminOnly, c.updateTour);
 router.delete("/tours/:id", protect, adminOnly, c.deleteTour);
+
+// Claims — several expense rows saved as draft / submitted together
+router.get("/claims", protect, c.listMyClaims);
+router.post("/claims", protect, withClaimBills, c.saveClaim);
+router.get("/claims/:claimNumber", protect, c.getClaim);
+router.put("/claims/:claimNumber", protect, withClaimBills, c.saveClaim);
+router.post("/claims/:claimNumber/submit", protect, c.submitClaim);
 
 router.post("/bulk-status", protect, adminOnly, c.bulkStatus);
 router.get("/", protect, c.listExpenses);

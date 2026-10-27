@@ -16,6 +16,34 @@ const scopeFilter = (req, staffParam) => {
     return { staff: new mongoose.Types.ObjectId(req.user._id) };
 };
 
+// Tours a user can see: tours they are assigned to (members), or older single-staff tours
+const tourScope = (req, staffParam) => {
+    const id = isAdmin(req) ? (staffParam && isId(staffParam) ? staffParam : null) : req.user._id;
+    if (!id) return {};
+    const oid = new mongoose.Types.ObjectId(id);
+    return { $or: [{ members: oid }, { staff: oid }] };
+};
+
+// Older tours have only `staff` — expose a consistent members list
+const normalizeTour = (t) => {
+    const members = t.members?.length ? t.members : [t.staff];
+    const memberNames = t.memberNames?.length ? t.memberNames : [t.staffName];
+    return { ...t, members, memberNames };
+};
+const isTourMember = (tour, userId) =>
+    (tour.members?.length ? tour.members : [tour.staff]).some(m => String(m) === String(userId));
+
+// Resolve & validate assigned users (admin only) — keeps the given order
+const resolveMembers = async (ids) => {
+    const list = [...new Set((Array.isArray(ids) ? ids : [ids]).filter(isId).map(String))];
+    if (!list.length) throw new Error("Assign at least one staff member to the tour");
+    const users = await User.find({ _id: { $in: list } }).select("name").lean();
+    const byId = new Map(users.map(u => [String(u._id), u]));
+    const ordered = list.map(id => byId.get(id)).filter(Boolean);
+    if (!ordered.length) throw new Error("Selected staff not found");
+    return ordered;
+};
+
 // Drafts are private: admins never see another user's drafts
 const hideOthersDrafts = (req) => (isAdmin(req)
     ? { $or: [{ status: { $ne: "Draft" } }, { staff: new mongoose.Types.ObjectId(req.user._id) }] }
@@ -108,7 +136,7 @@ exports.getSummary = async (req, res) => {
             Expense.aggregate([{ $match: { ...match, status: { $in: SPENT_STATUSES } } }, { $group: { _id: "$staff", name: { $first: "$staffName" }, amount: { $sum: "$amount" }, count: { $sum: 1 } } }, { $sort: { amount: -1 } }, { $limit: 10 }])
         ]);
 
-        // Last 6 months trend (approved + paid) â€” independent of the date filter
+        // Last 6 months trend (approved + paid) — independent of the date filter
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5, 1);
         sixMonthsAgo.setHours(0, 0, 0, 0);
@@ -128,7 +156,7 @@ exports.getSummary = async (req, res) => {
             return [s, { amount: hit?.amount || 0, count: hit?.count || 0 }];
         }));
 
-        const tourMatch = { ...scopeFilter(req, req.query.staff) };
+        const tourMatch = { ...tourScope(req, req.query.staff) };
         const [activeTours, advances] = await Promise.all([
             Tour.countDocuments({ ...tourMatch, status: { $in: ["Planned", "Ongoing"] } }),
             Tour.aggregate([{ $match: { ...tourMatch, settled: false, status: { $ne: "Cancelled" } } }, { $group: { _id: null, amount: { $sum: "$advanceAmount" } } }])
@@ -144,7 +172,7 @@ exports.getSummary = async (req, res) => {
             activeTours,
             openAdvances: advances[0]?.amount || 0,
             byCategory: byCategory.map(c => ({ category: c._id, amount: c.amount, count: c.count })),
-            byStaff: byStaff.map(s => ({ staffId: s._id, name: s.name || "â€”", amount: s.amount, count: s.count })),
+            byStaff: byStaff.map(s => ({ staffId: s._id, name: s.name || "—", amount: s.amount, count: s.count })),
             byMonth
         });
     } catch (err) {
@@ -173,24 +201,28 @@ const tourTotals = async (tourIds) => {
 
 const withTotals = (tour, totals) => {
     const t = totals[String(tour._id)] || { spent: 0, pending: 0, rejected: 0, count: 0 };
-    // balance > 0 â†’ staff returns money; < 0 â†’ company pays staff
+    // balance > 0 → staff returns money; < 0 → company pays staff
     return { ...tour, ...t, balance: (tour.advanceAmount || 0) - t.spent };
 };
 
 // GET /api/expenses/tours?status&staff&search&from&to
 exports.listTours = async (req, res) => {
     try {
-        const filter = { ...scopeFilter(req, req.query.staff) };
+        const and = [];
+        const scope = tourScope(req, req.query.staff);
+        if (scope.$or) and.push(scope);
+        const filter = {};
         if (req.query.status && req.query.status !== "All") filter.status = req.query.status;
         const range = dateRange(req.query.from, req.query.to);
         if (range) filter.startDate = range;
         if (req.query.search) {
             const rx = new RegExp(escapeRegex(req.query.search), "i");
-            filter.$or = [{ title: rx }, { tourNumber: rx }, { toCities: rx }, { fromCity: rx }, { purpose: rx }, { staffName: rx }];
+            and.push({ $or: [{ title: rx }, { tourNumber: rx }, { toCities: rx }, { fromCity: rx }, { purpose: rx }, { staffName: rx }, { memberNames: rx }] });
         }
+        if (and.length) filter.$and = and;
         const tours = await Tour.find(filter).sort({ startDate: -1 }).limit(500).lean();
         const totals = await tourTotals(tours.map(t => t._id));
-        res.json(tours.map(t => withTotals(t, totals)));
+        res.json(tours.map(t => withTotals(normalizeTour(t), totals)));
     } catch (err) {
         console.error("List tours error:", err);
         res.status(500).json({ message: "Failed to load tours" });
@@ -201,11 +233,28 @@ exports.listTours = async (req, res) => {
 exports.getTour = async (req, res) => {
     try {
         if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid tour" });
-        const tour = await Tour.findOne({ _id: req.params.id, ...scopeFilter(req) }).lean();
+        const tour = await Tour.findOne({ _id: req.params.id, ...tourScope(req) }).lean();
         if (!tour) return res.status(404).json({ message: "Tour not found" });
-        const expenses = await Expense.find({ tour: tour._id, ...hideOthersDrafts(req) }).sort({ date: 1 }).lean();
+        // Admins see every member's rows; a member sees only their own rows on a shared tour
+        const expenses = await Expense.find({ tour: tour._id, ...scopeFilter(req), ...hideOthersDrafts(req) }).sort({ date: 1 }).lean();
         const totals = await tourTotals([tour._id]);
-        res.json({ tour: withTotals(tour, totals), expenses });
+
+        // Per-member breakdown (approved + paid = spent, submitted = pending)
+        const t = normalizeTour(tour);
+        const perMember = await Expense.aggregate([
+            { $match: { tour: tour._id, status: { $ne: "Draft" } } },
+            { $group: { _id: { staff: "$staff", status: "$status" }, amount: { $sum: "$amount" } } }
+        ]);
+        const memberTotals = t.members.map((m, i) => {
+            const rows = perMember.filter(r => String(r._id.staff) === String(m));
+            return {
+                staff: m,
+                name: t.memberNames[i] || "",
+                spent: rows.filter(r => SPENT_STATUSES.includes(r._id.status)).reduce((s, r) => s + r.amount, 0),
+                pending: rows.filter(r => r._id.status === "Submitted").reduce((s, r) => s + r.amount, 0)
+            };
+        });
+        res.json({ tour: withTotals(t, totals), expenses, memberTotals: isAdmin(req) ? memberTotals : memberTotals.filter(mt => String(mt.staff) === String(req.user._id)) });
     } catch (err) {
         console.error("Get tour error:", err);
         res.status(500).json({ message: "Failed to load tour" });
@@ -236,15 +285,22 @@ exports.createTour = async (req, res) => {
         // Only admins record advances given
         if (!isAdmin(req)) { delete fields.advanceAmount; delete fields.advanceDate; delete fields.advanceMode; }
 
-        const staff = await resolveStaff(req, req.body.staff);
+        let members;
+        try {
+            members = await resolveMembers(req.body.members ?? req.body.staff);
+        } catch (e) {
+            return res.status(400).json({ message: e.message });
+        }
         const tour = await Tour.create({
             ...fields,
             tourNumber: await nextNumber(Tour, "tourNumber", "TR", 3),
-            staff: staff._id,
-            staffName: staff.name,
+            members: members.map(u => u._id),
+            memberNames: members.map(u => u.name),
+            staff: members[0]._id,
+            staffName: members[0].name,
             createdBy: req.user._id
         });
-        res.status(201).json(tour);
+        res.status(201).json(normalizeTour(tour.toObject()));
     } catch (err) {
         console.error("Create tour error:", err);
         res.status(500).json({ message: err.message || "Failed to create tour" });
@@ -254,19 +310,35 @@ exports.createTour = async (req, res) => {
 // PUT /api/expenses/tours/:id
 exports.updateTour = async (req, res) => {
     try {
-        const tour = await Tour.findOne({ _id: req.params.id, ...scopeFilter(req) });
+        const tour = await Tour.findOne({ _id: req.params.id, ...tourScope(req) });
         if (!tour) return res.status(404).json({ message: "Tour not found" });
         const admin = isAdmin(req);
         if (!admin && tour.settled) return res.status(403).json({ message: "Settled tours can only be changed by an admin" });
 
         const fields = pickTourFields(req.body);
         if (!admin) { delete fields.advanceAmount; delete fields.advanceDate; delete fields.advanceMode; }
-        if (admin && req.body.staff && isId(req.body.staff) && String(req.body.staff) !== String(tour.staff)) {
-            const hasExpenses = await Expense.exists({ tour: tour._id });
-            if (hasExpenses) return res.status(400).json({ message: "Cannot change staff of a tour that already has expenses" });
-            const staff = await resolveStaff(req, req.body.staff);
-            tour.staff = staff._id;
-            tour.staffName = staff.name;
+
+        // Re-assign members (admin). A member who already has expenses on this tour cannot be removed.
+        if (admin && (req.body.members !== undefined || req.body.staff)) {
+            let members;
+            try {
+                members = await resolveMembers(req.body.members ?? req.body.staff);
+            } catch (e) {
+                return res.status(400).json({ message: e.message });
+            }
+            const keep = new Set(members.map(u => String(u._id)));
+            const current = tour.members?.length ? tour.members : [tour.staff];
+            const removed = current.filter(m => !keep.has(String(m)));
+            if (removed.length) {
+                const withExpenses = await Expense.distinct("staffName", { tour: tour._id, staff: { $in: removed } });
+                if (withExpenses.length) {
+                    return res.status(400).json({ message: `Cannot remove ${withExpenses.join(", ")} — they already have expenses on this tour` });
+                }
+            }
+            tour.members = members.map(u => u._id);
+            tour.memberNames = members.map(u => u.name);
+            tour.staff = members[0]._id;
+            tour.staffName = members[0].name;
         }
         if (admin && typeof req.body.settled === "boolean") {
             tour.settled = req.body.settled;
@@ -275,7 +347,7 @@ exports.updateTour = async (req, res) => {
         Object.assign(tour, fields);
         if (tour.endDate < tour.startDate) return res.status(400).json({ message: "End date cannot be before start date" });
         await tour.save();
-        res.json(tour);
+        res.json(normalizeTour(tour.toObject()));
     } catch (err) {
         console.error("Update tour error:", err);
         res.status(500).json({ message: err.message || "Failed to update tour" });
@@ -285,7 +357,7 @@ exports.updateTour = async (req, res) => {
 // DELETE /api/expenses/tours/:id   (only when it has no expenses)
 exports.deleteTour = async (req, res) => {
     try {
-        const tour = await Tour.findOne({ _id: req.params.id, ...scopeFilter(req) });
+        const tour = await Tour.findOne({ _id: req.params.id, ...tourScope(req) });
         if (!tour) return res.status(404).json({ message: "Tour not found" });
         if (!isAdmin(req) && tour.status !== "Planned") return res.status(403).json({ message: "Only planned tours can be deleted" });
         if (await Expense.exists({ tour: tour._id })) {
@@ -314,7 +386,7 @@ const buildExpenseFilter = (req) => {
     if (drafts.$or) and.push(drafts);
     if (q.search) {
         const rx = new RegExp(escapeRegex(q.search), "i");
-        and.push({ $or: [{ description: rx }, { expenseNumber: rx }, { billNo: rx }, { staffName: rx }, { category: rx }] });
+        and.push({ $or: [{ description: rx }, { place: rx }, { expenseNumber: rx }, { claimNumber: rx }, { billNo: rx }, { staffName: rx }, { category: rx }] });
     }
     if (and.length) filter.$and = and;
     return filter;
@@ -370,14 +442,14 @@ const validateExpenseBody = async (req, body, staffId) => {
         if (!Expense.PAYMENT_MODES.includes(body.paymentMode)) throw new Error("Invalid payment mode");
         out.paymentMode = body.paymentMode;
     }
-    ["description", "billNo"].forEach(k => { if (body[k] !== undefined) out[k] = String(body[k]).trim(); });
+    ["description", "billNo", "place"].forEach(k => { if (body[k] !== undefined) out[k] = String(body[k]).trim(); });
     if (body.tour !== undefined) {
         if (!body.tour || body.tour === "none") out.tour = null;
         else {
             if (!isId(body.tour)) throw new Error("Invalid tour");
-            const tour = await Tour.findById(body.tour).select("staff").lean();
+            const tour = await Tour.findById(body.tour).select("staff members").lean();
             if (!tour) throw new Error("Tour not found");
-            if (String(tour.staff) !== String(staffId)) throw new Error("Tour belongs to a different staff member");
+            if (!isTourMember(tour, staffId)) throw new Error("This staff member is not assigned to the selected tour");
             out.tour = tour._id;
         }
     }
@@ -395,7 +467,7 @@ exports.createExpense = async (req, res) => {
         }
         const by = req.user.name || "User";
         // saveAs=draft keeps it private to the creator; anything else submits for approval
-        // (a draft always belongs to its creator â€” admins can't park drafts on someone else)
+        // (a draft always belongs to its creator — admins can't park drafts on someone else)
         const status = req.body.saveAs === "draft" && String(staff._id) === String(req.user._id) ? "Draft" : "Submitted";
         const exp = await Expense.create({
             ...fields,
@@ -495,6 +567,175 @@ exports.submitDraft = async (req, res) => {
     } catch (err) {
         console.error("Submit draft error:", err);
         res.status(500).json({ message: "Failed to submit expense" });
+    }
+};
+
+// ---------- claims (many expense rows entered & submitted together) ----------
+const MAX_CLAIM_ROWS = 50;
+const MAX_BILLS_PER_ROW = 5;
+
+// Uploaded files arrive as fieldname "bills_<rowKey>"
+const filesForRow = (files = [], key) => files.filter(f => f.fieldname === `bills_${key}`);
+
+// GET /api/expenses/claims?status=Draft   → the user's own claims grouped (default: drafts)
+exports.listMyClaims = async (req, res) => {
+    try {
+        const status = req.query.status || "Draft";
+        const rows = await Expense.aggregate([
+            { $match: { staff: new mongoose.Types.ObjectId(req.user._id), claimNumber: { $ne: "" }, status } },
+            { $group: {
+                _id: "$claimNumber",
+                count: { $sum: 1 },
+                amount: { $sum: "$amount" },
+                from: { $min: "$date" },
+                to: { $max: { $ifNull: ["$endDate", "$date"] } },
+                updatedAt: { $max: "$updatedAt" }
+            } },
+            { $sort: { updatedAt: -1 } }
+        ]);
+        res.json(rows.map(r => ({ claimNumber: r._id, count: r.count, amount: r.amount, from: r.from, to: r.to, updatedAt: r.updatedAt })));
+    } catch (err) {
+        console.error("List claims error:", err);
+        res.status(500).json({ message: "Failed to load claims" });
+    }
+};
+
+// GET /api/expenses/claims/:claimNumber
+exports.getClaim = async (req, res) => {
+    try {
+        const items = await Expense.find({ claimNumber: req.params.claimNumber, ...scopeFilter(req), ...hideOthersDrafts(req) })
+            .sort({ date: 1, createdAt: 1 }).populate("tour", "tourNumber title").lean();
+        if (!items.length) return res.status(404).json({ message: "Claim not found" });
+        res.json({ claimNumber: req.params.claimNumber, staff: items[0].staff, staffName: items[0].staffName, items });
+    } catch (err) {
+        console.error("Get claim error:", err);
+        res.status(500).json({ message: "Failed to load claim" });
+    }
+};
+
+// POST /api/expenses/claims                 → new claim
+// PUT  /api/expenses/claims/:claimNumber    → update a claim's editable (Draft / Rejected) rows
+// multipart: rows = JSON [{ key, _id?, date, endDate?, category, place, description, amount, paymentMode, billNo, removeAttachments? }],
+//            tour?, staff? (admin, new claims only), saveAs = draft | submit, files bills_<key>
+exports.saveClaim = async (req, res) => {
+    const uploaded = req.files || [];
+    const cleanupUploads = () => removeFiles(filesToAttachments(uploaded));
+    try {
+        let rows;
+        try { rows = JSON.parse(req.body.rows || "[]"); } catch { rows = null; }
+        if (!Array.isArray(rows) || rows.length === 0) { cleanupUploads(); return res.status(400).json({ message: "Add at least one expense row" }); }
+        if (rows.length > MAX_CLAIM_ROWS) { cleanupUploads(); return res.status(400).json({ message: `A claim can have at most ${MAX_CLAIM_ROWS} rows` }); }
+
+        const claimNumber = req.params.claimNumber || "";
+        let existing = [];
+        let staff;
+        if (claimNumber) {
+            existing = await Expense.find({ claimNumber, ...scopeFilter(req) });
+            if (!existing.length) { cleanupUploads(); return res.status(404).json({ message: "Claim not found" }); }
+            if (String(existing[0].staff) !== String(req.user._id)) { cleanupUploads(); return res.status(403).json({ message: "Only the claim owner can edit it" }); }
+            staff = { _id: existing[0].staff, name: existing[0].staffName };
+        } else {
+            staff = await resolveStaff(req, req.body.staff);
+        }
+
+        const ownClaim = String(staff._id) === String(req.user._id);
+        const status = req.body.saveAs === "draft" && ownClaim ? "Draft" : "Submitted";
+        const by = req.user.name || "User";
+        const editable = new Map(existing.filter(e => ["Draft", "Rejected"].includes(e.status)).map(e => [String(e._id), e]));
+
+        // 1) Validate every row first — nothing is written if any row is wrong
+        const prepared = [];
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i] || {};
+            const n = i + 1;
+            const doc = row._id ? editable.get(String(row._id)) : null;
+            if (row._id && !doc) {
+                // Locked row (submitted / approved / paid) — left untouched
+                if (existing.some(e => String(e._id) === String(row._id))) continue;
+                throw new Error(`Row ${n}: expense not found in this claim`);
+            }
+            let fields;
+            try {
+                fields = await validateExpenseBody(req, {
+                    date: row.date, endDate: row.endDate || "", category: row.category, amount: row.amount,
+                    paymentMode: row.paymentMode || "Cash", place: row.place || "", description: row.description || "",
+                    billNo: row.billNo || "", tour: req.body.tour || "none"
+                }, staff._id);
+            } catch (e) {
+                throw new Error(`Row ${n}: ${e.message}`);
+            }
+            if (!fields.date || !fields.category || !fields.amount) throw new Error(`Row ${n}: date, category and amount are required`);
+            const newFiles = filesForRow(uploaded, row.key);
+            const remove = Array.isArray(row.removeAttachments) ? row.removeAttachments : [];
+            const keptCount = doc ? doc.attachments.filter(a => !remove.includes(a.url)).length : 0;
+            if (keptCount + newFiles.length > MAX_BILLS_PER_ROW) throw new Error(`Row ${n}: up to ${MAX_BILLS_PER_ROW} bills per row`);
+            prepared.push({ doc, fields, newFiles, remove });
+        }
+
+        // 2) Rows removed from the table (only Draft / Rejected ones can be removed)
+        const keepIds = new Set(prepared.filter(p => p.doc).map(p => String(p.doc._id)));
+        for (const [id, doc] of editable) {
+            if (!keepIds.has(id)) { removeFiles(doc.attachments); await doc.deleteOne(); }
+        }
+
+        // 3) Write rows
+        const number = claimNumber || await nextNumber(Expense, "claimNumber", "CLM", 3);
+        for (const p of prepared) {
+            const attachments = filesToAttachments(p.newFiles);
+            if (p.doc) {
+                const doc = p.doc;
+                Object.assign(doc, p.fields);
+                if (p.remove.length) {
+                    removeFiles(doc.attachments.filter(a => p.remove.includes(a.url)));
+                    doc.attachments = doc.attachments.filter(a => !p.remove.includes(a.url));
+                }
+                doc.attachments.push(...attachments);
+                if (doc.status !== status) {
+                    const wasRejected = doc.status === "Rejected";
+                    doc.status = status;
+                    if (status === "Submitted") doc.rejectionReason = "";
+                    doc.statusHistory.push({ status, by, at: new Date(), note: wasRejected && status === "Submitted" ? "Edited & re-submitted" : undefined });
+                }
+                await doc.save();
+            } else {
+                await Expense.create({
+                    ...p.fields,
+                    claimNumber: number,
+                    expenseNumber: await nextNumber(Expense, "expenseNumber", "EXP", 4),
+                    staff: staff._id,
+                    staffName: staff.name,
+                    attachments,
+                    status,
+                    statusHistory: [{ status, by, at: new Date() }],
+                    createdBy: req.user._id
+                });
+            }
+        }
+
+        const items = await Expense.find({ claimNumber: number }).sort({ date: 1, createdAt: 1 }).lean();
+        res.status(claimNumber ? 200 : 201).json({ claimNumber: number, status, items });
+    } catch (err) {
+        cleanupUploads();
+        console.error("Save claim error:", err.message);
+        res.status(400).json({ message: err.message || "Failed to save claim" });
+    }
+};
+
+// POST /api/expenses/claims/:claimNumber/submit   → submit every draft row of the user's claim
+exports.submitClaim = async (req, res) => {
+    try {
+        const drafts = await Expense.find({ claimNumber: req.params.claimNumber, staff: req.user._id, status: "Draft" });
+        if (!drafts.length) return res.status(400).json({ message: "No draft rows to submit in this claim" });
+        const by = req.user.name || "User";
+        for (const d of drafts) {
+            d.status = "Submitted";
+            d.statusHistory.push({ status: "Submitted", by, at: new Date() });
+            await d.save();
+        }
+        res.json({ claimNumber: req.params.claimNumber, submitted: drafts.length, amount: drafts.reduce((s, d) => s + d.amount, 0) });
+    } catch (err) {
+        console.error("Submit claim error:", err);
+        res.status(500).json({ message: "Failed to submit claim" });
     }
 };
 

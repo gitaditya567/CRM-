@@ -11,12 +11,14 @@ const EXPENSE_STATUSES = ["Draft", "Submitted", "Approved", "Rejected", "Paid"];
 // Flow: Draft (private to the staff member) → Submitted → Approved / Rejected → Paid
 const expenseSchema = new mongoose.Schema({
     expenseNumber: { type: String, required: true, unique: true }, // EXP-YYMM-####
+    claimNumber: { type: String, default: "", index: true },       // CLM-YYMM-### — rows entered & submitted together
     staff: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     staffName: { type: String, default: "" },
     tour: { type: mongoose.Schema.Types.ObjectId, ref: "Tour", default: null, index: true },
     date: { type: Date, required: true, index: true },   // expense date, or start of a date range
     endDate: { type: Date, default: null },               // optional end of range (e.g. hotel stay)
     category: { type: String, enum: EXPENSE_CATEGORIES, required: true },
+    place: { type: String, default: "" },                 // where the money was spent (city / shop / station)
     description: { type: String, default: "" },
     amount: { type: Number, required: true, min: 0 },
     paymentMode: { type: String, enum: PAYMENT_MODES, default: "Cash" },

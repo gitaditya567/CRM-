@@ -166,7 +166,7 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
     const canDraft = ownExpense && (!isEdit || ["Draft", "Rejected"].includes(expense.status));
     const submitLabel = !isEdit ? "Submit" : (["Draft", "Rejected"].includes(expense.status) && ownExpense ? "Submit" : "Save Changes");
     const staffTours = useMemo(
-        () => tours.filter(t => !meta.isAdmin || !staffId || String(t.staff) === String(staffId)),
+        () => tours.filter(t => !staffId || (t.members?.length ? t.members : [t.staff]).some(m => String(m) === String(staffId))),
         [tours, staffId, meta.isAdmin]
     );
     const keptAttachments = (expense?.attachments || []).filter(a => !removed.includes(a.url));
@@ -329,11 +329,53 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
     );
 };
 
+// ================= Assign staff (multi-select) =================
+const MemberPicker = ({ staffList, value, onChange }) => {
+    const [q, setQ] = useState("");
+    const selected = new Set(value.map(String));
+    const shown = staffList.filter(s => !q.trim() || `${s.name} ${s.role}`.toLowerCase().includes(q.trim().toLowerCase()));
+    const toggle = (id) => onChange(selected.has(String(id)) ? value.filter(v => String(v) !== String(id)) : [...value, id]);
+    return (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            {value.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 p-2 border-b border-gray-200 dark:border-gray-700">
+                    {value.map(id => {
+                        const s = staffList.find(x => String(x._id) === String(id));
+                        return (
+                            <span key={id} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-teal-600 text-white text-[11px] font-bold">
+                                {s?.name || "Unknown"}
+                                <button type="button" onClick={() => toggle(id)} className="p-0.5 rounded-full hover:bg-white/20 cursor-pointer" aria-label={`Remove ${s?.name || "member"}`}><X size={11} /></button>
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="p-2">
+                <div className="relative mb-2">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input className="w-full pl-8 pr-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                        value={q} onChange={e => setQ(e.target.value)} placeholder="Search staff..." />
+                </div>
+                <div className="max-h-44 overflow-y-auto custom-scrollbar space-y-0.5">
+                    {shown.map(s => (
+                        <label key={s._id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white dark:hover:bg-gray-800 cursor-pointer text-sm">
+                            <input type="checkbox" checked={selected.has(String(s._id))} onChange={() => toggle(s._id)} />
+                            <span className="font-semibold text-gray-800 dark:text-gray-200">{s.name}</span>
+                            <span className="text-[11px] text-gray-400 capitalize">{s.role}</span>
+                        </label>
+                    ))}
+                    {shown.length === 0 && <p className="px-2 py-3 text-xs text-gray-400">No staff found</p>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ================= Tour form =================
 const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
     const isEdit = !!tour;
     const [form, setForm] = useState(() => ({
-        staff: tour?.staff || "",
+        members: (tour?.members?.length ? tour.members : (tour?.staff ? [tour.staff] : [])).map(String),
         title: tour?.title || "",
         purpose: tour?.purpose || "",
         fromCity: tour?.fromCity || "",
@@ -353,10 +395,11 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
         e.preventDefault();
         if (!form.title.trim()) return toast.error("Tour title is required");
         if (form.endDate < form.startDate) return toast.error("End date cannot be before start date");
+        if (meta.isAdmin && form.members.length === 0) return toast.error("Assign at least one staff member");
         setSaving(true);
         try {
             const payload = { ...form };
-            if (!meta.isAdmin) { delete payload.staff; delete payload.advanceAmount; delete payload.advanceDate; delete payload.advanceMode; }
+            if (!meta.isAdmin) { delete payload.members; delete payload.advanceAmount; delete payload.advanceDate; delete payload.advanceMode; }
             if (isEdit) await API.put(`/expenses/tours/${tour._id}`, payload);
             else await API.post("/expenses/tours", payload);
             toast.success(isEdit ? "Tour updated" : "Tour created");
@@ -370,7 +413,7 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
 
     return (
             <Modal
-                title={isEdit ? `Edit ${tour.tourNumber}` : "New Tour / Trip"}
+                title={isEdit ? `Edit Trip ${tour.tourNumber}` : "Plan Trip"}
                 subtitle="Plan the trip; expenses and advance are tracked against it"
                 icon={Plane}
                 onClose={onClose}
@@ -379,24 +422,21 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
                     <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
                     <button type="submit" className={btnPrimary} disabled={saving}>
                         {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                        {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Tour"}
+                        {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Trip"}
                     </button>
                 </>}
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {meta.isAdmin && (
-                        <div>
-                            <label className={labelCls}>Staff *</label>
-                            <select className={inputCls} value={form.staff} onChange={e => set("staff", e.target.value)} required>
-                                <option value="">Select staff</option>
-                                {meta.staff.map(s => <option key={s._id} value={s._id}>{s.name} ({s.role})</option>)}
-                            </select>
-                        </div>
-                    )}
-                    <div className={meta.isAdmin ? "" : "sm:col-span-2"}>
+                    <div className="sm:col-span-2">
                         <label className={labelCls}>Tour Title *</label>
                         <input className={inputCls} value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Hyderabad dealer visit" required />
                     </div>
+                    {meta.isAdmin && (
+                        <div className="sm:col-span-2">
+                            <label className={labelCls}>Assign Staff * <span className="normal-case font-semibold text-gray-400">— {form.members.length} selected · only they can add expenses to this tour</span></label>
+                            <MemberPicker staffList={meta.staff} value={form.members} onChange={v => set("members", v)} />
+                        </div>
+                    )}
                     <div>
                         <label className={labelCls}>From City</label>
                         <input className={inputCls} value={form.fromCity} onChange={e => set("fromCity", e.target.value)} placeholder="e.g. New Delhi" />
@@ -488,6 +528,7 @@ const ExpenseDetailModal = ({ expense, onClose }) => (
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
                 {[
+                    ...(expense.claimNumber ? [["Claim", expense.claimNumber]] : []), ...(expense.place ? [["Place", expense.place]] : []),
                     ["Category", expense.category], ["Payment", expense.paymentMode],
                     ["Tour", expense.tour ? `${expense.tour.tourNumber} · ${expense.tour.title}` : "No tour"], ["Bill No.", expense.billNo || "-"],
                 ].map(([k, v]) => (
@@ -547,7 +588,7 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
 
     const t = data?.tour;
     return (
-        <Modal wide title={t ? `${t.tourNumber} · ${t.title}` : "Tour"} subtitle={t ? `${t.staffName} · ${fmtDate(t.startDate)} – ${fmtDate(t.endDate)}` : ""} icon={Plane} onClose={onClose}
+        <Modal wide title={t ? `${t.tourNumber} · ${t.title}` : "Tour"} subtitle={t ? `${(t.memberNames?.length ? t.memberNames : [t.staffName]).join(", ")} · ${fmtDate(t.startDate)} – ${fmtDate(t.endDate)}` : ""} icon={Plane} onClose={onClose}
             footer={t && <>
                 {meta.isAdmin && (t.advanceAmount > 0) && (
                     <button type="button" className={btnGhost} onClick={toggleSettled}>{t.settled ? "Mark Not Settled" : "Mark Advance Settled"}</button>
@@ -568,6 +609,21 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                     </div>
                     {t.purpose && <p className="text-sm text-gray-700 dark:text-gray-300">{t.purpose}</p>}
 
+                    {/* Assigned staff & what each has spent on this tour */}
+                    {meta.isAdmin && data.memberTotals?.length > 0 && (
+                        <div>
+                            <p className={labelCls}>Assigned staff ({data.memberTotals.length})</p>
+                            <div className="flex flex-wrap gap-2">
+                                {data.memberTotals.map(mt => (
+                                    <div key={mt.staff} className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
+                                        <p className="text-xs font-black text-gray-900 dark:text-white flex items-center gap-1"><User size={12} /> {mt.name}</p>
+                                        <p className="text-[11px] text-gray-500">Spent {inr(mt.spent)}{mt.pending > 0 ? ` · ${inr(mt.pending)} pending` : ""}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Settlement */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
@@ -587,14 +643,15 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                     <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                         <table className="w-full text-left text-xs">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
-                                <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Bills</th></tr>
+                                <tr><th className="px-3 py-2">Date</th>{meta.isAdmin && <th className="px-3 py-2">Staff</th>}<th className="px-3 py-2">Category</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Bills</th></tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {data.expenses.length === 0 ? (
-                                    <tr><td colSpan="6" className="px-3 py-8 text-center text-gray-400 font-bold uppercase tracking-widest">No expenses on this tour yet</td></tr>
+                                    <tr><td colSpan="7" className="px-3 py-8 text-center text-gray-400 font-bold uppercase tracking-widest">No expenses on this tour yet</td></tr>
                                 ) : data.expenses.map(x => (
                                     <tr key={x._id}>
                                         <td className="px-3 py-2 whitespace-nowrap">{fmtExpenseDate(x)}</td>
+                                        {meta.isAdmin && <td className="px-3 py-2 font-semibold whitespace-nowrap">{x.staffName}</td>}
                                         <td className="px-3 py-2">{x.category}</td>
                                         <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{x.description || "-"}</td>
                                         <td className="px-3 py-2 text-right font-bold">{inr(x.amount)}</td>
@@ -607,6 +664,308 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+// ================= Claim (many expense rows, saved as draft or submitted together) =================
+const newRowKey = () => `r${Math.random().toString(36).slice(2, 10)}`;
+const blankRow = (date) => ({
+    key: newRowKey(), _id: null, status: null, date: date || todayStr(), endDate: "", isRange: false,
+    category: "Travel", place: "", description: "", amount: "", paymentMode: "Cash", billNo: "",
+    files: [], attachments: [], removeAttachments: []
+});
+const LOCKED = ["Submitted", "Approved", "Paid"];
+
+// Textarea that starts at 2 lines and grows with its content (still user-resizable)
+const AutoTextarea = ({ value, onChange, className, ...rest }) => {
+    const ref = React.useRef(null);
+    const fit = () => {
+        const el = ref.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight + 2, 320)}px`;
+    };
+    useEffect(fit, [value]);
+    return <textarea ref={ref} rows={2} value={value} onChange={onChange} className={className} style={{ minHeight: 64 }} {...rest} />;
+};
+
+// Tours a staff member is assigned to (older tours: the single `staff`)
+const tourHasMember = (t, userId) => (t.members?.length ? t.members : [t.staff]).some(m => String(m) === String(userId));
+
+const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSaved }) => {
+    const isEdit = !!claimNumber;
+    const [loading, setLoading] = useState(isEdit);
+    // Staff always enter their own claim. An admin starts with themselves (so Save as Draft is available)
+    // or, when opened from a tour, with the tour's first member.
+    const [staff, setStaff] = useState(meta.isAdmin ? String(defaultTour?.members?.[0] || defaultTour?.staff || MY_ID()) : MY_ID());
+    const [tour, setTour] = useState(defaultTour?._id || "");
+    const [rows, setRows] = useState(() => [blankRow()]);
+    const [saving, setSaving] = useState(null);
+
+    useEffect(() => {
+        if (!isEdit) return;
+        API.get(`/expenses/claims/${encodeURIComponent(claimNumber)}`)
+            .then(res => {
+                const items = res.data.items || [];
+                setStaff(res.data.staff);
+                setTour(items.find(i => i.tour)?.tour?._id || "");
+                setRows(items.map(x => ({
+                    key: newRowKey(), _id: x._id, status: x.status, rejectionReason: x.rejectionReason,
+                    date: toInputDate(x.date), endDate: toInputDate(x.endDate), isRange: !!x.endDate,
+                    category: x.category, place: x.place || "", description: x.description || "", amount: x.amount,
+                    paymentMode: x.paymentMode, billNo: x.billNo || "", files: [], attachments: x.attachments || [], removeAttachments: []
+                })));
+            })
+            .catch(err => { toast.error(err.response?.data?.message || "Failed to load claim"); onClose(); })
+            .finally(() => setLoading(false));
+    }, [isEdit, claimNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const ownClaim = String(staff) === String(MY_ID()) || !meta.isAdmin;
+    // Admin creating a claim sees ALL tours (picking one sets a member as staff);
+    // staff — or an admin editing an existing claim — only see tours the staff member is assigned to
+    const showAllTours = meta.isAdmin && !isEdit;
+    const staffTours = useMemo(
+        () => tours.filter(t => t.status !== "Cancelled" && (showAllTours || (staff && tourHasMember(t, staff)))),
+        [tours, staff, showAllTours]
+    );
+    const memberLabel = (t) => {
+        const names = t.memberNames?.length ? t.memberNames : [t.staffName];
+        return names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(", ");
+    };
+
+    const pickTour = (tourId) => {
+        setTour(tourId);
+        if (!tourId || !showAllTours) return;
+        const t = tours.find(x => x._id === tourId);
+        if (t && !tourHasMember(t, staff)) {
+            const first = (t.members?.length ? t.members : [t.staff])[0];
+            setStaff(String(first));
+            const name = (t.memberNames?.length ? t.memberNames : [t.staffName])[0];
+            toast(`Staff set to ${name} — assigned to ${t.tourNumber}`, { icon: "👤" });
+        }
+    };
+
+    const pickStaff = (staffId) => {
+        setStaff(staffId);
+        const t = tours.find(x => x._id === tour);
+        if (t && staffId && !tourHasMember(t, staffId)) {
+            setTour("");
+            toast("Tour cleared — this staff member is not assigned to it", { icon: "ℹ️" });
+        }
+    };
+    const editableRows = rows.filter(r => !LOCKED.includes(r.status));
+    const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const draftTotal = editableRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    const update = (key, patch) => setRows(rs => rs.map(r => (r.key === key ? { ...r, ...patch } : r)));
+    const addRow = () => setRows(rs => [...rs, blankRow(rs[rs.length - 1]?.date)]);
+    const removeRow = (key) => setRows(rs => rs.filter(r => r.key !== key));
+
+    const save = async (e) => {
+        e.preventDefault();
+        const mode = e.nativeEvent?.submitter?.value === "draft" ? "draft" : "submit";
+        if (!editableRows.length) return toast.error("Add at least one expense row");
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            if (LOCKED.includes(r.status)) continue;
+            if (!(Number(r.amount) > 0)) return toast.error(`Row ${i + 1}: enter an amount`);
+            if (r.isRange && r.endDate && r.endDate < r.date) return toast.error(`Row ${i + 1}: 'To' date is before 'From' date`);
+            const billCount = r.attachments.filter(a => !r.removeAttachments.includes(a.url)).length + r.files.length;
+            if (billCount > 5) return toast.error(`Row ${i + 1}: up to 5 bills per row`);
+        }
+        if (meta.isAdmin && !staff) return toast.error("Select the staff member");
+        setSaving(mode);
+        try {
+            const fd = new FormData();
+            fd.append("rows", JSON.stringify(rows.map(r => ({
+                key: r.key, _id: r._id || undefined, date: r.date, endDate: r.isRange ? r.endDate : "",
+                category: r.category, place: r.place, description: r.description, amount: r.amount,
+                paymentMode: r.paymentMode, billNo: r.billNo, removeAttachments: r.removeAttachments
+            }))));
+            fd.append("tour", tour || "none");
+            fd.append("saveAs", mode);
+            if (meta.isAdmin && !isEdit) fd.append("staff", staff);
+            rows.forEach(r => r.files.forEach(f => fd.append(`bills_${r.key}`, f)));
+            const res = isEdit
+                ? await API.put(`/expenses/claims/${encodeURIComponent(claimNumber)}`, fd)
+                : await API.post("/expenses/claims", fd);
+            toast.success(mode === "draft"
+                ? `${res.data.claimNumber} saved as draft — add more rows anytime, then submit`
+                : `${res.data.claimNumber} submitted for approval (${inr(draftTotal)})`);
+            onSaved();
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Failed to save claim");
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    const cell = "w-full px-2.5 py-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60";
+
+    return (
+        <Modal
+            wide
+            title={isEdit ? `Claim ${claimNumber}` : "New Expense Claim"}
+            subtitle="Add every spend as a row — save as draft while you go, submit the whole claim when ready"
+            icon={Receipt}
+            onClose={onClose}
+            onSubmit={save}
+            footer={<>
+                <div className="mr-auto text-xs font-bold text-gray-500 dark:text-gray-300 self-center">
+                    {rows.length} row(s) · Total <span className="text-base font-black text-gray-900 dark:text-white">{inr(total)}</span>
+                </div>
+                <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
+                {/* Drafts are private to their owner — available for your own claim only */}
+                <button type="submit" value="draft" disabled={!!saving || loading || !ownClaim}
+                    title={ownClaim ? "Save privately and continue later" : "Drafts are only for your own expenses — submit directly for another staff member"}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                    {saving === "draft" ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                    {saving === "draft" ? "Saving..." : "Save as Draft"}
+                </button>
+                <button type="submit" value="submit" className={btnPrimary} disabled={!!saving || loading}>
+                    {saving === "submit" ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                    {saving === "submit" ? "Submitting..." : "Submit Claim"}
+                </button>
+            </>}
+        >
+            {loading ? (
+                <div className="py-12 flex justify-center"><RefreshCw className="animate-spin text-teal-600" /></div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {meta.isAdmin && (
+                            <div>
+                                <label className={labelCls}>Staff *</label>
+                                <select className={inputCls} value={staff} disabled={isEdit} onChange={e => pickStaff(e.target.value)} required>
+                                    <option value="">Select staff</option>
+                                    {meta.staff.map(s => <option key={s._id} value={s._id}>{s.name} ({s.role})</option>)}
+                                </select>
+                            </div>
+                        )}
+                        <div>
+                            <label className={labelCls}>Tour / Trip (optional)</label>
+                            <select className={inputCls} value={tour} onChange={e => pickTour(e.target.value)}>
+                                <option value="">No tour (office / local expense)</option>
+                                {staffTours.map(t => (
+                                    <option key={t._id} value={t._id}>
+                                        {t.tourNumber} · {t.title}{showAllTours ? ` — ${memberLabel(t)}` : ""}
+                                    </option>
+                                ))}
+                            </select>
+                            {!showAllTours && staffTours.length === 0 && (
+                                <p className="text-[11px] text-gray-400 mt-1">No tour assigned{meta.isAdmin ? " to this staff member" : " to you"} yet</p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        {rows.map((r, i) => {
+                            const locked = LOCKED.includes(r.status);
+                            const kept = r.attachments.filter(a => !r.removeAttachments.includes(a.url));
+                            return (
+                                <div key={r.key} className={`rounded-2xl border p-3 ${locked ? "border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/30" : "border-gray-200 dark:border-gray-700"}`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-6 h-6 rounded-full bg-teal-600 text-white text-[11px] font-black flex items-center justify-center">{i + 1}</span>
+                                            {r.status && <StatusChip status={r.status} />}
+                                            {r.status === "Rejected" && r.rejectionReason && <span className="text-[11px] font-semibold text-red-600">{r.rejectionReason}</span>}
+                                            {locked && <span className="text-[11px] text-gray-400">Already submitted — read only</span>}
+                                        </div>
+                                        {!locked && (
+                                            <button type="button" onClick={() => removeRow(r.key)} disabled={editableRows.length <= 1}
+                                                className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Remove row" aria-label={`Remove row ${i + 1}`}>
+                                                <Trash2 size={15} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-12 gap-2">
+                                        <div className="col-span-2 md:col-span-3">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-black text-gray-400 uppercase">{r.isRange ? "From – To *" : "Date *"}</span>
+                                                {!locked && (
+                                                    <label className="flex items-center gap-1 text-[10px] font-bold text-teal-700 dark:text-teal-300 cursor-pointer">
+                                                        <input type="checkbox" checked={r.isRange} onChange={e => update(r.key, { isRange: e.target.checked, endDate: e.target.checked ? (r.endDate || r.date) : "" })} /> Multi-day
+                                                    </label>
+                                                )}
+                                            </div>
+                                            <div className={r.isRange ? "grid grid-cols-2 gap-1" : ""}>
+                                                <input type="date" className={cell} value={r.date} max={todayStr()} disabled={locked} required onChange={e => update(r.key, { date: e.target.value })} />
+                                                {r.isRange && <input type="date" className={cell} value={r.endDate} min={r.date} max={todayStr()} disabled={locked} required onChange={e => update(r.key, { endDate: e.target.value })} />}
+                                            </div>
+                                        </div>
+                                        <div className="md:col-span-3">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Category *</span>
+                                            <select className={cell} value={r.category} disabled={locked} onChange={e => update(r.key, { category: e.target.value })}>
+                                                {meta.categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Place</span>
+                                            <input className={cell} value={r.place} disabled={locked} placeholder="Where" onChange={e => update(r.key, { place: e.target.value })} />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Amount ₹ *</span>
+                                            <input type="number" min="0" step="0.01" className={cell + " font-bold"} value={r.amount} disabled={locked} required placeholder="0" onChange={e => update(r.key, { amount: e.target.value })} />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Mode</span>
+                                            <select className={cell} value={r.paymentMode} disabled={locked} onChange={e => update(r.key, { paymentMode: e.target.value })}>
+                                                {meta.paymentModes.map(m => <option key={m} value={m}>{m}</option>)}
+                                            </select>
+                                        </div>
+                                        {/* Description on its own full-width line — grows with the text */}
+                                        <div className="col-span-2 md:col-span-12">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Description</span>
+                                            <AutoTextarea
+                                                className={cell + " leading-relaxed resize-y"}
+                                                value={r.description}
+                                                disabled={locked}
+                                                placeholder="What was this expense for? e.g. Taxi from airport to client site, waiting charges included"
+                                                onChange={e => update(r.key, { description: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="col-span-2 md:col-span-3">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Bill No.</span>
+                                            <input className={cell} value={r.billNo} disabled={locked} placeholder="Optional" onChange={e => update(r.key, { billNo: e.target.value })} />
+                                        </div>
+                                        <div className="col-span-2 md:col-span-9">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">Receipt / Bill (image or PDF)</span>
+                                            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                                {!locked && (
+                                                    <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs font-bold cursor-pointer hover:bg-teal-100">
+                                                        <Paperclip size={13} /> Attach
+                                                        <input type="file" multiple accept="image/*,application/pdf" className="hidden"
+                                                            onChange={e => { update(r.key, { files: [...r.files, ...Array.from(e.target.files || [])].slice(0, 5) }); e.target.value = ""; }} />
+                                                    </label>
+                                                )}
+                                                {kept.map(a => (
+                                                    <span key={a.url} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                                                        <a href={`${FILE_BASE}${a.url}`} target="_blank" rel="noopener noreferrer" className="hover:underline max-w-[140px] truncate">{a.name}</a>
+                                                        {!locked && <button type="button" onClick={() => update(r.key, { removeAttachments: [...r.removeAttachments, a.url] })} className="text-red-500 cursor-pointer" aria-label={`Remove ${a.name}`}><X size={11} /></button>}
+                                                    </span>
+                                                ))}
+                                                {r.files.map((f, fi) => (
+                                                    <span key={`${f.name}-${fi}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-[11px] font-semibold text-teal-700 dark:text-teal-300">
+                                                        <span className="max-w-[140px] truncate">{f.name}</span>
+                                                        <button type="button" onClick={() => update(r.key, { files: r.files.filter((_, j) => j !== fi) })} className="text-red-500 cursor-pointer" aria-label={`Remove ${f.name}`}><X size={11} /></button>
+                                                    </span>
+                                                ))}
+                                                {!locked && kept.length + r.files.length === 0 && <span className="text-[11px] text-gray-400">No bill yet</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <button type="button" onClick={addRow} disabled={rows.length >= 50}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300 text-xs font-black uppercase tracking-wider hover:bg-teal-50 dark:hover:bg-teal-900/20 cursor-pointer">
+                        <Plus size={15} /> Add another expense row
+                    </button>
                 </div>
             )}
         </Modal>
@@ -632,7 +991,9 @@ const Expenses = () => {
     const [loading, setLoading] = useState(false);
     const [selected, setSelected] = useState([]);
 
-    const [expenseForm, setExpenseForm] = useState(null); // { expense?, defaultTour? }
+    const [expenseForm, setExpenseForm] = useState(null); // { expense } — single-row edit (old / non-claim rows)
+    const [claimForm, setClaimForm] = useState(null);     // { claimNumber?, defaultTour? }
+    const [draftClaims, setDraftClaims] = useState([]);
     const [tourForm, setTourForm] = useState(null);       // { tour? }
     const [tourDetail, setTourDetail] = useState(null);   // tourId
     const [expenseDetail, setExpenseDetail] = useState(null);
@@ -672,7 +1033,23 @@ const Expenses = () => {
         API.get(`/expenses/tours?${p}`).then(res => setTours(res.data || [])).catch(() => {});
     }, [filters.staff, filters.search, tab]);
 
-    const refreshAll = useCallback(() => { loadSummary(); loadExpenses(); loadTours(); }, [loadSummary, loadExpenses, loadTours]);
+    const loadDraftClaims = useCallback(() => {
+        API.get("/expenses/claims?status=Draft").then(res => setDraftClaims(res.data || [])).catch(() => {});
+    }, []);
+
+    const refreshAll = useCallback(() => { loadSummary(); loadExpenses(); loadTours(); loadDraftClaims(); }, [loadSummary, loadExpenses, loadTours, loadDraftClaims]);
+    useEffect(() => { if (meta) loadDraftClaims(); }, [meta, loadDraftClaims]);
+
+    const submitClaim = async (c) => {
+        if (!window.confirm(`Submit claim ${c.claimNumber} (${c.count} row(s), ${inr(c.amount)}) for approval?`)) return;
+        try {
+            const res = await API.post(`/expenses/claims/${encodeURIComponent(c.claimNumber)}/submit`);
+            toast.success(`${c.claimNumber} submitted — ${res.data.submitted} row(s), ${inr(res.data.amount)}`);
+            refreshAll();
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Failed to submit claim");
+        }
+    };
 
     useEffect(() => { if (meta) loadSummary(); }, [meta, loadSummary]);
     useEffect(() => { if (meta) loadTours(); }, [meta, loadTours]);
@@ -729,10 +1106,10 @@ const Expenses = () => {
             const res = await API.get(`/expenses?${p}`);
             const rows = res.data.items || [];
             if (!rows.length) return toast.error("Nothing to export for these filters");
-            const head = ["Expense No", "From Date", "To Date", "Staff", "Tour No", "Tour", "Category", "Description", "Amount (INR)", "Payment Mode", "Bill No", "Status", "Approved By", "Paid On", "Rejection Reason", "Bills"];
+            const head = ["Expense No", "Claim No", "From Date", "To Date", "Place", "Staff", "Tour No", "Tour", "Category", "Description", "Amount (INR)", "Payment Mode", "Bill No", "Status", "Approved By", "Paid On", "Rejection Reason", "Bills"];
             const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
             const lines = rows.map(x => [
-                x.expenseNumber, fmtDate(x.date), x.endDate ? fmtDate(x.endDate) : "", x.staffName, x.tour?.tourNumber || "", x.tour?.title || "", x.category, x.description,
+                x.expenseNumber, x.claimNumber || "", fmtDate(x.date), x.endDate ? fmtDate(x.endDate) : "", x.place || "", x.staffName, x.tour?.tourNumber || "", x.tour?.title || "", x.category, x.description,
                 x.amount, x.paymentMode, x.billNo, x.status, x.approvedBy, x.paidAt ? fmtDate(x.paidAt) : "", x.rejectionReason, x.attachments?.length || 0
             ].map(esc).join(","));
             const blob = new Blob(["﻿" + [head.map(esc).join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -788,8 +1165,8 @@ const Expenses = () => {
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    {isAdmin && <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}><Plane size={14} /> New Tour</button>}
-                    <button className={btnPrimary} onClick={() => setExpenseForm({})}><Plus size={14} /> Add Expense</button>
+                    {isAdmin && <button className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={() => setTourForm({})}><Plane size={14} /> Plan Trip</button>}
+                    <button className={btnPrimary} onClick={() => setClaimForm({})}><Plus size={14} /> Add Expenses</button>
                 </div>
             </div>
 
@@ -873,6 +1250,36 @@ const Expenses = () => {
                     )}
                 </div>
             </div>
+
+            {/* ===== My draft claims (private until submitted) ===== */}
+            {tab !== "tours" && draftClaims.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-dashed border-teal-300 dark:border-teal-700 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-teal-700 dark:text-teal-300">
+                        <FileText size={15} /> My draft claims ({draftClaims.length}) — not sent yet
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {draftClaims.map(c => (
+                            <div key={c.claimNumber} className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700 px-4 py-3">
+                                <div className="min-w-0">
+                                    <p className="font-mono text-xs font-black text-gray-900 dark:text-white">{c.claimNumber}</p>
+                                    <p className="text-[11px] text-gray-500">
+                                        {c.count} row(s) · {fmtDate(c.from)}{c.to && toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}
+                                    </p>
+                                    <p className="text-sm font-black text-gray-900 dark:text-white">{inr(c.amount)}</p>
+                                </div>
+                                <div className="flex flex-col gap-1.5 shrink-0">
+                                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-black text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 cursor-pointer" onClick={() => setClaimForm({ claimNumber: c.claimNumber })}>
+                                        <Edit2 size={12} /> Continue
+                                    </button>
+                                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer" onClick={() => submitClaim(c)}>
+                                        <Send size={12} /> Submit
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* ===== Overview ===== */}
             {tab === "overview" && (
@@ -961,6 +1368,8 @@ const Expenses = () => {
                                         )}
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <p className="font-bold text-gray-900 dark:text-white font-mono text-xs">{x.expenseNumber}</p>
+                                            {x.claimNumber && <p className="text-[10px] font-mono font-bold text-teal-600 dark:text-teal-400">{x.claimNumber}</p>}
+                                            {x.place && <p className="text-[10px] text-gray-500 flex items-center gap-0.5"><MapPin size={10} />{x.place}</p>}
                                             <p className="text-[11px] text-gray-500">{fmtExpenseDate(x)}{x.endDate ? ` · ${dayCount(x)}d` : ""}</p>
                                         </td>
                                         <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-semibold">{x.staffName}</td>
@@ -989,7 +1398,10 @@ const Expenses = () => {
                                                 {x.status === "Draft" && isMine(x) && (
                                                     <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
                                                 )}
-                                                <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit" disabled={!canEdit(x)} onClick={() => setExpenseForm({ expense: x })}><Edit2 size={16} /></button>
+                                                <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status) ? "Open claim to edit" : "Edit"} disabled={!canEdit(x)}
+                                                    onClick={() => (x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status)
+                                                        ? setClaimForm({ claimNumber: x.claimNumber })
+                                                        : setExpenseForm({ expense: x }))}><Edit2 size={16} /></button>
                                                 <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete" disabled={!canEdit(x)} onClick={() => deleteExpense(x)}><Trash2 size={16} /></button>
                                             </div>
                                         </td>
@@ -1015,7 +1427,7 @@ const Expenses = () => {
                         <div className="md:col-span-2 xl:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-700">
                             <Plane className="mx-auto text-gray-300" size={36} />
                             <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No tours yet</p>
-                            <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> New Tour</button>
+                            <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Plan Trip</button>
                         </div>
                     ) : tours.map(t => (
                         <div key={t._id} className="bg-white dark:bg-gray-800 rounded-3xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex flex-col gap-3">
@@ -1023,7 +1435,13 @@ const Expenses = () => {
                                 <div className="min-w-0">
                                     <p className="text-[11px] font-mono font-bold text-teal-600 dark:text-teal-400">{t.tourNumber}</p>
                                     <h3 className="font-black text-gray-900 dark:text-white truncate">{t.title}</h3>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5"><User size={12} /> {t.staffName}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-start gap-1 mt-0.5" title={(t.memberNames || [t.staffName]).join(", ")}>
+                                        <User size={12} className="mt-0.5 shrink-0" />
+                                        <span className="line-clamp-2">
+                                            {(t.memberNames?.length ? t.memberNames : [t.staffName]).slice(0, 3).join(", ")}
+                                            {(t.memberNames?.length || 1) > 3 && ` +${t.memberNames.length - 3} more`}
+                                        </span>
+                                    </p>
                                 </div>
                                 <StatusChip status={t.status} />
                             </div>
@@ -1053,6 +1471,10 @@ const Expenses = () => {
             )}
 
             {/* ===== Modals ===== */}
+            {claimForm && (
+                <ClaimFormModal meta={meta} tours={tours} claimNumber={claimForm.claimNumber} defaultTour={claimForm.defaultTour}
+                    onClose={() => setClaimForm(null)} onSaved={() => { setClaimForm(null); refreshAll(); }} />
+            )}
             {expenseForm && (
                 <ExpenseFormModal meta={meta} tours={tours} expense={expenseForm.expense} defaultTour={expenseForm.defaultTour}
                     onClose={() => setExpenseForm(null)} onSaved={() => { setExpenseForm(null); refreshAll(); }} />
@@ -1062,7 +1484,7 @@ const Expenses = () => {
             )}
             {tourDetail && (
                 <TourDetailModal meta={meta} tourId={tourDetail} onClose={() => setTourDetail(null)} onChanged={refreshAll}
-                    onAddExpense={(t) => { setTourDetail(null); setExpenseForm({ defaultTour: t, expense: null }); }} />
+                    onAddExpense={(t) => { setTourDetail(null); setClaimForm({ defaultTour: t }); }} />
             )}
             {expenseDetail && <ExpenseDetailModal expense={expenseDetail} onClose={() => setExpenseDetail(null)} />}
             {rejecting && (

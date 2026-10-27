@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 // ✈️ Travel & Expenses — a staff tour / trip. Expenses can be linked to it; advance is settled against it.
 const tourSchema = new mongoose.Schema({
     tourNumber: { type: String, required: true, unique: true }, // TR-YYMM-###
+    // Assigned users — each can add expenses against this tour. `staff` = first member (kept for older tours)
+    members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
+    memberNames: [{ type: String }],
     staff: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     staffName: { type: String, default: "" },
     title: { type: String, required: true },       // e.g. "Hyderabad dealer visit"
