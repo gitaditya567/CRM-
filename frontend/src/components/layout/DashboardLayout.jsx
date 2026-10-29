@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { Menu } from "lucide-react";
 import ScrollingBanner from "./ScrollingBanner";
+import FestivalBanner from "./FestivalBanner";
 import ChatWidget from "../common/ChatWidget";
 
 /**
@@ -44,6 +45,9 @@ const DashboardLayout = ({ children }) => {
 
                 {/* Main Content */}
                 <div className={`flex-1 min-w-0 flex flex-col ${isSidebarHidden ? "md:ml-0" : "md:ml-64"} transition-all duration-300 min-h-screen`}>
+                    {/* Festive strip — shows by itself on Indian festivals (config/festivals.js) */}
+                    <FestivalBanner />
+
                     {/* Mobile Header */}
                     <div className="md:hidden flex items-center justify-between bg-white/95 dark:bg-gray-800/95 backdrop-blur px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-30">
                         <button

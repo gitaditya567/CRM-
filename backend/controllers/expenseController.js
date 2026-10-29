@@ -96,6 +96,19 @@ const nextNumber = async (Model, field, prefix, pad) => {
     return `${base}${String(n).padStart(pad, "0")}`;
 };
 
+// One expense number per claim (however many rows it has); its rows are EXP-2610-0006/1, /2, /3 ...
+// Returns a function that hands out the next row number of that claim.
+const claimRowNumbers = async (claimNumber) => {
+    const rows = claimNumber
+        ? await Expense.find({ claimNumber, expenseNumber: /\// }).select("expenseNumber").lean()
+        : [];
+    const base = rows.length
+        ? rows[0].expenseNumber.split("/")[0]
+        : await nextNumber(Expense, "expenseNumber", "EXP", 4); // "EXP-2610-0006/3" counts as 6
+    let n = rows.reduce((max, r) => Math.max(max, parseInt(r.expenseNumber.split("/")[1], 10) || 0), 0);
+    return () => `${base}/${++n}`;
+};
+
 // Resolve which staff a record belongs to (admins may pick anyone)
 const resolveStaff = async (req, staffId) => {
     if (isAdmin(req) && staffId && isId(staffId)) {
@@ -501,7 +514,7 @@ exports.createExpense = async (req, res) => {
         const exp = await Expense.create({
             ...fields,
             claimNumber: await nextNumber(Expense, "claimNumber", "CLM", 3), // every expense belongs to a claim
-            expenseNumber: await nextNumber(Expense, "expenseNumber", "EXP", 4),
+            expenseNumber: (await claimRowNumbers(""))(),
             staff: staff._id,
             staffName: staff.name,
             attachments: filesToAttachments(req.files),
@@ -714,6 +727,7 @@ exports.saveClaim = async (req, res) => {
 
         // 3) Write rows
         const number = claimNumber || await nextNumber(Expense, "claimNumber", "CLM", 3);
+        const nextRowNumber = await claimRowNumbers(claimNumber);
         for (const p of prepared) {
             const attachments = filesToAttachments(p.newFiles);
             if (p.doc) {
@@ -735,7 +749,7 @@ exports.saveClaim = async (req, res) => {
                 await Expense.create({
                     ...p.fields,
                     claimNumber: number,
-                    expenseNumber: await nextNumber(Expense, "expenseNumber", "EXP", 4),
+                    expenseNumber: nextRowNumber(),
                     staff: staff._id,
                     staffName: staff.name,
                     attachments,

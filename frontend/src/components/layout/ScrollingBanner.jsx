@@ -1,16 +1,22 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { festivalForToday, FESTIVAL_THEMES } from '../../config/festivals';
+
+const BASE_MESSAGES = [
+    "🚀 Welcome to TeamInspire Business Solutions - Your Partner in Growth!",
+    "✨ Elevate Your Commercial Kitchen Experience with Professional Gear",
+    "🛠️ Premium Spares & Service Support Available 24/7",
+    "📈 Track Your Leads and Quotations Seamlessly",
+    "🌟 Quality You Can Trust, Service You Can Count On!"
+];
 
 const ScrollingBanner = () => {
-    const messages = [
-        "🚀 Welcome to TeamInspire Business Solutions - Your Partner in Growth!",
-        "✨ Elevate Your Commercial Kitchen Experience with Professional Gear",
-        "🛠️ Premium Spares & Service Support Available 24/7",
-        "📈 Track Your Leads and Quotations Seamlessly",
-        "🌟 Quality You Can Trust, Service You Can Count On!"
-    ];
+    // On a festival the strip takes the festival colours and leads with the greeting
+    const { active } = useMemo(() => festivalForToday(), []);
+    const theme = active ? FESTIVAL_THEMES[active.theme] || FESTIVAL_THEMES.festive : null;
+    const messages = active ? [`${theme.decor[0]} ${active.greetingToday}`, ...BASE_MESSAGES] : BASE_MESSAGES;
 
     return (
-        <div className="w-full bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-700 text-white overflow-hidden py-2 border-b border-white/10 shadow-lg relative z-50">
+        <div className={`w-full bg-gradient-to-r ${theme ? theme.marquee : "from-blue-700 via-indigo-600 to-blue-700"} text-white overflow-hidden py-2 border-b border-white/10 shadow-lg relative z-50`}>
             {/* Animated Marquee Container */}
             <div className="flex animate-marquee whitespace-nowrap items-center">
                 {/* Duplicate messages to ensure a continuous loop */}

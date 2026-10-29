@@ -1239,6 +1239,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) =>
                                 <div className="min-w-0">
                                     <p className="text-sm font-black text-gray-900 dark:text-white">{i + 1}. {x.category}</p>
                                     <p className="text-[11px] text-gray-500">{fmtExpenseDate(x)}{x.place ? ` · ${x.place}` : ""}</p>
+                                    {x.expenseNumber && <p className="font-mono text-[10px] text-gray-400">{x.expenseNumber}</p>}
                                 </div>
                                 <p className={`text-sm font-black whitespace-nowrap ${x.status === "Rejected" ? "line-through text-gray-400" : "text-gray-900 dark:text-white"}`}>{inr(x.amount)}</p>
                             </div>
@@ -1265,7 +1266,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) =>
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                             {data.items.map((x, i) => (
                                 <tr key={x._id}>
-                                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                                    <td className="px-3 py-2 font-mono text-[11px] text-gray-500 whitespace-nowrap">{x.expenseNumber || i + 1}</td>
                                     <td className="px-3 py-2 whitespace-nowrap">{fmtExpenseDate(x)}</td>
                                     <td className="px-3 py-2">{x.category}</td>
                                     <td className="px-3 py-2">{x.place || "-"}</td>
@@ -1479,6 +1480,18 @@ const Expenses = () => {
     const canEdit = (x) => isMine(x) && ["Draft", "Rejected"].includes(x.status);
     const visibleTabs = isAdmin ? TABS : TABS.filter(t => t.key !== "tours");
 
+    // Expenses tab "view" opens the same claim view as the Claims tab
+    const openClaimView = async (claimNumber) => {
+        try {
+            const res = await API.get(`/expenses/claim-list?search=${encodeURIComponent(claimNumber)}`);
+            const c = (res.data || []).find(x => x.claimNumber === claimNumber);
+            if (c) setClaimView(c);
+            else toast.error("Claim not found");
+        } catch {
+            toast.error("Failed to load claim");
+        }
+    };
+
     // A draft row is sent as part of its whole claim
     const submitDraft = (x) => {
         const c = draftClaims.find(d => d.claimNumber === x.claimNumber);
@@ -1509,7 +1522,8 @@ const Expenses = () => {
 
     const expenseActions = (x) => (
         <>
-            <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View" aria-label="View" onClick={() => setExpenseDetail(x)}><Eye size={16} /></button>
+            <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title={x.claimNumber ? `View claim ${x.claimNumber}` : "View"} aria-label="View"
+                onClick={() => (x.claimNumber ? openClaimView(x.claimNumber) : setExpenseDetail(x))}><Eye size={16} /></button>
             {x.status === "Draft" && isMine(x) && (
                 <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title={x.claimNumber ? `Submit claim ${x.claimNumber}` : "Submit for approval"} aria-label="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
             )}
