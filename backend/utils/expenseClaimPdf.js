@@ -11,8 +11,10 @@ const COMPANY = {
     phone: "Contact No. +91 9013589766, +91 9560825111",
     gstin: "GSTIN: 07AAFCT5822P1ZT"
 };
-const LOGO = path.join(__dirname, "..", "..", "frontend", "public", "logo.png");
-const STAMP = path.join(__dirname, "..", "assets", "stamp.png");
+// Small copies made for the PDF (keep the file light) — fall back to the originals
+const firstExisting = (...files) => files.find(f => fs.existsSync(f)) || files[0];
+const LOGO = firstExisting(path.join(__dirname, "..", "assets", "pdf-logo.png"), path.join(__dirname, "..", "..", "frontend", "public", "logo.png"));
+const STAMP = firstExisting(path.join(__dirname, "..", "assets", "pdf-stamp.png"), path.join(__dirname, "..", "assets", "stamp.png"));
 
 const BRAND = "#1a237e";
 const HEAD_BG = "#eef2ff";
@@ -21,7 +23,6 @@ const HEAD_BG = "#eef2ff";
 const THEMES = {
     "Approved": { wm: "APPROVED", color: "#15803d", bg: "#dcfce7" },
     "Paid": { wm: "PAID", color: "#15803d", bg: "#dcfce7" },
-    "Partially Approved": { wm: "PARTIALLY APPROVED", color: "#0f766e", bg: "#ccfbf1" },
     "Pending Approval": { wm: "PENDING APPROVAL", color: "#c2410c", bg: "#ffedd5" },
     "Rejected": { wm: "REJECTED", color: "#b91c1c", bg: "#fee2e2" },
     "Draft": { wm: "DRAFT", color: "#6b7280", bg: "#f3f4f6" },
@@ -84,7 +85,7 @@ const buildClaimPdf = (claim, out) => {
     const WM_TEXT = theme.wm;
     const ACCENT = theme.color;     // accent colour of the current status
     const ACCENT_BG = theme.bg;
-    const isFinalApproval = ["Approved", "Paid", "Partially Approved"].includes(claim.status) && !(claim.totals?.pending > 0);
+    const isFinalApproval = ["Approved", "Paid"].includes(claim.status) && !(claim.totals?.pending > 0);
     const drawWatermark = () => {
         const { width, height } = doc.page;
         const keep = { x: doc.x, y: doc.y };
@@ -130,8 +131,8 @@ const buildClaimPdf = (claim, out) => {
         ["Claim No.", claim.claimNumber],
         ["Employee", claim.staffName],
         ["Designation / Role", claim.staffRole || "-"],
-        ["Trip", claim.tour ? `${claim.tour.tourNumber} - ${claim.tour.title}` : "No trip (office / local expenses)"],
-        ...(claim.tour ? [["Trip Period", `${fmtDate(claim.tour.startDate)} to ${fmtDate(claim.tour.endDate)}`]] : []),
+        ["Event", claim.tour ? `${claim.tour.tourNumber} - ${claim.tour.title}` : "No event (office / local expenses)"],
+        ...(claim.tour ? [["Event Period", `${fmtDate(claim.tour.startDate)} to ${fmtDate(claim.tour.endDate)}`]] : []),
         ["Expense Period", claim.periodFrom ? `${fmtDate(claim.periodFrom)} to ${fmtDate(claim.periodTo)}` : "-"],
     ];
     const right = [
@@ -412,7 +413,11 @@ const buildClaimPdf = (claim, out) => {
 
 // ================= bills (annexures) merged after the claim =================
 const { PassThrough } = require("stream");
-const { PDFDocument: LibPDF, StandardFonts, rgb } = require("pdf-lib");
+// pdf-lib merges the bills in — if it is missing on the server (npm install not run yet)
+// the claim PDF is still produced, only without the bill pages
+let pdfLib = null;
+try { pdfLib = require("pdf-lib"); } catch { console.warn("pdf-lib not installed — claim PDFs will not include bills. Run npm install in backend/."); }
+const { PDFDocument: LibPDF, StandardFonts, rgb } = pdfLib || { rgb: () => null };
 
 // pdf-lib's standard fonts only encode WinAnsi — replace anything else (e.g. Hindi file names)
 const winAnsi = (s) => String(s ?? "").replace(/[^\x20-\x7E -ÿ–—‘’“”•€]/g, "?");
@@ -438,6 +443,7 @@ const captionText = (a) => `Annexure ${a.label}  ·  Row ${a.row}  ·  ${a.date}
  * @returns {Promise<Buffer>}
  */
 const buildClaimPdfWithBills = async (claim) => {
+    if (!pdfLib) return toBuffer({ ...claim, annexures: [] });
     // Check every bill up-front so the annexure index says exactly what is attached
     const checked = [];
     for (const a of claim.annexures || []) {

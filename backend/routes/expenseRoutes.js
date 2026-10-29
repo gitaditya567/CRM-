@@ -46,8 +46,42 @@ const multerErrors = (upload, countMsg) => (req, res, next) => upload(req, res, 
         : err.message;
     res.status(400).json({ message });
 });
-const withBills = multerErrors(uploadBills, "You can attach up to 5 bills");
-const withClaimBills = multerErrors(uploadClaimBills, "Too many bills in one claim (max 100)");
+// Shrink bill photos before they are stored (max 1600 px, JPEG) — a 4 MB phone photo becomes ~250 KB,
+// saving disk space and keeping the claim PDF small. WEBP / HEIC also become JPEG so they fit in the PDF.
+// Uses the optional "sharp" package; without it the files are kept as uploaded.
+let sharp = null;
+try { sharp = require("sharp"); } catch { console.warn("sharp not installed — expense bill photos are stored uncompressed"); }
+const SHRINKABLE = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+const compressBills = async (req, res, next) => {
+    if (!sharp) return next();
+    for (const f of req.files || []) {
+        if (!SHRINKABLE.includes(f.mimetype)) continue;
+        try {
+            // read into memory first so the same file can be overwritten (a .jpg keeps its name)
+            const out = await sharp(await fs.promises.readFile(f.path), { failOn: "none" })
+                .rotate() // honour the phone camera orientation
+                .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+                .flatten({ background: "#ffffff" })
+                .jpeg({ quality: 72, mozjpeg: true })
+                .toBuffer();
+            if (f.mimetype === "image/jpeg" && out.length >= f.size) continue; // already small enough
+            const filename = f.filename.replace(/\.[^.]+$/, "") + ".jpg";
+            const target = path.join(UPLOAD_DIR, filename);
+            await fs.promises.writeFile(target, out);
+            if (target !== f.path) await fs.promises.unlink(f.path).catch(() => {});
+            Object.assign(f, {
+                filename, path: target, size: out.length, mimetype: "image/jpeg",
+                originalname: f.originalname.replace(/\.[^.]+$/, "") + ".jpg"
+            });
+        } catch {
+            // e.g. HEIC without a decoder — keep the original file
+        }
+    }
+    next();
+};
+
+const withBills = [multerErrors(uploadBills, "You can attach up to 5 bills"), compressBills];
+const withClaimBills = [multerErrors(uploadClaimBills, "Too many bills in one claim (max 100)"), compressBills];
 
 router.get("/meta", protect, c.getMeta);
 router.get("/summary", protect, c.getSummary);
@@ -67,13 +101,13 @@ router.post("/claims", protect, withClaimBills, c.saveClaim);
 router.get("/claims/:claimNumber", protect, c.getClaim);
 router.put("/claims/:claimNumber", protect, withClaimBills, c.saveClaim);
 router.post("/claims/:claimNumber/submit", protect, c.submitClaim);
+// Approve / reject / mark paid — the whole claim at once (no per-row approval)
+router.post("/claims/:claimNumber/status", protect, adminOnly, c.setClaimStatus);
 
-router.post("/bulk-status", protect, adminOnly, c.bulkStatus);
 router.get("/", protect, c.listExpenses);
 router.post("/", protect, withBills, c.createExpense);
 router.put("/:id", protect, withBills, c.updateExpense);
 router.delete("/:id", protect, c.deleteExpense);
 router.post("/:id/submit", protect, c.submitDraft);
-router.patch("/:id/status", protect, adminOnly, c.updateStatus);
 
 module.exports = router;

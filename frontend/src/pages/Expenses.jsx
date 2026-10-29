@@ -26,6 +26,41 @@ const fmtExpenseDate = (x) => {
     const start = s.toLocaleDateString("en-GB", { day: "2-digit", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
     return `${start} – ${fmtDate(e)}`;
 };
+// Shrink bill photos in the browser before upload (max 1600 px, JPEG ~72%) — a 4 MB phone photo becomes
+// ~250 KB: faster upload on mobile data, less storage, a lighter claim PDF. PDFs and images the browser
+// can't decode (e.g. HEIC) are sent as they are (the server compresses those it can).
+const MAX_BILL_BYTES = 5 * 1024 * 1024;
+const compressImage = async (file) => {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+    try {
+        const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+        const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bmp.width * scale);
+        canvas.height = Math.round(bmp.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; // transparent PNGs get a white background in JPEG
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+        bmp.close?.();
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.72));
+        if (!blob || blob.size >= file.size) return file;
+        return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg", lastModified: file.lastModified });
+    } catch {
+        return file;
+    }
+};
+// Compress picked files; drops (with a message) any that are still over 5 MB
+const prepareBills = async (fileList) => {
+    const files = await Promise.all(Array.from(fileList || []).map(compressImage));
+    const tooBig = files.filter(x => x.size > MAX_BILL_BYTES);
+    if (tooBig.length) toast.error(`${tooBig.map(x => x.name).join(", ")} is over 5 MB — please attach a smaller file`);
+    return files.filter(x => x.size <= MAX_BILL_BYTES);
+};
+
+// Claims for an event can be submitted until 15 days after it ends (the API sends claimLastDate / claimOpen)
+const CLAIM_WINDOW_DAYS = 15;
+
 const dayCount = (x) => (x.endDate ? Math.round((new Date(x.endDate) - new Date(x.date)) / 86400000) + 1 : 1);
 
 const STATUS_STYLES = {
@@ -40,7 +75,6 @@ const STATUS_STYLES = {
     Cancelled: { cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800", icon: Ban },
     // Claim-level statuses
     "Pending Approval": { cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800", icon: Clock },
-    "Partially Approved": { cls: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-800", icon: CheckCircle2 },
 };
 
 const StatusChip = ({ status }) => {
@@ -290,9 +324,9 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
                         </div>
                     )}
                     <div>
-                        <label className={labelCls}>Tour / Trip</label>
+                        <label className={labelCls}>Event</label>
                         <select className={inputCls} value={form.tour} onChange={e => set("tour", e.target.value)}>
-                            <option value="">No tour (office / local expense)</option>
+                            <option value="">No event (office / local expense)</option>
                             {staffTours.map(t => <option key={t._id} value={t._id}>{t.tourNumber} · {t.title}</option>)}
                         </select>
                     </div>
@@ -361,7 +395,7 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
                             type="file"
                             multiple
                             accept="image/*,application/pdf"
-                            onChange={e => setNewFiles(Array.from(e.target.files || []).slice(0, 5))}
+                            onChange={async e => { const picked = e.target.files; setNewFiles((await prepareBills(picked)).slice(0, 5)); }}
                             className="block w-full text-xs text-gray-600 dark:text-gray-300 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-teal-50 file:text-teal-700 dark:file:bg-teal-900/30 dark:file:text-teal-300 file:font-bold cursor-pointer"
                         />
                         {(keptAttachments.length > 0 || newFiles.length > 0) && (
@@ -448,7 +482,7 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
 
     const submit = async (e) => {
         e.preventDefault();
-        if (!form.title.trim()) return toast.error("Tour title is required");
+        if (!form.title.trim()) return toast.error("Event title is required");
         if (form.endDate < form.startDate) return toast.error("End date cannot be before start date");
         if (meta.isAdmin && form.members.length === 0) return toast.error("Assign at least one staff member");
         if (form.approvedBudget !== "" && !(Number(form.approvedBudget) >= 0)) return toast.error("Enter a valid approved budget");
@@ -458,10 +492,10 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
             if (!meta.isAdmin) delete payload.members;
             if (isEdit) await API.put(`/expenses/tours/${tour._id}`, payload);
             else await API.post("/expenses/tours", payload);
-            toast.success(isEdit ? "Tour updated" : "Tour created");
+            toast.success(isEdit ? "Event updated" : "Event created");
             onSaved();
         } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to save tour");
+            toast.error(err.response?.data?.message || "Failed to save event");
         } finally {
             setSaving(false);
         }
@@ -470,7 +504,7 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
     return (
             <Modal
                 title={isEdit ? `Edit Event ${tour.tourNumber}` : "Create Event"}
-                subtitle="Plan the trip; expenses and advance are tracked against it"
+                subtitle="Assigned staff add their claims against it — up to 15 days after it ends"
                 icon={CalendarPlus}
                 onClose={onClose}
                 onSubmit={submit}
@@ -484,12 +518,12 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="sm:col-span-2">
-                        <label className={labelCls}>Tour Title *</label>
+                        <label className={labelCls}>Event Title *</label>
                         <input className={inputCls} value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Hyderabad dealer visit" required />
                     </div>
                     {meta.isAdmin && (
                         <div className="sm:col-span-2">
-                            <label className={labelCls}>Assign Staff * <span className="normal-case font-semibold text-gray-400">— {form.members.length} selected · only they can add expenses to this tour</span></label>
+                            <label className={labelCls}>Assign Staff * <span className="normal-case font-semibold text-gray-400">— {form.members.length} selected · only they can add expenses to this event</span></label>
                             <MemberPicker staffList={meta.staff} value={form.members} onChange={v => set("members", v)} />
                         </div>
                     )}
@@ -508,6 +542,11 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
                     <div>
                         <label className={labelCls}>End Date *</label>
                         <input type="date" className={inputCls} value={form.endDate} min={form.startDate} onChange={e => set("endDate", e.target.value)} required />
+                        {form.endDate && (
+                            <p className="text-[11px] text-gray-500 mt-1">
+                                Claims can be submitted till <b>{fmtDate(new Date(new Date(form.endDate).getTime() + CLAIM_WINDOW_DAYS * 86400000))}</b> — extend the end date to reopen
+                            </p>
+                        )}
                     </div>
                     <div className="sm:col-span-2">
                         <label className={labelCls}>Purpose</label>
@@ -537,12 +576,12 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
 };
 
 // ================= Reject reason =================
-const RejectModal = ({ count, onClose, onConfirm }) => {
+const RejectModal = ({ claimNumber, onClose, onConfirm }) => {
     const [reason, setReason] = useState("");
     return (
         <Modal
-            title={`Reject ${count > 1 ? `${count} expenses` : "expense"}`}
-            subtitle="The staff member will see this reason and can correct & re-submit"
+            title={`Reject claim ${claimNumber}`}
+            subtitle="The whole claim is rejected — the staff member sees this reason and can correct & re-submit"
             icon={XCircle}
             onClose={onClose}
             footer={<>
@@ -575,7 +614,7 @@ const ExpenseDetailModal = ({ expense, onClose }) => (
                 {[
                     ...(expense.claimNumber ? [["Claim", expense.claimNumber]] : []), ...(expense.place ? [["Place", expense.place]] : []),
                     ["Category", expense.category], ["Payment", expense.paymentMode],
-                    ["Tour", expense.tour ? `${expense.tour.tourNumber} · ${expense.tour.title}` : "No tour"], ["Bill No.", expense.billNo || "-"],
+                    ["Event", expense.tour ? `${expense.tour.tourNumber} · ${expense.tour.title}` : "No event"], ["Bill No.", expense.billNo || "-"],
                 ].map(([k, v]) => (
                     <div key={k}><p className={labelCls}>{k}</p><p className="font-semibold text-gray-800 dark:text-gray-200">{v}</p></div>
                 ))}
@@ -612,11 +651,29 @@ const ExpenseDetailModal = ({ expense, onClose }) => (
     </Modal>
 );
 
+// "Claims open till …" / "closed on …" for an event
+const ClaimWindowNote = ({ tour, isAdmin, compact }) => {
+    if (!tour?.claimLastDate || tour.status === "Cancelled") return null;
+    const open = tour.claimOpen !== false;
+    const cls = open
+        ? "text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800"
+        : "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800";
+    return (
+        <p className={`flex items-start gap-1.5 rounded-xl border font-semibold ${compact ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-2 text-xs"} ${cls}`}>
+            <CalendarClock size={compact ? 12 : 14} className="mt-0.5 shrink-0" />
+            <span>
+                {open ? <>Claims open till <b>{fmtDate(tour.claimLastDate)}</b></> : <>Claim submission closed on <b>{fmtDate(tour.claimLastDate)}</b></>}
+                {!compact && !open && (isAdmin ? " — edit the event and extend its end date to reopen." : " — ask an admin to extend the event to submit a claim.")}
+            </span>
+        </p>
+    );
+};
+
 // ================= Tour detail (settlement) =================
 const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => {
     const [data, setData] = useState(null);
     const load = useCallback(() => {
-        API.get(`/expenses/tours/${tourId}`).then(res => setData(res.data)).catch(() => toast.error("Failed to load tour"));
+        API.get(`/expenses/tours/${tourId}`).then(res => setData(res.data)).catch(() => toast.error("Failed to load event"));
     }, [tourId]);
     useEffect(() => { load(); }, [load]);
 
@@ -691,18 +748,20 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                         ))}
                     </div>
 
+                    <ClaimWindowNote tour={t} isAdmin={meta.isAdmin} />
+
+                    <p className={labelCls + " mb-0"}>Your expenses on this event</p>
                     <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                         <table className="w-full min-w-[600px] text-left text-xs">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
-                                <tr><th className="px-3 py-2">Date</th>{meta.isAdmin && <th className="px-3 py-2">Staff</th>}<th className="px-3 py-2">Category</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Bills</th></tr>
+                                <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Bills</th></tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {data.expenses.length === 0 ? (
-                                    <tr><td colSpan="7" className="px-3 py-8 text-center text-gray-400 font-bold uppercase tracking-widest">No expenses on this tour yet</td></tr>
+                                    <tr><td colSpan="6" className="px-3 py-8 text-center text-gray-400 font-bold uppercase tracking-widest">You have no expenses on this event yet</td></tr>
                                 ) : data.expenses.map(x => (
                                     <tr key={x._id}>
                                         <td className="px-3 py-2 whitespace-nowrap">{fmtExpenseDate(x)}</td>
-                                        {meta.isAdmin && <td className="px-3 py-2 font-semibold whitespace-nowrap">{x.staffName}</td>}
                                         <td className="px-3 py-2">{x.category}</td>
                                         <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{x.description || "-"}</td>
                                         <td className="px-3 py-2 text-right font-bold">{inr(x.amount)}</td>
@@ -830,10 +889,12 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
         const t = tours.find(x => x._id === tour);
         if (t && staffId && !tourHasMember(t, staffId)) {
             setTour("");
-            toast("Tour cleared — this staff member is not assigned to it", { icon: "ℹ️" });
+            toast("Event cleared — this staff member is not assigned to it", { icon: "ℹ️" });
         }
     };
     const editableRows = rows.filter(r => !LOCKED.includes(r.status));
+    const selectedTour = tours.find(x => x._id === tour);
+    const windowClosed = !!selectedTour && selectedTour.claimOpen === false;
     const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const draftTotal = editableRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
@@ -854,6 +915,7 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
             if (billCount > 5) return toast.error(`Row ${i + 1}: up to 5 bills per row`);
         }
         if (meta.isAdmin && !staff) return toast.error("Select the staff member");
+        if (mode === "submit" && windowClosed) return toast.error(`Claim submission for ${selectedTour.tourNumber} closed on ${fmtDate(selectedTour.claimLastDate)} — the event must be extended first`);
         setSaving(mode);
         try {
             const fd = new FormData();
@@ -903,7 +965,8 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                     {saving === "draft" ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
                     {saving === "draft" ? "Saving..." : "Save as Draft"}
                 </button>
-                <button type="submit" value="submit" className={btnPrimary} disabled={!!saving || loading}>
+                <button type="submit" value="submit" className={btnPrimary} disabled={!!saving || loading || windowClosed}
+                    title={windowClosed ? "Claim window for this event is closed — save as draft, and ask an admin to extend the event" : undefined}>
                     {saving === "submit" ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
                     {saving === "submit" ? "Submitting..." : "Submit Claim"}
                 </button>
@@ -924,18 +987,19 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                             </div>
                         )}
                         <div>
-                            <label className={labelCls}>Tour / Trip (optional)</label>
+                            <label className={labelCls}>Event (optional)</label>
                             <select className={inputCls} value={tour} onChange={e => pickTour(e.target.value)}>
-                                <option value="">No tour (office / local expense)</option>
+                                <option value="">No event (office / local expense)</option>
                                 {staffTours.map(t => (
                                     <option key={t._id} value={t._id}>
-                                        {t.tourNumber} · {t.title}{showAllTours ? ` — ${memberLabel(t)}` : ""}
+                                        {t.tourNumber} · {t.title}{showAllTours ? ` — ${memberLabel(t)}` : ""}{t.claimOpen === false ? " (claims closed)" : ""}
                                     </option>
                                 ))}
                             </select>
                             {!showAllTours && staffTours.length === 0 && (
-                                <p className="text-[11px] text-gray-400 mt-1">No tour assigned{meta.isAdmin ? " to this staff member" : " to you"} yet</p>
+                                <p className="text-[11px] text-gray-400 mt-1">No event assigned{meta.isAdmin ? " to this staff member" : " to you"} yet</p>
                             )}
+                            {selectedTour && <div className="mt-1.5"><ClaimWindowNote tour={selectedTour} isAdmin={meta.isAdmin} compact /></div>}
                         </div>
                     </div>
 
@@ -1025,7 +1089,12 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                                                     <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs font-bold cursor-pointer hover:bg-teal-100">
                                                         <Paperclip size={13} /> Attach
                                                         <input type="file" multiple accept="image/*,application/pdf" className="hidden"
-                                                            onChange={e => { update(r.key, { files: [...r.files, ...Array.from(e.target.files || [])].slice(0, 5) }); e.target.value = ""; }} />
+                                                            onChange={async e => {
+                                                                const picked = e.target.files;
+                                                                const ready = await prepareBills(picked);
+                                                                e.target.value = "";
+                                                                setRows(rs => rs.map(x => (x.key === r.key ? { ...x, files: [...x.files, ...ready].slice(0, 5) } : x)));
+                                                            }} />
                                                     </label>
                                                 )}
                                                 {kept.map(a => (
@@ -1061,30 +1130,62 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
 };
 
 // ================= Claim PDF download =================
+// iPhone / iPad (and the installed app there) ignore <a download> on a blob link — the PDF is opened
+// in a new tab instead, from where it can be saved or shared. That tab is opened before the request
+// so the browser does not block it as a pop-up.
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const downloadClaimPdf = async (claimNumber) => {
     const tId = toast.loading("Preparing PDF...");
+    const tab = isIOS() ? window.open("", "_blank") : null;
     try {
-        const res = await API.get(`/expenses/claims/${encodeURIComponent(claimNumber)}/pdf`, { responseType: "blob" });
+        const res = await API.get(`/expenses/claims/${encodeURIComponent(claimNumber)}/pdf`, { responseType: "blob", timeout: 120000 });
         const name = /filename="([^"]+)"/.exec(res.headers["content-disposition"] || "")?.[1] || `Expense_Claim_${claimNumber}.pdf`;
-        const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-        toast.success("PDF downloaded", { id: tId });
+        const blob = new Blob([res.data], { type: "application/pdf" });
+        if (!blob.size) throw new Error("empty");
+        const url = URL.createObjectURL(blob);
+        if (tab) {
+            tab.location.href = url;
+        } else {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        toast.success(tab ? "PDF opened — use Share to save it" : "PDF downloaded", { id: tId });
     } catch (err) {
+        tab?.close();
         // Error body arrives as a Blob because of responseType
         let message = "Failed to download PDF";
+        if (err.code === "ECONNABORTED") message = "PDF is taking too long — please try again";
+        else if (!err.response) message = "Network problem — PDF could not be downloaded";
         try { message = JSON.parse(await err.response.data.text()).message || message; } catch { /* keep default */ }
         toast.error(message, { id: tId });
     }
 };
 
+// Approve / Reject (pending) · Mark Paid (approved) — the whole claim at once (admin)
+const ClaimDecisionButtons = ({ claim, onDecide, small }) => {
+    const base = small
+        ? "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white cursor-pointer"
+        : "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-white cursor-pointer";
+    const size = small ? 13 : 14;
+    if (claim.status === "Pending Approval") return (
+        <>
+            <motion.button type="button" whileTap={{ scale: 0.95 }} className={`${base} bg-emerald-600 hover:bg-emerald-700`} title="Approve the whole claim" onClick={() => onDecide(claim, "Approved")}><CheckCircle2 size={size} /> Approve</motion.button>
+            <motion.button type="button" whileTap={{ scale: 0.95 }} className={`${base} bg-red-600 hover:bg-red-700`} title="Reject the whole claim" onClick={() => onDecide(claim, "Rejected")}><XCircle size={size} /> Reject</motion.button>
+        </>
+    );
+    if (claim.status === "Approved") return (
+        <motion.button type="button" whileTap={{ scale: 0.95 }} className={`${base} bg-blue-600 hover:bg-blue-700`} title="Mark the claim as paid" onClick={() => onDecide(claim, "Paid")}><BadgeCheck size={size} /> Mark Paid</motion.button>
+    );
+    return null;
+};
+
 // ================= Claim view (status of every row + PDF) =================
-const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
+const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) => {
     const [data, setData] = useState(null);
     useEffect(() => {
         API.get(`/expenses/claims/${encodeURIComponent(claim.claimNumber)}`)
@@ -1093,7 +1194,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
     }, [claim.claimNumber]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const mine = String(claim.staff) === String(MY_ID());
-    const canEditClaim = mine && (claim.counts.draft > 0 || claim.counts.rejected > 0);
+    const canEditClaim = mine && ["Draft", "Rejected"].includes(claim.status);
     const a = claim.amounts;
 
     return (
@@ -1102,6 +1203,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
                 <div className="basis-full sm:basis-auto sm:mr-auto self-center"><StatusChip status={claim.status} /></div>
                 {canEditClaim && <button type="button" className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={onEdit}><Edit2 size={14} /> {claim.counts.draft > 0 ? "Continue" : "Fix & Re-submit"}</button>}
                 {mine && claim.counts.draft > 0 && <button type="button" className={btnPrimary} onClick={onSubmit}><Send size={14} /> Submit Claim</button>}
+                {meta.isAdmin && <ClaimDecisionButtons claim={claim} onDecide={onDecide} />}
                 {claim.pdfReady && <button type="button" className={btnPrimary} onClick={() => downloadClaimPdf(claim.claimNumber)}><Download size={14} /> Download PDF</button>}
             </>}
         >
@@ -1119,7 +1221,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit }) => {
                     </div>
                 ))}
             </div>
-            {["Pending Approval", "Draft"].includes(claim.status) && (
+            {claim.status === "Pending Approval" && (
                 <p className="mb-4 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
                     The PDF can be downloaded now, but it is marked "{claim.status.toUpperCase()}" — it is not a final approved document yet.
                 </p>
@@ -1205,7 +1307,6 @@ const Expenses = () => {
     const [page, setPage] = useState(1);
     const [tours, setTours] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [selected, setSelected] = useState([]);
 
     const [expenseForm, setExpenseForm] = useState(null); // { expense } — single-row edit (old / non-claim rows)
     const [claimForm, setClaimForm] = useState(null);     // { claimNumber?, defaultTour? }
@@ -1217,7 +1318,7 @@ const Expenses = () => {
     const [tourForm, setTourForm] = useState(null);       // { tour? }
     const [tourDetail, setTourDetail] = useState(null);   // tourId
     const [expenseDetail, setExpenseDetail] = useState(null);
-    const [rejecting, setRejecting] = useState(null);     // [ids]
+    const [rejecting, setRejecting] = useState(null);     // claim being rejected
 
     useEffect(() => {
         API.get("/expenses/meta").then(res => setMeta(res.data)).catch(() => toast.error("Failed to load Travel & Expenses"));
@@ -1242,7 +1343,7 @@ const Expenses = () => {
         p.append("page", pg);
         p.append("limit", 25);
         API.get(`/expenses?${p}`)
-            .then(res => { setExpenses(res.data); setSelected([]); })
+            .then(res => setExpenses(res.data))
             .catch(() => toast.error("Failed to load expenses"))
             .finally(() => setLoading(false));
     }, [params, page]);
@@ -1299,20 +1400,25 @@ const Expenses = () => {
         if (p !== "custom") { setPage(1); setFilters(f => ({ ...f, ...rangeFor(p) })); }
     };
 
-    const changeStatus = async (ids, status, reason) => {
+    // Admin decision on a whole claim — Approved / Rejected (needs a reason) / Paid
+    const setClaimDecision = async (claim, status, reason) => {
         try {
-            if (ids.length === 1) {
-                await API.patch(`/expenses/${ids[0]}/status`, { status, reason });
-                toast.success(`Expense ${status.toLowerCase()}`);
-            } else {
-                const res = await API.post("/expenses/bulk-status", { ids, status, reason });
-                toast.success(`${res.data.updated} expense(s) ${status.toLowerCase()}`);
-                if (res.data.skipped?.length) toast.error(`Skipped: ${res.data.skipped.join("; ")}`, { duration: 6000 });
-            }
+            await API.post(`/expenses/claims/${encodeURIComponent(claim.claimNumber)}/status`, { status, reason });
+            toast.success(`${claim.claimNumber} ${status === "Paid" ? "marked paid" : status.toLowerCase()}`);
+            setClaimView(null);
             refreshAll();
+            loadClaims();
         } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to update status");
+            toast.error(err.response?.data?.message || "Failed to update claim");
         }
+    };
+    const decideClaim = (claim, status) => {
+        if (status === "Rejected") return setRejecting(claim);
+        const amount = claim.amounts.claimed;
+        const msg = status === "Approved"
+            ? `Approve claim ${claim.claimNumber} of ${claim.staffName} for ${inr(amount)}?`
+            : `Mark claim ${claim.claimNumber} (${inr(claim.amounts.approved)}) as paid?`;
+        if (window.confirm(msg)) setClaimDecision(claim, status);
     };
 
     const deleteExpense = async (x) => {
@@ -1327,13 +1433,13 @@ const Expenses = () => {
     };
 
     const deleteTour = async (t) => {
-        if (!window.confirm(`Delete tour ${t.tourNumber} "${t.title}"?`)) return;
+        if (!window.confirm(`Delete event ${t.tourNumber} "${t.title}"?`)) return;
         try {
             await API.delete(`/expenses/tours/${t._id}`);
-            toast.success("Tour deleted");
+            toast.success("Event deleted");
             refreshAll();
         } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to delete tour");
+            toast.error(err.response?.data?.message || "Failed to delete event");
         }
     };
 
@@ -1344,7 +1450,7 @@ const Expenses = () => {
             const res = await API.get(`/expenses?${p}`);
             const rows = res.data.items || [];
             if (!rows.length) return toast.error("Nothing to export for these filters");
-            const head = ["Expense No", "Claim No", "From Date", "To Date", "Place", "Staff", "Tour No", "Tour", "Category", "Description", "Amount (INR)", "Payment Mode", "Bill No", "Status", "Approved By", "Paid On", "Rejection Reason", "Bills"];
+            const head = ["Expense No", "Claim No", "From Date", "To Date", "Place", "Staff", "Event No", "Event", "Category", "Description", "Amount (INR)", "Payment Mode", "Bill No", "Status", "Approved By", "Paid On", "Rejection Reason", "Bills"];
             const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
             const lines = rows.map(x => [
                 x.expenseNumber, x.claimNumber || "", fmtDate(x.date), x.endDate ? fmtDate(x.endDate) : "", x.place || "", x.staffName, x.tour?.tourNumber || "", x.tour?.title || "", x.category, x.description,
@@ -1369,26 +1475,15 @@ const Expenses = () => {
     const isAdmin = meta.isAdmin;
     const myId = MY_ID();
     const isMine = (x) => String(x.staff) === String(myId);
-    // Same rules as the API: drafts only by their owner; admin anything except Paid; staff only Submitted / Rejected
-    const canEdit = (x) => {
-        if (x.status === "Draft") return isMine(x);
-        return isAdmin ? x.status !== "Paid" : ["Submitted", "Rejected"].includes(x.status);
-    };
+    // Same rule as the API: only your own rows, while the claim is a draft or was rejected
+    const canEdit = (x) => isMine(x) && ["Draft", "Rejected"].includes(x.status);
     const visibleTabs = isAdmin ? TABS : TABS.filter(t => t.key !== "tours");
 
-    const submitDraft = async (x) => {
-        try {
-            await API.post(`/expenses/${x._id}/submit`);
-            toast.success(`${x.expenseNumber} submitted for approval`);
-            refreshAll();
-        } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to submit");
-        }
+    // A draft row is sent as part of its whole claim
+    const submitDraft = (x) => {
+        const c = draftClaims.find(d => d.claimNumber === x.claimNumber);
+        submitClaim(c || { claimNumber: x.claimNumber, count: 1, amount: x.amount });
     };
-    const selectable = expenses.items.filter(x => ["Submitted", "Approved"].includes(x.status));
-    const selectedItems = expenses.items.filter(x => selected.includes(x._id));
-    const allSubmitted = selectedItems.length > 0 && selectedItems.every(x => x.status === "Submitted");
-    const allApproved = selectedItems.length > 0 && selectedItems.every(x => x.status === "Approved");
 
     // Action buttons — shared by the desktop tables and the phone cards
     const claimActions = (c) => {
@@ -1396,12 +1491,13 @@ const Expenses = () => {
         return (
             <>
                 <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View claim" aria-label="View claim" onClick={() => setClaimView(c)}><Eye size={16} /></button>
-                {mine && (c.counts.draft > 0 || c.counts.rejected > 0) && (
-                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={c.counts.draft > 0 ? "Continue claim" : "Fix rejected rows & re-submit"} aria-label="Edit claim" onClick={() => setClaimForm({ claimNumber: c.claimNumber })}><Edit2 size={16} /></button>
+                {mine && ["Draft", "Rejected"].includes(c.status) && (
+                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={c.status === "Draft" ? "Continue claim" : "Fix & re-submit"} aria-label="Edit claim" onClick={() => setClaimForm({ claimNumber: c.claimNumber })}><Edit2 size={16} /></button>
                 )}
                 {mine && c.counts.draft > 0 && (
                     <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit claim" aria-label="Submit claim" onClick={() => submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft })}><Send size={16} /></button>
                 )}
+                {isAdmin && <ClaimDecisionButtons claim={c} onDecide={decideClaim} small />}
                 {c.pdfReady && (
                     <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer" title={`Download claim PDF (marked ${c.status.toUpperCase()})`} onClick={() => downloadClaimPdf(c.claimNumber)}>
                         <Download size={13} /> PDF
@@ -1414,21 +1510,19 @@ const Expenses = () => {
     const expenseActions = (x) => (
         <>
             <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View" aria-label="View" onClick={() => setExpenseDetail(x)}><Eye size={16} /></button>
-            {isAdmin && x.status === "Submitted" && <>
-                <button className={`${iconBtn} text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Approve" aria-label="Approve" onClick={() => changeStatus([x._id], "Approved")}><CheckCircle2 size={16} /></button>
-                <button className={`${iconBtn} text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Reject" aria-label="Reject" onClick={() => setRejecting([x._id])}><XCircle size={16} /></button>
-            </>}
-            {isAdmin && x.status === "Approved" && (
-                <button className={`${iconBtn} text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20`} title="Mark Paid" aria-label="Mark paid" onClick={() => changeStatus([x._id], "Paid")}><BadgeCheck size={16} /></button>
-            )}
             {x.status === "Draft" && isMine(x) && (
-                <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Submit for approval" aria-label="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
+                <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title={x.claimNumber ? `Submit claim ${x.claimNumber}` : "Submit for approval"} aria-label="Submit for approval" onClick={() => submitDraft(x)}><Send size={16} /></button>
             )}
-            <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status) ? "Open claim to edit" : "Edit"} aria-label="Edit" disabled={!canEdit(x)}
-                onClick={() => (x.claimNumber && isMine(x) && ["Draft", "Rejected"].includes(x.status)
-                    ? setClaimForm({ claimNumber: x.claimNumber })
-                    : setExpenseForm({ expense: x }))}><Edit2 size={16} /></button>
+            <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title={canEdit(x) ? (x.claimNumber ? "Open claim to edit" : "Edit") : "Submitted claims are locked"} aria-label="Edit" disabled={!canEdit(x)}
+                onClick={() => (x.claimNumber ? setClaimForm({ claimNumber: x.claimNumber }) : setExpenseForm({ expense: x }))}><Edit2 size={16} /></button>
             <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete" aria-label="Delete" disabled={!canEdit(x)} onClick={() => deleteExpense(x)}><Trash2 size={16} /></button>
+            {/* Once the claim is submitted its PDF (watermarked with the claim status) can be downloaded */}
+            {x.claimNumber && x.status !== "Draft" && (
+                <button className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black text-white bg-teal-600 hover:bg-teal-700 cursor-pointer"
+                    title={`Download claim ${x.claimNumber} PDF (${x.status === "Submitted" ? "PENDING APPROVAL" : x.status.toUpperCase()})`} onClick={() => downloadClaimPdf(x.claimNumber)}>
+                    <Download size={13} /> PDF
+                </button>
+            )}
         </>
     );
 
@@ -1450,7 +1544,7 @@ const Expenses = () => {
                         <Wallet className="text-teal-600 shrink-0" size={26} /> Travel & Expenses
                     </h1>
                     <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">
-                        {isAdmin ? "Track every event and spend across staff — approve claims, watch budgets, export." : "Record your own expenses with bills — save as draft or submit for approval, and track their status."}
+                        {isAdmin ? "Approve or reject submitted claims, watch event budgets — your own expenses stay private to you." : "Record your own expenses with bills — save as draft or submit a claim, and track whether it is approved."}
                     </p>
                 </div>
                 <div className="flex gap-2 w-full md:w-auto max-md:*:flex-1 max-md:*:justify-center">
@@ -1477,8 +1571,8 @@ const Expenses = () => {
                                 )}
                                 <span className="relative flex items-center gap-2">
                                     <Icon size={15} /> {label}
-                                    {key === "expenses" && isAdmin && summary?.pendingApproval?.count > 0 && (
-                                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px]">{summary.pendingApproval.count}</span>
+                                    {key === "claims" && isAdmin && summary?.pendingClaims > 0 && (
+                                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px]" title="Claims waiting for approval">{summary.pendingClaims}</span>
                                     )}
                                 </span>
                             </button>
@@ -1503,7 +1597,7 @@ const Expenses = () => {
                             <div><label className={labelCls}>To</label><input type="date" className={inputCls} value={filters.to} onChange={e => setFilter("to", e.target.value)} /></div>
                         </>
                     )}
-                    {isAdmin && (
+                    {isAdmin && tab !== "expenses" && (
                         <div>
                             <label className={labelCls}>Staff</label>
                             <select className={inputCls} value={filters.staff} onChange={e => setFilter("staff", e.target.value)}>
@@ -1516,7 +1610,7 @@ const Expenses = () => {
                         <div>
                             <label className={labelCls}>Claim Status</label>
                             <select className={inputCls} value={claimStatus} onChange={e => setClaimStatus(e.target.value)}>
-                                {["All", "Draft", "Pending Approval", "Partially Approved", "Approved", "Paid", "Rejected"].map(s => (
+                                {["All", "Draft", "Pending Approval", "Approved", "Paid", "Rejected"].map(s => (
                                     <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>
                                 ))}
                             </select>
@@ -1539,10 +1633,10 @@ const Expenses = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className={labelCls}>Tour</label>
+                                <label className={labelCls}>Event</label>
                                 <select className={inputCls} value={filters.tour} onChange={e => setFilter("tour", e.target.value)}>
                                     <option value="">All</option>
-                                    <option value="none">No tour</option>
+                                    <option value="none">No event</option>
                                     {tours.map(t => <option key={t._id} value={t._id}>{t.tourNumber} · {t.title}</option>)}
                                 </select>
                             </div>
@@ -1553,7 +1647,7 @@ const Expenses = () => {
                             <label className={labelCls}>Search</label>
                             <div className="relative">
                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                <input className={inputCls + " pl-9"} value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder={tab === "tours" ? "Event, city, staff..." : "Description, bill no, staff..."} />
+                                <input className={inputCls + " pl-9"} value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder={tab === "tours" ? "Event, city, staff..." : tab === "claims" ? "Claim no, staff, place..." : "Description, bill no, place..."} />
                             </div>
                         </div>
                     )}
@@ -1601,8 +1695,8 @@ const Expenses = () => {
                 <div className="space-y-6">
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                         <StatTile index={0} label="Total spent" value={inr(summary?.spent)} hint="Approved + paid in this period" icon={IndianRupee} />
-                        <StatTile index={1} label="Pending approval" value={inr(summary?.pendingApproval?.amount)} hint={`${summary?.pendingApproval?.count || 0} claim(s) waiting`} icon={Clock} tone="text-amber-500" />
-                        <StatTile index={2} label="Approved, to pay" value={inr(summary?.approvedUnpaid?.amount)} hint={`${summary?.approvedUnpaid?.count || 0} claim(s) not yet paid`} icon={CheckCircle2} tone="text-blue-500" />
+                        <StatTile index={1} label="Pending approval" value={inr(summary?.pendingApproval?.amount)} hint={`${summary?.pendingClaims || 0} claim(s) waiting`} icon={Clock} tone="text-amber-500" />
+                        <StatTile index={2} label="Approved, to pay" value={inr(summary?.approvedUnpaid?.amount)} hint={`${summary?.approvedUnpaid?.count || 0} item(s) not yet paid`} icon={CheckCircle2} tone="text-blue-500" />
                         {isAdmin
                             ? <StatTile index={3} label="Active events" value={summary?.activeTours ?? 0} hint={summary?.openAdvances > 0 ? `Open advances ${inr(summary.openAdvances)}` : "Planned + ongoing events"} icon={CalendarDays} />
                             : <StatTile index={3} label="My drafts" value={summary?.drafts?.count ?? 0} hint={`${inr(summary?.drafts?.amount)} not yet submitted`} icon={FileText} tone="text-gray-500" />}
@@ -1633,7 +1727,7 @@ const Expenses = () => {
             {tab === "claims" && (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                     <div className="px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-700 text-xs font-bold text-gray-500 dark:text-gray-400">
-                        {claims.length} claim(s){isAdmin ? "" : " · your claims"}<span className="hidden sm:inline"> — download the PDF any time; its watermark shows the claim's current status</span>
+                        {claims.length} claim(s){isAdmin ? " · approve or reject each claim as a whole" : " · your claims"}<span className="hidden sm:inline"> — the PDF watermark shows the claim's current status</span>
                     </div>
 
                     {/* phones: one card per claim */}
@@ -1648,7 +1742,7 @@ const Expenses = () => {
                                     <button className="text-left min-w-0" onClick={() => setClaimView(c)}>
                                         <p className="font-mono text-sm font-black text-teal-700 dark:text-teal-400">{c.claimNumber}</p>
                                         <p className="text-[11px] text-gray-500">
-                                            {isAdmin ? `${c.staffName} · ` : ""}{c.count} row(s){c.counts.rejected ? ` · ${c.counts.rejected} rejected` : ""}
+                                            {isAdmin ? `${c.staffName} · ` : ""}{c.count} row(s)
                                         </p>
                                     </button>
                                     <StatusChip status={c.status} />
@@ -1667,7 +1761,7 @@ const Expenses = () => {
                                     <Calendar size={11} /> {fmtDate(c.from)}{toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}
                                     {c.tour && <span className="truncate"> · {c.tour.tourNumber} {c.tour.title}</span>}
                                 </p>
-                                <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-end gap-1">
+                                <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-end gap-1">
                                     {claimActions(c)}
                                 </div>
                             </motion.div>
@@ -1699,7 +1793,7 @@ const Expenses = () => {
                                         <motion.tr key={c.claimNumber} {...enter(i)} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
                                             <td className="px-4 py-3">
                                                 <button className="font-mono text-xs font-black text-teal-700 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setClaimView(c)}>{c.claimNumber}</button>
-                                                <p className="text-[11px] text-gray-500">{c.count} row(s){c.counts.rejected ? ` · ${c.counts.rejected} rejected` : ""}</p>
+                                                <p className="text-[11px] text-gray-500">{c.count} row(s)</p>
                                             </td>
                                             {isAdmin && <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200">{c.staffName}</td>}
                                             <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">{c.tour ? `${c.tour.tourNumber} · ${c.tour.title}` : "—"}</td>
@@ -1708,7 +1802,7 @@ const Expenses = () => {
                                             <td className="px-4 py-3 text-right font-black text-gray-900 dark:text-white whitespace-nowrap">{c.amounts.approved > 0 ? inr(c.amounts.approved) : "—"}</td>
                                             <td className="px-4 py-3"><StatusChip status={c.status} /></td>
                                             <td className="px-4 py-3">
-                                                <div className="flex items-center justify-center gap-1">{claimActions(c)}</div>
+                                                <div className="flex flex-wrap items-center justify-center gap-1">{claimActions(c)}</div>
                                             </td>
                                         </motion.tr>
                                     );
@@ -1723,25 +1817,10 @@ const Expenses = () => {
             {tab === "expenses" && (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                     <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-700">
-                        <div className="flex items-center gap-2">
-                            {isAdmin && selectable.length > 0 && (
-                                <input type="checkbox" className="md:hidden" aria-label="Select all"
-                                    checked={selectable.every(x => selected.includes(x._id))}
-                                    onChange={e => setSelected(e.target.checked ? selectable.map(x => x._id) : [])} />
-                            )}
-                            <p className="text-xs font-bold text-gray-500 dark:text-gray-400">
-                                {expenses.total} expense(s) · <span className="text-gray-900 dark:text-white font-black">{inr(expenses.totalAmount)}</span>
-                            </p>
-                        </div>
-                        {isAdmin && selected.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-bold text-gray-500">{selected.length} selected</span>
-                                {allSubmitted && <button className="px-3 py-1.5 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 cursor-pointer" onClick={() => changeStatus(selected, "Approved")}>Approve</button>}
-                                {allSubmitted && <button className="px-3 py-1.5 rounded-lg text-xs font-black text-white bg-red-600 hover:bg-red-700 cursor-pointer" onClick={() => setRejecting(selected)}>Reject</button>}
-                                {allApproved && <button className="px-3 py-1.5 rounded-lg text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer" onClick={() => changeStatus(selected, "Paid")}>Mark Paid</button>}
-                                {!allSubmitted && !allApproved && <span className="text-[11px] text-amber-600 font-semibold">Select only Submitted or only Approved items</span>}
-                            </div>
-                        )}
+                        <p className="text-xs font-bold text-gray-500 dark:text-gray-400">
+                            {expenses.total} expense(s) · <span className="text-gray-900 dark:text-white font-black">{inr(expenses.totalAmount)}</span>
+                            <span className="ml-1 font-semibold text-gray-400">· only you can see these</span>
+                        </p>
                     </div>
                     {/* phones: one card per expense */}
                     <div className="md:hidden p-3 space-y-3">
@@ -1751,19 +1830,14 @@ const Expenses = () => {
                             <p className="py-12 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No expenses for these filters</p>
                         ) : expenses.items.map((x, i) => (
                             <motion.div key={x._id} {...enter(i)}
-                                className={`rounded-2xl border p-3.5 ${selected.includes(x._id) ? "border-teal-400 bg-teal-50/50 dark:bg-teal-900/20" : "border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/40"}`}>
+                                className="rounded-2xl border p-3.5 border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/40">
                                 <div className="flex items-start gap-2.5">
-                                    {isAdmin && ["Submitted", "Approved"].includes(x.status) && (
-                                        <input type="checkbox" className="mt-1" aria-label={`Select ${x.expenseNumber}`}
-                                            checked={selected.includes(x._id)}
-                                            onChange={e => setSelected(s => e.target.checked ? [...s, x._id] : s.filter(id => id !== x._id))} />
-                                    )}
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
                                                 <p className="text-sm font-black text-gray-900 dark:text-white">{x.category}</p>
                                                 <p className="text-[11px] text-gray-500">
-                                                    {fmtExpenseDate(x)}{x.place ? ` · ${x.place}` : ""}{isAdmin ? ` · ${x.staffName}` : ""}
+                                                    {fmtExpenseDate(x)}{x.place ? ` · ${x.place}` : ""}
                                                 </p>
                                             </div>
                                             <p className="text-sm font-black text-gray-900 dark:text-white whitespace-nowrap">{inr(x.amount)}</p>
@@ -1787,18 +1861,10 @@ const Expenses = () => {
                     </div>
 
                     <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full min-w-[960px] text-left text-sm">
+                        <table className="w-full min-w-[820px] text-left text-sm">
                             <thead className="bg-gray-50 dark:bg-gray-900/60 text-[10px] font-black uppercase tracking-wider text-gray-500">
                                 <tr>
-                                    {isAdmin && (
-                                        <th className="px-4 py-3 w-10">
-                                            <input type="checkbox" aria-label="Select all"
-                                                checked={selectable.length > 0 && selectable.every(x => selected.includes(x._id))}
-                                                onChange={e => setSelected(e.target.checked ? selectable.map(x => x._id) : [])} />
-                                        </th>
-                                    )}
                                     <th className="px-4 py-3">Expense</th>
-                                    <th className="px-4 py-3">Staff</th>
                                     <th className="px-4 py-3">Category / Description</th>
                                     <th className="px-4 py-3">Event</th>
                                     <th className="px-4 py-3 text-right">Amount</th>
@@ -1808,26 +1874,17 @@ const Expenses = () => {
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {loading ? (
-                                    <tr><td colSpan="8" className="px-4 py-14 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></td></tr>
+                                    <tr><td colSpan="6" className="px-4 py-14 text-center"><RefreshCw className="animate-spin inline text-teal-600" /></td></tr>
                                 ) : expenses.items.length === 0 ? (
-                                    <tr><td colSpan="8" className="px-4 py-14 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No expenses for these filters</td></tr>
+                                    <tr><td colSpan="6" className="px-4 py-14 text-center text-xs font-bold uppercase tracking-widest text-gray-400">No expenses for these filters</td></tr>
                                 ) : expenses.items.map((x, i) => (
                                     <motion.tr key={x._id} {...enter(i)} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
-                                        {isAdmin && (
-                                            <td className="px-4 py-3">
-                                                <input type="checkbox" aria-label={`Select ${x.expenseNumber}`}
-                                                    disabled={!["Submitted", "Approved"].includes(x.status)}
-                                                    checked={selected.includes(x._id)}
-                                                    onChange={e => setSelected(s => e.target.checked ? [...s, x._id] : s.filter(i => i !== x._id))} />
-                                            </td>
-                                        )}
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <p className="font-bold text-gray-900 dark:text-white font-mono text-xs">{x.expenseNumber}</p>
                                             {x.claimNumber && <p className="text-[10px] font-mono font-bold text-teal-600 dark:text-teal-400">{x.claimNumber}</p>}
                                             {x.place && <p className="text-[10px] text-gray-500 flex items-center gap-0.5"><MapPin size={10} />{x.place}</p>}
                                             <p className="text-[11px] text-gray-500">{fmtExpenseDate(x)}{x.endDate ? ` · ${dayCount(x)}d` : ""}</p>
                                         </td>
-                                        <td className="px-4 py-3 text-gray-800 dark:text-gray-200 font-semibold">{x.staffName}</td>
                                         <td className="px-4 py-3">
                                             <p className="font-semibold text-gray-800 dark:text-gray-200">{x.category}</p>
                                             <p className="text-[11px] text-gray-500 line-clamp-1">{x.description || "—"}{x.attachments?.length ? <span className="ml-1 text-teal-600"><Paperclip size={11} className="inline" />{x.attachments.length}</span> : null}</p>
@@ -1905,10 +1962,11 @@ const Expenses = () => {
                             )}
                             {t.advanceAmount > 0 && t.pending > 0 && !(t.approvedBudget > 0) && <p className="text-[11px] font-semibold text-amber-600">{inr(t.pending)} pending approval</p>}
                             <BudgetBar budget={t.approvedBudget} spent={t.spent} pending={t.pending} compact />
+                            <ClaimWindowNote tour={t} isAdmin={isAdmin} compact />
                             <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-700">
                                 <button className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setTourDetail(t._id)}>Open · {t.count} expense(s)</button>
                                 <div className="flex gap-1">
-                                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit tour" disabled={!isAdmin && t.settled} onClick={() => setTourForm({ tour: t })}><Edit2 size={15} /></button>
+                                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit event" aria-label="Edit event" disabled={!isAdmin && t.settled} onClick={() => setTourForm({ tour: t })}><Edit2 size={15} /></button>
                                     <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete event" aria-label="Delete event" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={15} /></button>
                                 </div>
                             </div>
@@ -1920,7 +1978,7 @@ const Expenses = () => {
 
             {/* ===== Modals ===== */}
             {claimView && (
-                <ClaimViewModal meta={meta} claim={claimView} onClose={() => setClaimView(null)}
+                <ClaimViewModal meta={meta} claim={claimView} onClose={() => setClaimView(null)} onDecide={decideClaim}
                     onEdit={() => { const n = claimView.claimNumber; setClaimView(null); setClaimForm({ claimNumber: n }); }}
                     onSubmit={() => { const c = claimView; setClaimView(null); submitClaim({ claimNumber: c.claimNumber, count: c.counts.draft, amount: c.amounts.draft }); }} />
             )}
@@ -1941,8 +1999,8 @@ const Expenses = () => {
             )}
             {expenseDetail && <ExpenseDetailModal expense={expenseDetail} onClose={() => setExpenseDetail(null)} />}
             {rejecting && (
-                <RejectModal count={rejecting.length} onClose={() => setRejecting(null)}
-                    onConfirm={(reason) => { const ids = rejecting; setRejecting(null); changeStatus(ids, "Rejected", reason); }} />
+                <RejectModal claimNumber={rejecting.claimNumber} onClose={() => setRejecting(null)}
+                    onConfirm={(reason) => { const c = rejecting; setRejecting(null); setClaimDecision(c, "Rejected", reason); }} />
             )}
         </div>
         </MotionConfig>

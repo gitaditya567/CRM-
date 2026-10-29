@@ -16,6 +16,9 @@ const scopeFilter = (req, staffParam) => {
     return { staff: new mongoose.Types.ObjectId(req.user._id) };
 };
 
+// Expenses are private: everyone (any role) sees only their own rows in the Expenses tab
+const ownFilter = (req) => ({ staff: new mongoose.Types.ObjectId(req.user._id) });
+
 // Tours a user can see: tours they are assigned to (members), or older single-staff tours
 const tourScope = (req, staffParam) => {
     const id = isAdmin(req) ? (staffParam && isId(staffParam) ? staffParam : null) : req.user._id;
@@ -24,11 +27,36 @@ const tourScope = (req, staffParam) => {
     return { $or: [{ members: oid }, { staff: oid }] };
 };
 
-// Older tours have only `staff` — expose a consistent members list
+// Claims for an event can be submitted until 15 days after it ends (inclusive, India time).
+// After that an admin extends the event's end date to reopen the window.
+const CLAIM_WINDOW_DAYS = 15;
+const IST_MS = 330 * 60000;
+const claimLastDate = (tour) => {
+    if (!tour?.endDate) return null;
+    const e = new Date(new Date(tour.endDate).getTime() + IST_MS); // calendar date in India
+    return new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate() + CLAIM_WINDOW_DAYS));
+};
+const isClaimWindowOpen = (tour) => {
+    const last = claimLastDate(tour);
+    return !last || Date.now() < last.getTime() + 86400000 - IST_MS; // until midnight IST after the last day
+};
+const assertClaimWindow = (tour) => {
+    if (isClaimWindowOpen(tour)) return;
+    const last = claimLastDate(tour).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+    throw new Error(`Claim submission for event ${tour.tourNumber} closed on ${last} (${CLAIM_WINDOW_DAYS} days after the event ended). Ask an admin to extend the event's end date, then submit again.`);
+};
+// Check the window for a tour id (no-op when there is no tour)
+const checkClaimWindow = async (tourId) => {
+    if (!tourId || !isId(tourId)) return;
+    const tour = await Tour.findById(tourId).select("tourNumber endDate").lean();
+    if (tour) assertClaimWindow(tour);
+};
+
+// Older tours have only `staff` — expose a consistent members list (+ the claim window)
 const normalizeTour = (t) => {
     const members = t.members?.length ? t.members : [t.staff];
     const memberNames = t.memberNames?.length ? t.memberNames : [t.staffName];
-    return { ...t, members, memberNames };
+    return { ...t, members, memberNames, claimLastDate: claimLastDate(t), claimOpen: isClaimWindowOpen(t) };
 };
 const isTourMember = (tour, userId) =>
     (tour.members?.length ? tour.members : [tour.staff]).some(m => String(m) === String(userId));
@@ -94,11 +122,8 @@ const filesToAttachments = (files = []) => files.map(f => ({
 
 const isOwner = (req, exp) => String(exp.staff) === String(req.user._id);
 
-const canEditExpense = (req, exp) => {
-    if (exp.status === "Draft") return isOwner(req, exp);
-    if (isAdmin(req)) return exp.status !== "Paid";
-    return isOwner(req, exp) && ["Submitted", "Rejected"].includes(exp.status);
-};
+// Only the owner edits / deletes, and only while the claim is a draft or was rejected
+const canEditExpense = (req, exp) => isOwner(req, exp) && ["Draft", "Rejected"].includes(exp.status);
 
 // ---------- meta ----------
 // GET /api/expenses/meta
@@ -156,6 +181,9 @@ exports.getSummary = async (req, res) => {
             return [s, { amount: hit?.amount || 0, count: hit?.count || 0 }];
         }));
 
+        // Claims waiting for a decision (any date) — badge on the Claims tab
+        const pendingClaims = (await Expense.distinct("claimNumber", { ...scopeFilter(req, req.query.staff), status: "Submitted", claimNumber: { $ne: "" } })).length;
+
         const tourMatch = { ...tourScope(req, req.query.staff) };
         const [activeTours, advances] = await Promise.all([
             Tour.countDocuments({ ...tourMatch, status: { $in: ["Planned", "Ongoing"] } }),
@@ -166,6 +194,7 @@ exports.getSummary = async (req, res) => {
             spent: status.Approved.amount + status.Paid.amount,
             drafts: status.Draft,
             pendingApproval: status.Submitted,
+            pendingClaims,
             approvedUnpaid: status.Approved,
             paid: status.Paid,
             rejected: status.Rejected,
@@ -235,8 +264,8 @@ exports.getTour = async (req, res) => {
         if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid tour" });
         const tour = await Tour.findOne({ _id: req.params.id, ...tourScope(req) }).lean();
         if (!tour) return res.status(404).json({ message: "Tour not found" });
-        // Admins see every member's rows; a member sees only their own rows on a shared tour
-        const expenses = await Expense.find({ tour: tour._id, ...scopeFilter(req), ...hideOthersDrafts(req) }).sort({ date: 1 }).lean();
+        // Rows are private — everyone sees only their own (admins get per-member totals below)
+        const expenses = await Expense.find({ tour: tour._id, ...ownFilter(req) }).sort({ date: 1 }).lean();
         const totals = await tourTotals([tour._id]);
 
         // Per-member breakdown (approved + paid = spent, submitted = pending)
@@ -375,7 +404,7 @@ exports.deleteTour = async (req, res) => {
 // ---------- expenses ----------
 const buildExpenseFilter = (req) => {
     const q = req.query;
-    const filter = { ...scopeFilter(req, q.staff) };
+    const filter = { ...ownFilter(req) };
     if (q.status && q.status !== "All") filter.status = q.status;
     if (q.category && q.category !== "All") filter.category = q.category;
     if (q.tour === "none") filter.tour = null;
@@ -383,8 +412,6 @@ const buildExpenseFilter = (req) => {
     const range = dateRange(q.from, q.to);
     if (range) filter.date = range;
     const and = [];
-    const drafts = hideOthersDrafts(req);
-    if (drafts.$or) and.push(drafts);
     if (q.search) {
         const rx = new RegExp(escapeRegex(q.search), "i");
         and.push({ $or: [{ description: rx }, { place: rx }, { expenseNumber: rx }, { claimNumber: rx }, { billNo: rx }, { staffName: rx }, { category: rx }] });
@@ -470,8 +497,10 @@ exports.createExpense = async (req, res) => {
         // saveAs=draft keeps it private to the creator; anything else submits for approval
         // (a draft always belongs to its creator — admins can't park drafts on someone else)
         const status = req.body.saveAs === "draft" && String(staff._id) === String(req.user._id) ? "Draft" : "Submitted";
+        if (status === "Submitted") await checkClaimWindow(fields.tour);
         const exp = await Expense.create({
             ...fields,
+            claimNumber: await nextNumber(Expense, "claimNumber", "CLM", 3), // every expense belongs to a claim
             expenseNumber: await nextNumber(Expense, "expenseNumber", "EXP", 4),
             staff: staff._id,
             staffName: staff.name,
@@ -491,22 +520,14 @@ exports.createExpense = async (req, res) => {
 // PUT /api/expenses/:id   (multipart: bills[], removeAttachments JSON array of urls)
 exports.updateExpense = async (req, res) => {
     try {
-        const exp = await Expense.findOne({ _id: req.params.id, ...scopeFilter(req) });
+        const exp = await Expense.findOne({ _id: req.params.id, ...ownFilter(req) });
         if (!exp) { removeFiles(filesToAttachments(req.files)); return res.status(404).json({ message: "Expense not found" }); }
         if (!canEditExpense(req, exp)) {
             removeFiles(filesToAttachments(req.files));
             return res.status(403).json({ message: `This expense is ${exp.status.toLowerCase()} and cannot be edited` });
         }
 
-        let staffId = exp.staff;
-        if (isAdmin(req) && req.body.staff && isId(req.body.staff) && String(req.body.staff) !== String(exp.staff)) {
-            const staff = await resolveStaff(req, req.body.staff);
-            exp.staff = staff._id;
-            exp.staffName = staff.name;
-            staffId = staff._id;
-            if (req.body.tour === undefined) exp.tour = null; // old tour belonged to the previous staff
-        }
-        const fields = await validateExpenseBody(req, { ...req.body, _currentDate: exp.date }, staffId);
+        const fields = await validateExpenseBody(req, { ...req.body, _currentDate: exp.date }, exp.staff);
         Object.assign(exp, fields);
         if (exp.endDate && exp.endDate < exp.date) throw new Error("'To' date cannot be before 'From' date");
 
@@ -525,6 +546,7 @@ exports.updateExpense = async (req, res) => {
                 exp.status = "Draft";
                 exp.statusHistory.push({ status: "Draft", by, at: new Date(), note: "Moved back to draft" });
             } else if (req.body.saveAs !== "draft") {
+                await checkClaimWindow(exp.tour);
                 const wasRejected = exp.status === "Rejected";
                 exp.status = "Submitted";
                 exp.rejectionReason = "";
@@ -543,7 +565,7 @@ exports.updateExpense = async (req, res) => {
 // DELETE /api/expenses/:id
 exports.deleteExpense = async (req, res) => {
     try {
-        const exp = await Expense.findOne({ _id: req.params.id, ...scopeFilter(req) });
+        const exp = await Expense.findOne({ _id: req.params.id, ...ownFilter(req) });
         if (!exp) return res.status(404).json({ message: "Expense not found" });
         if (!canEditExpense(req, exp)) return res.status(403).json({ message: `This expense is ${exp.status.toLowerCase()} and cannot be deleted` });
         removeFiles(exp.attachments);
@@ -555,19 +577,24 @@ exports.deleteExpense = async (req, res) => {
     }
 };
 
-// POST /api/expenses/:id/submit   (owner submits a draft for approval)
+// POST /api/expenses/:id/submit   (owner submits a draft — a row inside a claim submits the whole claim)
 exports.submitDraft = async (req, res) => {
     try {
         const exp = await Expense.findOne({ _id: req.params.id, staff: req.user._id });
         if (!exp) return res.status(404).json({ message: "Expense not found" });
         if (exp.status !== "Draft") return res.status(400).json({ message: "Only drafts can be submitted" });
+        if (exp.claimNumber) {
+            req.params.claimNumber = exp.claimNumber;
+            return exports.submitClaim(req, res);
+        }
+        await checkClaimWindow(exp.tour);
         exp.status = "Submitted";
         exp.statusHistory.push({ status: "Submitted", by: req.user.name || "User", at: new Date() });
         await exp.save();
         res.json(exp);
     } catch (err) {
-        console.error("Submit draft error:", err);
-        res.status(500).json({ message: "Failed to submit expense" });
+        console.error("Submit draft error:", err.message);
+        res.status(400).json({ message: err.message || "Failed to submit expense" });
     }
 };
 
@@ -634,6 +661,11 @@ exports.saveClaim = async (req, res) => {
             existing = await Expense.find({ claimNumber, ...scopeFilter(req) });
             if (!existing.length) { cleanupUploads(); return res.status(404).json({ message: "Claim not found" }); }
             if (String(existing[0].staff) !== String(req.user._id)) { cleanupUploads(); return res.status(403).json({ message: "Only the claim owner can edit it" }); }
+            // A claim is decided as a whole — once submitted it is locked until it is rejected
+            if (existing.some(e => !["Draft", "Rejected"].includes(e.status))) {
+                cleanupUploads();
+                return res.status(400).json({ message: "This claim is submitted / approved and can no longer be edited" });
+            }
             staff = { _id: existing[0].staff, name: existing[0].staffName };
         } else {
             staff = await resolveStaff(req, req.body.staff);
@@ -642,7 +674,8 @@ exports.saveClaim = async (req, res) => {
         const ownClaim = String(staff._id) === String(req.user._id);
         const status = req.body.saveAs === "draft" && ownClaim ? "Draft" : "Submitted";
         const by = req.user.name || "User";
-        const editable = new Map(existing.filter(e => ["Draft", "Rejected"].includes(e.status)).map(e => [String(e._id), e]));
+        const editable = new Map(existing.map(e => [String(e._id), e]));
+        if (status === "Submitted") await checkClaimWindow(req.body.tour);
 
         // 1) Validate every row first — nothing is written if any row is wrong
         const prepared = [];
@@ -723,15 +756,14 @@ exports.saveClaim = async (req, res) => {
 };
 
 // ---------- claim status & PDF ----------
-// Claim status is derived from its rows:
-//   Draft → Pending Approval → (Partially) Approved / Rejected → Paid
+// A claim is approved / rejected as a whole (no partial approval), so its rows share one status:
+//   Draft → Pending Approval → Approved / Rejected → Paid
 const deriveClaimStatus = (c) => {
     const decided = c.approved + c.paid;
     if (c.draft === c.count) return "Draft";
-    if (c.submitted > 0 || c.draft > 0) return decided > 0 ? "Partially Approved" : "Pending Approval";
+    if (c.submitted > 0 || c.draft > 0) return "Pending Approval";
     if (decided === 0) return "Rejected";
-    if (c.paid === decided) return "Paid";               // every approved row is paid (rejected rows don't block)
-    if (c.rejected > 0) return "Partially Approved";
+    if (c.paid === decided) return "Paid";
     return "Approved";
 };
 
@@ -770,7 +802,7 @@ exports.listClaims = async (req, res) => {
             const status = deriveClaimStatus(g);
             return {
                 claimNumber: g._id, staff: g.staff, staffName: g.staffName, status,
-                pdfReady: true, // PDF in every status — watermark & colours follow the status
+                pdfReady: status !== "Draft", // PDF once submitted — watermark & colours follow the status
                 tour: g.tour ? tourMap.get(String(g.tour)) || null : null,
                 count: g.count,
                 counts: { draft: g.draft, submitted: g.submitted, approved: g.approved, paid: g.paid, rejected: g.rejected },
@@ -848,7 +880,7 @@ exports.claimPdf = async (req, res) => {
 
         // Bills attached after the claim as Annexure A-1, A-2, ...
         //   final approval → bills of approved / paid rows · rejected claim → all bills · pending / draft → all but rejected rows
-        const finalApproval = ["Approved", "Paid", "Partially Approved"].includes(status) && c.submitted === 0 && c.draft === 0;
+        const finalApproval = ["Approved", "Paid"].includes(status);
         const includeBillsOf = (x) => (finalApproval ? SPENT_STATUSES.includes(x.status)
             : status === "Rejected" ? true
             : x.status !== "Rejected");
@@ -881,6 +913,8 @@ exports.claimPdf = async (req, res) => {
         const pdf = await buildClaimPdfWithBills(claim);
         const safeName = `${claim.claimNumber}_${claim.staffName}`.replace(/[^\w.-]+/g, "_");
         res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+        res.setHeader("Cache-Control", "no-store");
         res.setHeader("Content-Disposition", `attachment; filename="Expense_Claim_${safeName}.pdf"`);
         res.setHeader("Content-Length", pdf.length);
         res.end(pdf);
@@ -895,6 +929,7 @@ exports.submitClaim = async (req, res) => {
     try {
         const drafts = await Expense.find({ claimNumber: req.params.claimNumber, staff: req.user._id, status: "Draft" });
         if (!drafts.length) return res.status(400).json({ message: "No draft rows to submit in this claim" });
+        await checkClaimWindow(drafts.find(d => d.tour)?.tour);
         const by = req.user.name || "User";
         for (const d of drafts) {
             d.status = "Submitted";
@@ -903,8 +938,8 @@ exports.submitClaim = async (req, res) => {
         }
         res.json({ claimNumber: req.params.claimNumber, submitted: drafts.length, amount: drafts.reduce((s, d) => s + d.amount, 0) });
     } catch (err) {
-        console.error("Submit claim error:", err);
-        res.status(500).json({ message: "Failed to submit claim" });
+        console.error("Submit claim error:", err.message);
+        res.status(400).json({ message: err.message || "Failed to submit claim" });
     }
 };
 
@@ -918,7 +953,7 @@ const TRANSITIONS = {
 
 const applyStatus = (exp, status, reason, by) => {
     if (!(TRANSITIONS[exp.status] || []).includes(status)) {
-        throw new Error(`Cannot change ${exp.expenseNumber} from ${exp.status} to ${status}`);
+        throw new Error(`This claim is ${exp.status === "Submitted" ? "pending" : exp.status.toLowerCase()} — it cannot be marked ${status.toLowerCase()}`);
     }
     if (status === "Rejected" && !String(reason || "").trim()) throw new Error("Rejection reason is required");
     exp.status = status;
@@ -929,37 +964,19 @@ const applyStatus = (exp, status, reason, by) => {
     exp.statusHistory.push({ status, by, at: new Date(), note: status === "Rejected" ? exp.rejectionReason : (reason || undefined) });
 };
 
-// PATCH /api/expenses/:id/status   { status, reason }   (admin)
-exports.updateStatus = async (req, res) => {
+// POST /api/expenses/claims/:claimNumber/status   { status: Approved | Rejected | Paid, reason }   (admin)
+// The whole claim is decided at once — every submitted row gets the same status
+exports.setClaimStatus = async (req, res) => {
     try {
-        const exp = await Expense.findById(req.params.id);
-        if (!exp) return res.status(404).json({ message: "Expense not found" });
-        applyStatus(exp, req.body.status, req.body.reason, req.user.name || "Admin");
-        await exp.save();
-        res.json(exp);
+        const { status, reason } = req.body;
+        if (!["Approved", "Rejected", "Paid"].includes(status)) return res.status(400).json({ message: "Invalid status" });
+        const items = await Expense.find({ claimNumber: req.params.claimNumber, status: { $ne: "Draft" } });
+        if (!items.length) return res.status(404).json({ message: "Claim not found" });
+        const by = req.user.name || "Admin";
+        items.forEach(exp => applyStatus(exp, status, reason, by)); // validates every row before anything is saved
+        await Promise.all(items.map(exp => exp.save()));
+        res.json({ claimNumber: req.params.claimNumber, status, count: items.length, amount: items.reduce((sum, x) => sum + x.amount, 0) });
     } catch (err) {
-        res.status(400).json({ message: err.message || "Failed to update status" });
-    }
-};
-
-// POST /api/expenses/bulk-status   { ids: [], status, reason }   (admin)
-exports.bulkStatus = async (req, res) => {
-    try {
-        const ids = (req.body.ids || []).filter(isId);
-        if (!ids.length) return res.status(400).json({ message: "No expenses selected" });
-        const exps = await Expense.find({ _id: { $in: ids } });
-        const results = { updated: 0, skipped: [] };
-        for (const exp of exps) {
-            try {
-                applyStatus(exp, req.body.status, req.body.reason, req.user.name || "Admin");
-                await exp.save();
-                results.updated++;
-            } catch (e) {
-                results.skipped.push(`${exp.expenseNumber}: ${e.message}`);
-            }
-        }
-        res.json(results);
-    } catch (err) {
-        res.status(500).json({ message: "Bulk update failed" });
+        res.status(400).json({ message: err.message || "Failed to update claim" });
     }
 };
