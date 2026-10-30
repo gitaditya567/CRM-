@@ -934,7 +934,7 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
             toast.success(mode === "draft"
                 ? `${res.data.claimNumber} saved as draft — add more rows anytime, then submit`
                 : `${res.data.claimNumber} submitted for approval (${inr(draftTotal)})`);
-            onSaved();
+            onSaved(mode);
         } catch (err) {
             toast.error(err.response?.data?.message || "Failed to save claim");
         } finally {
@@ -1624,7 +1624,7 @@ const Expenses = () => {
                         <div>
                             <label className={labelCls}>Claim Status</label>
                             <select className={inputCls} value={claimStatus} onChange={e => setClaimStatus(e.target.value)}>
-                                {["All", "Draft", "Pending Approval", "Approved", "Paid", "Rejected"].map(s => (
+                                {["All", "Pending Approval", "Approved", "Paid", "Rejected"].map(s => (
                                     <option key={s} value={s}>{s === "All" ? "All statuses" : s}</option>
                                 ))}
                             </select>
@@ -1675,7 +1675,8 @@ const Expenses = () => {
             <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }} className="space-y-4 sm:space-y-6">
 
             {/* ===== My draft claims (private until submitted) ===== */}
-            {tab !== "tours" && draftClaims.length > 0 && (
+            {/* drafts are shown only in the Expenses tab (every role) — Claims lists submitted claims */}
+            {tab === "expenses" && draftClaims.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-dashed border-teal-300 dark:border-teal-700 p-4 space-y-3">
                     <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-teal-700 dark:text-teal-300">
                         <FileText size={15} /> My draft claims ({draftClaims.length}) — not sent yet
@@ -1998,7 +1999,7 @@ const Expenses = () => {
             )}
             {claimForm && (
                 <ClaimFormModal meta={meta} tours={tours} claimNumber={claimForm.claimNumber} defaultTour={claimForm.defaultTour}
-                    onClose={() => setClaimForm(null)} onSaved={() => { setClaimForm(null); refreshAll(); setTab("claims"); }} />
+                    onClose={() => setClaimForm(null)} onSaved={(mode) => { setClaimForm(null); refreshAll(); setTab(mode === "draft" ? "expenses" : "claims"); }} />
             )}
             {expenseForm && (
                 <ExpenseFormModal meta={meta} tours={tours} expense={expenseForm.expense} defaultTour={expenseForm.defaultTour}

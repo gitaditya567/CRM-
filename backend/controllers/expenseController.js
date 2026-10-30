@@ -278,7 +278,7 @@ exports.getTour = async (req, res) => {
         const tour = await Tour.findOne({ _id: req.params.id, ...tourScope(req) }).lean();
         if (!tour) return res.status(404).json({ message: "Tour not found" });
         // Rows are private — everyone sees only their own (admins get per-member totals below)
-        const expenses = await Expense.find({ tour: tour._id, ...ownFilter(req) }).sort({ date: 1 }).lean();
+        const expenses = await Expense.find({ tour: tour._id, ...ownFilter(req), status: { $ne: "Draft" } }).sort({ date: 1 }).lean(); // drafts: Expenses tab only
         const totals = await tourTotals([tour._id]);
 
         // Per-member breakdown (approved + paid = spent, submitted = pending)
@@ -787,7 +787,8 @@ const sumBy = (statuses) => ({ $sum: { $cond: [{ $in: ["$status", statuses] }, "
 // GET /api/expenses/claim-list?staff&status&search   → claims with derived status (admin: all, staff: own)
 exports.listClaims = async (req, res) => {
     try {
-        const match = { ...scopeFilter(req, req.query.staff), ...hideOthersDrafts(req), claimNumber: { $ne: "" } };
+        // Claims tab shows submitted claims only — drafts stay in the Expenses tab (every role)
+        const match = { ...scopeFilter(req, req.query.staff), claimNumber: { $ne: "" }, status: { $ne: "Draft" } };
         if (req.query.search) {
             const rx = new RegExp(escapeRegex(req.query.search), "i");
             match.$and = [...(match.$and || []), { $or: [{ claimNumber: rx }, { staffName: rx }, { place: rx }, { description: rx }] }];
