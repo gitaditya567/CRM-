@@ -27,36 +27,24 @@ const tourScope = (req, staffParam) => {
     return { $or: [{ members: oid }, { staff: oid }] };
 };
 
-// Claims for an event can be submitted until 15 days after it ends (inclusive, India time).
-// After that an admin extends the event's end date to reopen the window.
-const CLAIM_WINDOW_DAYS = 15;
-const IST_MS = 330 * 60000;
-const claimLastDate = (tour) => {
-    if (!tour?.endDate) return null;
-    const e = new Date(new Date(tour.endDate).getTime() + IST_MS); // calendar date in India
-    return new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate() + CLAIM_WINDOW_DAYS));
-};
-const isClaimWindowOpen = (tour) => {
-    const last = claimLastDate(tour);
-    return !last || Date.now() < last.getTime() + 86400000 - IST_MS; // until midnight IST after the last day
-};
+// Claims for an event are open or closed by an admin (checkbox on the event). Older events: open.
+const isClaimWindowOpen = (tour) => tour?.claimsOpen !== false;
 const assertClaimWindow = (tour) => {
     if (isClaimWindowOpen(tour)) return;
-    const last = claimLastDate(tour).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-    throw new Error(`Claim submission for event ${tour.tourNumber} closed on ${last} (${CLAIM_WINDOW_DAYS} days after the event ended). Ask an admin to extend the event's end date, then submit again.`);
+    throw new Error(`Claims for event ${tour.tourNumber} are closed. Ask an admin to open claims for this event, then submit again.`);
 };
-// Check the window for a tour id (no-op when there is no tour)
+// Check the event's claims switch for a tour id (no-op when there is no tour)
 const checkClaimWindow = async (tourId) => {
     if (!tourId || !isId(tourId)) return;
-    const tour = await Tour.findById(tourId).select("tourNumber endDate").lean();
+    const tour = await Tour.findById(tourId).select("tourNumber claimsOpen").lean();
     if (tour) assertClaimWindow(tour);
 };
 
-// Older tours have only `staff` — expose a consistent members list (+ the claim window)
+// Older tours have only `staff` — expose a consistent members list (+ whether claims are open)
 const normalizeTour = (t) => {
     const members = t.members?.length ? t.members : [t.staff];
     const memberNames = t.memberNames?.length ? t.memberNames : [t.staffName];
-    return { ...t, members, memberNames, claimLastDate: claimLastDate(t), claimOpen: isClaimWindowOpen(t) };
+    return { ...t, members, memberNames, claimOpen: isClaimWindowOpen(t) };
 };
 const isTourMember = (tour, userId) =>
     (tour.members?.length ? tour.members : [tour.staff]).some(m => String(m) === String(userId));
@@ -314,6 +302,7 @@ const pickTourFields = (b) => {
     if (b.advanceAmount !== undefined) out.advanceAmount = Math.max(0, Number(b.advanceAmount) || 0);
     if (b.approvedBudget !== undefined) out.approvedBudget = Math.round(Math.max(0, Number(b.approvedBudget) || 0) * 100) / 100;
     if (b.status !== undefined) out.status = b.status;
+    if (b.claimsOpen !== undefined) out.claimsOpen = b.claimsOpen === true || b.claimsOpen === "true";
     return out;
 };
 

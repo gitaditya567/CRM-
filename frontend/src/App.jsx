@@ -58,10 +58,16 @@ const AdminRoute = ({ children }) => {
   return (role === "admin" || role === "superadmin") ? children : <Navigate to="/dashboard" />;
 };
 
-// 🚫 Non-Sales Route (Restricts sales role from Master Dashboard)
+// 🚫 Non-Sales Route (Restricts sales & services roles from Master Dashboard)
 const NonSalesRoute = ({ children }) => {
   const role = localStorage.getItem("role")?.toLowerCase();
-  return role === "sales" ? <Navigate to="/sales-dashboard" /> : children;
+  return role === "sales" || role === "services" ? <Navigate to="/sales-dashboard" /> : children;
+};
+
+// 🚫 Inventory Search is not available to the services role
+const NonServicesRoute = ({ children }) => {
+  const role = localStorage.getItem("role")?.toLowerCase();
+  return role === "services" ? <Navigate to="/sales-dashboard" /> : children;
 };
 
 const App = () => {
@@ -114,7 +120,9 @@ const App = () => {
                 path="/search"
                 element={
                   <PrivateRoute>
-                    <SearchProduct />
+                    <NonServicesRoute>
+                      <SearchProduct />
+                    </NonServicesRoute>
                   </PrivateRoute>
                 }
               />

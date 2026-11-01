@@ -81,11 +81,14 @@ const Sidebar = ({ isOpen, toggleSidebar, isHidden, setHidden }) => {
 
     if (isSales || isServices || isStaff) {
         links.push({ name: "Dashboard", path: "/sales-dashboard", icon: LayoutDashboard });
-        if (!isSales) {
+        // Sales & Services: no Master Dashboard · Services: no Inventory Search
+        if (!isSales && !isServices) {
             links.push({ name: "Master Dashboard ↗", path: "/master-dashboard", icon: ExternalLink, external: true });
         }
         links.push({ name: "Leads", path: "/leads", icon: Users });
-        links.push({ name: "Inventory Search", path: "/search", icon: ShoppingBag });
+        if (!isServices) {
+            links.push({ name: "Inventory Search", path: "/search", icon: ShoppingBag });
+        }
         
         if (isServices) {
             links.push({ name: "Support Hub", path: "/client-support", icon: Users });

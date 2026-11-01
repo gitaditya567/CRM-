@@ -14,6 +14,10 @@ router.get("/stats", protect, getDashboardStats); // Legacy support
 router.get("/summary", protect, getDashboardSummary);
 router.get("/charts", protect, getDashboardCharts);
 router.get("/activity", protect, getDashboardActivity);
-router.get("/master", protect, getMasterDashboardData);
+// Master Dashboard: not for the services role
+const notServices = (req, res, next) => (String(req.user?.role || "").toLowerCase() === "services"
+    ? res.status(403).json({ message: "Master Dashboard is not available for your role" })
+    : next());
+router.get("/master", protect, notServices, getMasterDashboardData);
 
 module.exports = router;

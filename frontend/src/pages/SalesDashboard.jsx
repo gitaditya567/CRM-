@@ -162,7 +162,9 @@ const SalesDashboard = () => {
                             </div>
                         </button>
 
-                        <button 
+                        {/* Inventory is not available to the services role */}
+                        {(localStorage.getItem("role") || "").toLowerCase() !== "services" && (
+                        <button
                             onClick={() => window.location.href = '/search'}
                             className="flex items-center gap-4 p-4 rounded-2xl bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 hover:scale-[1.02] transition-transform text-left group"
                         >
@@ -174,6 +176,7 @@ const SalesDashboard = () => {
                                 <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Check availability</p>
                             </div>
                         </button>
+                        )}
 
                         <button 
                             onClick={() => navigate('/leads')}

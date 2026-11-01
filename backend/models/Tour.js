@@ -20,6 +20,7 @@ const tourSchema = new mongoose.Schema({
         default: "Planned"
     },
     approvedBudget: { type: Number, default: 0 },   // budget sanctioned for the event (0 = not set)
+    claimsOpen: { type: Boolean, default: true },   // admin switch: staff can submit claims for this event only while open
     advanceAmount: { type: Number, default: 0 },
     advanceDate: { type: Date, default: null },
     advanceMode: { type: String, default: "" },

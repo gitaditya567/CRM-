@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
     Wallet, CalendarDays, CalendarPlus, CalendarClock, Receipt, Plus, X, Search, Download, Edit2, Trash2, Eye, CheckCircle2, XCircle,
     IndianRupee, Clock, Paperclip, RefreshCw, MapPin, Calendar, User, BadgeCheck, Ban, ChevronLeft, ChevronRight,
-    Save, Send, FileText
+    Save, Send, FileText, SlidersHorizontal
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { motion, AnimatePresence, MotionConfig } from "framer-motion";
@@ -58,8 +58,6 @@ const prepareBills = async (fileList) => {
     return files.filter(x => x.size <= MAX_BILL_BYTES);
 };
 
-// Claims for an event can be submitted until 15 days after it ends (the API sends claimLastDate / claimOpen)
-const CLAIM_WINDOW_DAYS = 15;
 
 const dayCount = (x) => (x.endDate ? Math.round((new Date(x.endDate) - new Date(x.date)) / 86400000) + 1 : 1);
 
@@ -170,13 +168,104 @@ const Modal = ({ title, subtitle, icon: Icon, onClose, children, footer, wide, o
             <div className="p-4 sm:p-6 overflow-y-auto overscroll-contain custom-scrollbar">{children}</div>
             {footer && (
                 // phones: buttons share the full width and wrap; a full-width info line (basis-full) sits on top
-                <div className="px-4 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex flex-wrap justify-end items-center gap-2 shrink-0 max-sm:*:flex-1 max-sm:*:justify-center">
+                <div className="px-4 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-gray-50 dark:bg-gray-700/50 border-t border-gray-100 dark:border-gray-700 flex flex-wrap justify-end items-center gap-2 shrink-0 max-sm:*:flex-1 max-sm:*:justify-center max-sm:*:whitespace-nowrap max-sm:*:px-3">
                     {footer}
                 </div>
             )}
         </Panel>
     </motion.div>,
     document.body
+    );
+};
+
+// ---------- Bill / receipt preview ----------
+// Works for uploaded attachments ({ url, name, mimeType }) and for files just picked (File objects).
+const billKind = (file) => {
+    const type = file.mimeType || file.type || "";
+    const name = (file.name || file.url || "").toLowerCase();
+    if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+    if (/^image\/(jpeg|jpg|png|webp|gif)$/.test(type) || /\.(jpe?g|png|webp|gif)$/.test(name)) return "image";
+    return "other";
+};
+
+const BillPreview = ({ file, onClose }) => {
+    const isLocal = typeof File !== "undefined" && file instanceof File;
+    const [src, setSrc] = useState(isLocal ? "" : `${FILE_BASE}${file.url}`);
+    const kind = billKind(file);
+
+    // picked-but-not-uploaded files are shown from a temporary browser URL
+    useEffect(() => {
+        if (!isLocal) return;
+        const url = URL.createObjectURL(file);
+        setSrc(url);
+        return () => URL.revokeObjectURL(url);
+    }, [file, isLocal]);
+
+    // Esc closes only the preview (not the form underneath)
+    const closeRef = React.useRef(onClose);
+    useEffect(() => { closeRef.current = onClose; });
+    useEffect(() => {
+        const onKey = (e) => { if (e.key === "Escape") { e.stopImmediatePropagation(); closeRef.current?.(); } };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, []);
+
+    return createPortal(
+        <motion.div className="fixed inset-0 z-[100] flex flex-col bg-black/85 backdrop-blur-sm"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
+            onMouseDown={onClose} role="dialog" aria-modal="true" aria-label={`Preview ${file.name}`}>
+            <div className="flex items-center gap-2 px-3 sm:px-5 py-3 text-white shrink-0" onMouseDown={e => e.stopPropagation()}>
+                <Paperclip size={16} className="shrink-0" />
+                <p className="flex-1 min-w-0 truncate text-sm font-bold">{file.name}</p>
+                {src && (
+                    <>
+                        <a href={src} target="_blank" rel="noopener noreferrer" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold">
+                            <Eye size={14} /> Open in new tab
+                        </a>
+                        <a href={src} download={file.name} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold">
+                            <Download size={14} /> <span className="hidden sm:inline">Download</span>
+                        </a>
+                    </>
+                )}
+                <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-white/20 cursor-pointer" aria-label="Close preview"><X size={18} /></button>
+            </div>
+            <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-6 pt-0 sm:pt-0">
+                {!src ? (
+                    <RefreshCw className="animate-spin text-white" />
+                ) : kind === "image" ? (
+                    <motion.img src={src} alt={file.name} onMouseDown={e => e.stopPropagation()}
+                        initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.2 }}
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl bg-white" />
+                ) : kind === "pdf" ? (
+                    <iframe src={src} title={file.name} onMouseDown={e => e.stopPropagation()}
+                        className="w-full h-full max-w-5xl rounded-lg bg-white shadow-2xl" />
+                ) : (
+                    <div className="text-center text-white space-y-3" onMouseDown={e => e.stopPropagation()}>
+                        <p className="text-sm font-semibold">This file type can't be previewed here.</p>
+                        <a href={src} download={file.name} className={btnPrimary + " mx-auto w-max"}><Download size={14} /> Download {file.name}</a>
+                    </div>
+                )}
+            </div>
+            {kind === "pdf" && (
+                <p className="sm:hidden text-center text-[11px] text-white/70 pb-3" onMouseDown={e => e.stopPropagation()}>
+                    PDF not showing? <a href={src} target="_blank" rel="noopener noreferrer" className="underline font-bold">Open it in a new tab</a>
+                </p>
+            )}
+        </motion.div>,
+        document.body
+    );
+};
+
+// Clickable attachment (chip, icon, link) that opens the preview
+const BillLink = ({ file, className, title, children }) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <>
+            <button type="button" className={`${className || ""} cursor-pointer`} title={title || `Preview ${file.name}`} onClick={() => setOpen(true)}>
+                {children}
+            </button>
+            {open && <BillPreview file={file} onClose={() => setOpen(false)} />}
+        </>
     );
 };
 
@@ -299,7 +388,7 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
                 onClose={onClose}
                 onSubmit={submit}
                 footer={<>
-                    <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
+                    <button type="button" className={btnGhost + " max-sm:hidden"} onClick={onClose}>Cancel</button>
                     {canDraft && (
                         <button type="submit" value="draft" disabled={!!saving}
                             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-60 cursor-pointer">
@@ -403,13 +492,13 @@ const ExpenseFormModal = ({ meta, expense, tours, defaultTour, onClose, onSaved 
                                 {keptAttachments.map(a => (
                                     <span key={a.url} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs font-semibold text-gray-700 dark:text-gray-200">
                                         <Paperclip size={12} />
-                                        <a href={`${FILE_BASE}${a.url}`} target="_blank" rel="noopener noreferrer" className="hover:underline max-w-[160px] truncate">{a.name}</a>
+                                        <BillLink file={a} className="hover:underline max-w-[160px] truncate">{a.name}</BillLink>
                                         <button type="button" onClick={() => setRemoved(r => [...r, a.url])} className="text-red-500 hover:text-red-700 cursor-pointer" aria-label={`Remove ${a.name}`}><X size={12} /></button>
                                     </span>
                                 ))}
                                 {newFiles.map(f => (
                                     <span key={f.name} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-xs font-semibold text-teal-700 dark:text-teal-300">
-                                        <Paperclip size={12} /> <span className="max-w-[160px] truncate">{f.name}</span> (new)
+                                        <Paperclip size={12} /> <BillLink file={f} className="hover:underline max-w-[160px] truncate">{f.name}</BillLink> (new)
                                     </span>
                                 ))}
                             </div>
@@ -476,6 +565,7 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
         status: tour?.status || "Planned",
         approvedBudget: tour?.approvedBudget ? tour.approvedBudget : "",
         notes: tour?.notes || "",
+        claimsOpen: tour ? tour.claimsOpen !== false : true,
     }));
     const [saving, setSaving] = useState(false);
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -504,12 +594,12 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
     return (
             <Modal
                 title={isEdit ? `Edit Event ${tour.tourNumber}` : "Create Event"}
-                subtitle="Assigned staff add their claims against it — up to 15 days after it ends"
+                subtitle="Assigned staff add their claims against it while claims are open"
                 icon={CalendarPlus}
                 onClose={onClose}
                 onSubmit={submit}
                 footer={<>
-                    <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
+                    <button type="button" className={btnGhost + " max-sm:hidden"} onClick={onClose}>Cancel</button>
                     <button type="submit" className={btnPrimary} disabled={saving}>
                         {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                         {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Event"}
@@ -542,12 +632,19 @@ const TourFormModal = ({ meta, tour, onClose, onSaved }) => {
                     <div>
                         <label className={labelCls}>End Date *</label>
                         <input type="date" className={inputCls} value={form.endDate} min={form.startDate} onChange={e => set("endDate", e.target.value)} required />
-                        {form.endDate && (
-                            <p className="text-[11px] text-gray-500 mt-1">
-                                Claims can be submitted till <b>{fmtDate(new Date(new Date(form.endDate).getTime() + CLAIM_WINDOW_DAYS * 86400000))}</b> — extend the end date to reopen
-                            </p>
-                        )}
                     </div>
+                    {/* Admin switch — staff can submit claims for this event only while it is ticked */}
+                    <label className={`sm:col-span-2 flex items-start gap-3 p-3 rounded-xl border cursor-pointer select-none transition-colors ${form.claimsOpen ? "border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-900/20" : "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"}`}>
+                        <input type="checkbox" className="mt-0.5 w-4 h-4 accent-teal-600" checked={form.claimsOpen} onChange={e => set("claimsOpen", e.target.checked)} />
+                        <span>
+                            <span className={`block text-sm font-black ${form.claimsOpen ? "text-teal-700 dark:text-teal-300" : "text-red-700 dark:text-red-300"}`}>
+                                {form.claimsOpen ? "Claims open" : "Claims closed"}
+                            </span>
+                            <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                                Tick to let assigned staff submit claims for this event · untick to stop new claims (drafts can still be saved)
+                            </span>
+                        </span>
+                    </label>
                     <div className="sm:col-span-2">
                         <label className={labelCls}>Purpose</label>
                         <input className={inputCls} value={form.purpose} onChange={e => set("purpose", e.target.value)} placeholder="Service visit, installation, sales meeting..." />
@@ -585,7 +682,7 @@ const RejectModal = ({ claimNumber, onClose, onConfirm }) => {
             icon={XCircle}
             onClose={onClose}
             footer={<>
-                <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
+                <button type="button" className={btnGhost + " max-sm:hidden"} onClick={onClose}>Cancel</button>
                 <button
                     type="button"
                     disabled={!reason.trim()}
@@ -628,9 +725,9 @@ const ExpenseDetailModal = ({ expense, onClose }) => (
                 {expense.attachments?.length ? (
                     <div className="flex flex-wrap gap-2">
                         {expense.attachments.map(a => (
-                            <a key={a.url} href={`${FILE_BASE}${a.url}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-xs font-bold text-teal-700 dark:text-teal-300 hover:underline">
+                            <BillLink key={a.url} file={a} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-xs font-bold text-teal-700 dark:text-teal-300 hover:underline">
                                 <Paperclip size={12} /> {a.name}
-                            </a>
+                            </BillLink>
                         ))}
                     </div>
                 ) : <p className="text-xs text-gray-400">No bill attached</p>}
@@ -651,9 +748,9 @@ const ExpenseDetailModal = ({ expense, onClose }) => (
     </Modal>
 );
 
-// "Claims open till …" / "closed on …" for an event
+// "Claims open" / "Claims closed" for an event (admin switch on the event)
 const ClaimWindowNote = ({ tour, isAdmin, compact }) => {
-    if (!tour?.claimLastDate || tour.status === "Cancelled") return null;
+    if (!tour || tour.status === "Cancelled") return null;
     const open = tour.claimOpen !== false;
     const cls = open
         ? "text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800"
@@ -662,8 +759,8 @@ const ClaimWindowNote = ({ tour, isAdmin, compact }) => {
         <p className={`flex items-start gap-1.5 rounded-xl border font-semibold ${compact ? "px-2.5 py-1.5 text-[11px]" : "px-3 py-2 text-xs"} ${cls}`}>
             <CalendarClock size={compact ? 12 : 14} className="mt-0.5 shrink-0" />
             <span>
-                {open ? <>Claims open till <b>{fmtDate(tour.claimLastDate)}</b></> : <>Claim submission closed on <b>{fmtDate(tour.claimLastDate)}</b></>}
-                {!compact && !open && (isAdmin ? " — edit the event and extend its end date to reopen." : " — ask an admin to extend the event to submit a claim.")}
+                {open ? <><b>Claims open</b> for this event</> : <><b>Claims closed</b> for this event</>}
+                {!compact && !open && (isAdmin ? " — tick \"Claims open\" on the event to reopen." : " — ask an admin to open claims to submit (you can still save a draft).")}
             </span>
         </p>
     );
@@ -767,7 +864,7 @@ const TourDetailModal = ({ meta, tourId, onClose, onChanged, onAddExpense }) => 
                                         <td className="px-3 py-2 text-right font-bold">{inr(x.amount)}</td>
                                         <td className="px-3 py-2"><StatusChip status={x.status} /></td>
                                         <td className="px-3 py-2">{x.attachments?.length ? x.attachments.map(a => (
-                                            <a key={a.url} href={`${FILE_BASE}${a.url}`} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline mr-2" title={a.name}><Paperclip size={13} className="inline" /></a>
+                                            <BillLink key={a.url} file={a} className="text-teal-600 hover:underline mr-2"><Paperclip size={13} className="inline" /></BillLink>
                                         )) : "-"}</td>
                                     </tr>
                                 ))}
@@ -915,7 +1012,7 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
             if (billCount > 5) return toast.error(`Row ${i + 1}: up to 5 bills per row`);
         }
         if (meta.isAdmin && !staff) return toast.error("Select the staff member");
-        if (mode === "submit" && windowClosed) return toast.error(`Claim submission for ${selectedTour.tourNumber} closed on ${fmtDate(selectedTour.claimLastDate)} — the event must be extended first`);
+        if (mode === "submit" && windowClosed) return toast.error(`Claims for ${selectedTour.tourNumber} are closed — save as draft, and ask an admin to open claims`);
         setSaving(mode);
         try {
             const fd = new FormData();
@@ -953,11 +1050,11 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
             onClose={onClose}
             onSubmit={save}
             footer={<>
-                <div className="basis-full sm:basis-auto sm:mr-auto text-xs font-bold text-gray-500 dark:text-gray-300 self-center max-sm:flex max-sm:justify-between">
+                <div className="basis-full sm:basis-auto sm:mr-auto text-xs font-bold text-gray-500 dark:text-gray-300 self-center max-sm:flex max-sm:justify-between! max-sm:items-center max-sm:basis-full! max-sm:flex-none! max-sm:px-0!">
                     <span>{rows.length} row(s)</span>
                     <span className="sm:ml-1">Total <span className="text-base font-black text-gray-900 dark:text-white">{inr(total)}</span></span>
                 </div>
-                <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
+                <button type="button" className={btnGhost + " max-sm:hidden"} onClick={onClose}>Cancel</button>
                 {/* Drafts are private to their owner — available for your own claim only */}
                 <button type="submit" value="draft" disabled={!!saving || loading || !ownClaim}
                     title={ownClaim ? "Save privately and continue later" : "Drafts are only for your own expenses — submit directly for another staff member"}
@@ -966,7 +1063,7 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                     {saving === "draft" ? "Saving..." : "Save as Draft"}
                 </button>
                 <button type="submit" value="submit" className={btnPrimary} disabled={!!saving || loading || windowClosed}
-                    title={windowClosed ? "Claim window for this event is closed — save as draft, and ask an admin to extend the event" : undefined}>
+                    title={windowClosed ? "Claims for this event are closed — save as draft, and ask an admin to open claims" : undefined}>
                     {saving === "submit" ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
                     {saving === "submit" ? "Submitting..." : "Submit Claim"}
                 </button>
@@ -1099,13 +1196,13 @@ const ClaimFormModal = ({ meta, tours, claimNumber, defaultTour, onClose, onSave
                                                 )}
                                                 {kept.map(a => (
                                                     <span key={a.url} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
-                                                        <a href={`${FILE_BASE}${a.url}`} target="_blank" rel="noopener noreferrer" className="hover:underline max-w-[140px] truncate">{a.name}</a>
+                                                        <BillLink file={a} className="hover:underline max-w-[140px] truncate">{a.name}</BillLink>
                                                         {!locked && <button type="button" onClick={() => update(r.key, { removeAttachments: [...r.removeAttachments, a.url] })} className="text-red-500 cursor-pointer" aria-label={`Remove ${a.name}`}><X size={11} /></button>}
                                                     </span>
                                                 ))}
                                                 {r.files.map((f, fi) => (
                                                     <span key={`${f.name}-${fi}`} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-[11px] font-semibold text-teal-700 dark:text-teal-300">
-                                                        <span className="max-w-[140px] truncate">{f.name}</span>
+                                                        <BillLink file={f} className="hover:underline max-w-[140px] truncate">{f.name}</BillLink>
                                                         <button type="button" onClick={() => update(r.key, { files: r.files.filter((_, j) => j !== fi) })} className="text-red-500 cursor-pointer" aria-label={`Remove ${f.name}`}><X size={11} /></button>
                                                     </span>
                                                 ))}
@@ -1200,13 +1297,15 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) =>
     return (
         <Modal wide title={`Claim ${claim.claimNumber}`} subtitle={`${claim.staffName}${claim.tour ? ` · ${claim.tour.tourNumber} ${claim.tour.title}` : ""}`} icon={FileText} onClose={onClose}
             footer={<>
-                <div className="basis-full sm:basis-auto sm:mr-auto self-center"><StatusChip status={claim.status} /></div>
+                <div className="max-sm:hidden sm:mr-auto self-center"><StatusChip status={claim.status} /></div>
                 {canEditClaim && <button type="button" className={btnGhost + " border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={onEdit}><Edit2 size={14} /> {claim.counts.draft > 0 ? "Continue" : "Fix & Re-submit"}</button>}
                 {mine && claim.counts.draft > 0 && <button type="button" className={btnPrimary} onClick={onSubmit}><Send size={14} /> Submit Claim</button>}
                 {meta.isAdmin && <ClaimDecisionButtons claim={claim} onDecide={onDecide} />}
                 {claim.pdfReady && <button type="button" className={btnPrimary} onClick={() => downloadClaimPdf(claim.claimNumber)}><Download size={14} /> Download PDF</button>}
             </>}
         >
+            {/* phones: claim status on top (the footer keeps only the actions) */}
+            <div className="sm:hidden mb-3"><StatusChip status={claim.status} /></div>
             {/* Amount summary */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 {[
@@ -1249,9 +1348,9 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) =>
                                 <StatusChip status={x.status} />
                                 <div className="flex flex-wrap gap-1.5 justify-end">
                                     {(x.attachments || []).map(f => (
-                                        <a key={f.url} href={`${FILE_BASE}${f.url}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-[11px] font-bold text-teal-700 dark:text-teal-300" title={f.name}>
+                                        <BillLink key={f.url} file={f} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-[11px] font-bold text-teal-700 dark:text-teal-300">
                                             <Paperclip size={11} /> Bill
-                                        </a>
+                                        </BillLink>
                                     ))}
                                 </div>
                             </div>
@@ -1275,7 +1374,7 @@ const ClaimViewModal = ({ meta, claim, onClose, onEdit, onSubmit, onDecide }) =>
                                         {x.status === "Rejected" && x.rejectionReason && <p className="text-[11px] font-semibold text-red-600 mt-0.5">Rejected: {x.rejectionReason}</p>}
                                     </td>
                                     <td className="px-3 py-2">{x.attachments?.length ? x.attachments.map(f => (
-                                        <a key={f.url} href={`${FILE_BASE}${f.url}`} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline mr-2" title={f.name}><Paperclip size={13} className="inline" /></a>
+                                        <BillLink key={f.url} file={f} className="text-teal-600 hover:underline mr-2"><Paperclip size={13} className="inline" /></BillLink>
                                     )) : "-"}</td>
                                     <td className={`px-3 py-2 text-right font-bold whitespace-nowrap ${x.status === "Rejected" ? "line-through text-gray-400" : ""}`}>{inr(x.amount)}</td>
                                     <td className="px-3 py-2"><StatusChip status={x.status} /></td>
@@ -1307,6 +1406,10 @@ const Expenses = () => {
     const [expenses, setExpenses] = useState({ items: [], total: 0, pages: 1, totalAmount: 0 });
     const [page, setPage] = useState(1);
     const [tours, setTours] = useState([]);
+    const [tourPage, setTourPage] = useState(1);
+    const [tourPageSize, setTourPageSize] = useState(10);
+    const [togglingTour, setTogglingTour] = useState(null);
+    const [showFilters, setShowFilters] = useState(false); // phones: filters folded behind a button
     const [loading, setLoading] = useState(false);
 
     const [expenseForm, setExpenseForm] = useState(null); // { expense } — single-row edit (old / non-claim rows)
@@ -1433,6 +1536,21 @@ const Expenses = () => {
         }
     };
 
+    // Events table checkbox: open / close claims for an event (admin)
+    const toggleClaims = async (t) => {
+        const claimsOpen = t.claimOpen === false;
+        setTogglingTour(t._id);
+        try {
+            await API.put(`/expenses/tours/${t._id}`, { claimsOpen });
+            setTours(ts => ts.map(x => (x._id === t._id ? { ...x, claimsOpen, claimOpen: claimsOpen } : x)));
+            toast.success(`Claims ${claimsOpen ? "opened" : "closed"} for ${t.tourNumber}`);
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Failed to update event");
+        } finally {
+            setTogglingTour(null);
+        }
+    };
+
     const deleteTour = async (t) => {
         if (!window.confirm(`Delete event ${t.tourNumber} "${t.title}"?`)) return;
         try {
@@ -1479,6 +1597,16 @@ const Expenses = () => {
     // Same rule as the API: only your own rows, while the claim is a draft or was rejected
     const canEdit = (x) => isMine(x) && ["Draft", "Rejected"].includes(x.status);
     const visibleTabs = isAdmin ? TABS : TABS.filter(t => t.key !== "tours");
+    // Phones: on list tabs the filters (except search) fold away until "Filters" is tapped
+    const foldCls = tab !== "overview" && !showFilters ? "max-sm:hidden" : "";
+    const activeFilters = [preset !== "this_month", !!filters.staff && isAdmin && tab !== "expenses",
+        tab === "claims" && claimStatus !== "All",
+        tab === "expenses" && filters.status !== "All", tab === "expenses" && filters.category !== "All", tab === "expenses" && !!filters.tour
+    ].filter(Boolean).length;
+    // Events table pages (client side — the API returns up to 500 events)
+    const tourPages = Math.max(1, Math.ceil(tours.length / tourPageSize));
+    const tourPageSafe = Math.min(tourPage, tourPages);
+    const pagedTours = tours.slice((tourPageSafe - 1) * tourPageSize, tourPageSafe * tourPageSize);
 
     // Expenses tab "view" opens the same claim view as the Claims tab
     const openClaimView = async (claimNumber) => {
@@ -1573,29 +1701,28 @@ const Expenses = () => {
 
             {/* Tabs + filters */}
             <div className="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-4">
-                {/* tabs scroll sideways on phones; the active pill slides between tabs */}
-                <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    <div className="flex bg-gray-100 dark:bg-gray-900 p-1.5 rounded-2xl w-max gap-1">
+                {/* phones: equal-width tabs, icon over label (all visible, no sideways scroll) · larger screens: one row; the active pill slides between tabs */}
+                <div className="sm:overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <div className={`grid ${visibleTabs.length === 4 ? "grid-cols-4" : "grid-cols-3"} sm:flex bg-gray-100 dark:bg-gray-900 p-1 sm:p-1.5 rounded-2xl sm:w-max gap-1`}>
                         {visibleTabs.map(({ key, label, icon: Icon }) => (
                             <button key={key} onClick={() => setTab(key)}
-                                className={`relative flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-colors cursor-pointer ${tab === key ? "text-teal-600 dark:text-teal-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"}`}>
+                                className={`relative flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wide sm:tracking-wider whitespace-nowrap transition-colors cursor-pointer ${tab === key ? "text-teal-600 dark:text-teal-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"}`}>
                                 {tab === key && (
                                     <motion.span layoutId="expenses-tab-pill" className="absolute inset-0 rounded-xl bg-white dark:bg-gray-800 shadow-sm"
                                         transition={{ type: "spring", stiffness: 420, damping: 34 }} />
                                 )}
-                                <span className="relative flex items-center gap-2">
-                                    <Icon size={15} /> {label}
-                                    {key === "claims" && isAdmin && summary?.pendingClaims > 0 && (
-                                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px]" title="Claims waiting for approval">{summary.pendingClaims}</span>
-                                    )}
-                                </span>
+                                <Icon size={16} className="relative" />
+                                <span className="relative">{label}</span>
+                                {key === "claims" && isAdmin && summary?.pendingClaims > 0 && (
+                                    <span className="absolute top-0.5 right-1 sm:static sm:ml-1 min-w-[18px] px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] leading-none text-center" title="Claims waiting for approval">{summary.pendingClaims}</span>
+                                )}
                             </button>
                         ))}
                     </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
-                    <div>
+                    <div className={foldCls}>
                         <label className={labelCls}>Period</label>
                         <select className={inputCls} value={preset} onChange={e => applyPreset(e.target.value)}>
                             <option value="this_month">This month</option>
@@ -1607,12 +1734,12 @@ const Expenses = () => {
                     </div>
                     {preset === "custom" && (
                         <>
-                            <div><label className={labelCls}>From</label><input type="date" className={inputCls} value={filters.from} onChange={e => setFilter("from", e.target.value)} /></div>
-                            <div><label className={labelCls}>To</label><input type="date" className={inputCls} value={filters.to} onChange={e => setFilter("to", e.target.value)} /></div>
+                            <div className={foldCls}><label className={labelCls}>From</label><input type="date" className={inputCls} value={filters.from} onChange={e => setFilter("from", e.target.value)} /></div>
+                            <div className={foldCls}><label className={labelCls}>To</label><input type="date" className={inputCls} value={filters.to} onChange={e => setFilter("to", e.target.value)} /></div>
                         </>
                     )}
                     {isAdmin && tab !== "expenses" && (
-                        <div>
+                        <div className={foldCls}>
                             <label className={labelCls}>Staff</label>
                             <select className={inputCls} value={filters.staff} onChange={e => setFilter("staff", e.target.value)}>
                                 <option value="">All staff</option>
@@ -1621,7 +1748,7 @@ const Expenses = () => {
                         </div>
                     )}
                     {tab === "claims" && (
-                        <div>
+                        <div className={foldCls}>
                             <label className={labelCls}>Claim Status</label>
                             <select className={inputCls} value={claimStatus} onChange={e => setClaimStatus(e.target.value)}>
                                 {["All", "Pending Approval", "Approved", "Paid", "Rejected"].map(s => (
@@ -1632,21 +1759,21 @@ const Expenses = () => {
                     )}
                     {tab === "expenses" && (
                         <>
-                            <div>
+                            <div className={foldCls}>
                                 <label className={labelCls}>Status</label>
                                 <select className={inputCls} value={filters.status} onChange={e => setFilter("status", e.target.value)}>
                                     <option value="All">All statuses</option>
                                     {meta.statuses.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
                             </div>
-                            <div>
+                            <div className={foldCls}>
                                 <label className={labelCls}>Category</label>
                                 <select className={inputCls} value={filters.category} onChange={e => setFilter("category", e.target.value)}>
                                     <option value="All">All categories</option>
                                     {meta.categories.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
-                            <div>
+                            <div className={foldCls}>
                                 <label className={labelCls}>Event</label>
                                 <select className={inputCls} value={filters.tour} onChange={e => setFilter("tour", e.target.value)}>
                                     <option value="">All</option>
@@ -1657,16 +1784,24 @@ const Expenses = () => {
                         </>
                     )}
                     {tab !== "overview" && (
-                        <div className="col-span-2 sm:flex-1 sm:min-w-[180px]">
-                            <label className={labelCls}>Search</label>
-                            <div className="relative">
+                        <div className="col-span-2 sm:flex-1 sm:min-w-[180px] max-sm:order-first">
+                            <label className={labelCls + " max-sm:hidden"}>Search</label>
+                            <div className="flex gap-2">
+                            <div className="relative flex-1">
                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input className={inputCls + " pl-9"} value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder={tab === "tours" ? "Event, city, staff..." : tab === "claims" ? "Claim no, staff, place..." : "Description, bill no, place..."} />
+                            </div>
+                            {/* phones: show / hide the other filters */}
+                            <button type="button" onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters}
+                                className={`sm:hidden relative shrink-0 flex items-center gap-1.5 px-3.5 rounded-xl border text-xs font-black uppercase tracking-wider cursor-pointer ${showFilters ? "border-teal-400 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300"}`}>
+                                <SlidersHorizontal size={15} /> Filters
+                                {activeFilters > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] px-1 py-0.5 rounded-full bg-teal-600 text-white text-[10px] leading-none text-center">{activeFilters}</span>}
+                            </button>
                             </div>
                         </div>
                     )}
                     {tab === "expenses" && (
-                        <button className={btnGhost + " col-span-2 justify-center border border-gray-200 dark:border-gray-700 flex items-center gap-2"} onClick={exportCSV}><Download size={14} /> Export CSV</button>
+                        <button className={btnGhost + ` col-span-2 justify-center border border-gray-200 dark:border-gray-700 flex items-center gap-2 ${foldCls}`} onClick={exportCSV}><Download size={14} /> Export CSV</button>
                     )}
                 </div>
             </div>
@@ -1773,8 +1908,11 @@ const Expenses = () => {
                                     </div>
                                 </div>
                                 <p className="mt-2 text-[11px] text-gray-500 flex items-center gap-1">
-                                    <Calendar size={11} /> {fmtDate(c.from)}{toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}
-                                    {c.tour && <span className="truncate"> · {c.tour.tourNumber} {c.tour.title}</span>}
+                                    <Calendar size={11} className="shrink-0" /> {fmtDate(c.from)}{toInputDate(c.to) !== toInputDate(c.from) ? ` – ${fmtDate(c.to)}` : ""}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-gray-500 flex items-center gap-1 min-w-0">
+                                    <CalendarDays size={11} className="shrink-0" />
+                                    <span className="truncate">{c.tour ? `${c.tour.tourNumber} · ${c.tour.title}` : "No event"}</span>
                                 </p>
                                 <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-end gap-1">
                                     {claimActions(c)}
@@ -1932,61 +2070,146 @@ const Expenses = () => {
 
             {/* ===== Tours ===== */}
             {tab === "tours" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-                    {tours.length === 0 ? (
-                        <div className="md:col-span-2 xl:col-span-3 bg-white dark:bg-gray-800 rounded-3xl p-12 text-center border border-dashed border-gray-200 dark:border-gray-700">
-                            <CalendarDays className="mx-auto text-gray-300" size={36} />
-                            <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No events yet</p>
-                            <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Create Event</button>
-                        </div>
-                    ) : tours.map((t, i) => (
-                        <motion.div key={t._id} {...enter(i)} whileHover={{ y: -3 }}
-                            className="bg-white dark:bg-gray-800 rounded-3xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-[11px] font-mono font-bold text-teal-600 dark:text-teal-400">{t.tourNumber}</p>
-                                    <h3 className="font-black text-gray-900 dark:text-white truncate">{t.title}</h3>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-start gap-1 mt-0.5" title={(t.memberNames || [t.staffName]).join(", ")}>
-                                        <User size={12} className="mt-0.5 shrink-0" />
-                                        <span className="line-clamp-2">
-                                            {(t.memberNames?.length ? t.memberNames : [t.staffName]).slice(0, 3).join(", ")}
-                                            {(t.memberNames?.length || 1) > 3 && ` +${t.memberNames.length - 3} more`}
-                                        </span>
-                                    </p>
-                                </div>
-                                <StatusChip status={t.status} />
+                <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                    {/* phones: one compact card per event */}
+                    <div className="md:hidden p-3 space-y-3">
+                        {tours.length === 0 ? (
+                            <div className="py-10 text-center">
+                                <CalendarDays className="mx-auto text-gray-300" size={34} />
+                                <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No events yet</p>
+                                <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Create Event</button>
                             </div>
-                            <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                                <p className="flex items-center gap-1"><Calendar size={12} /> {fmtDate(t.startDate)} – {fmtDate(t.endDate)}</p>
-                                {(t.fromCity || t.toCities) && <p className="flex items-center gap-1"><MapPin size={12} /> {[t.fromCity, t.toCities].filter(Boolean).join(" → ")}</p>}
-                            </div>
-                            {t.advanceAmount > 0 ? (
-                                <div className="grid grid-cols-3 gap-2 text-center">
-                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Advance</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.advanceAmount)}</p></div>
-                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Spent</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.spent)}</p></div>
-                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2">
-                                        <p className="text-[10px] font-black uppercase text-gray-400">{t.balance >= 0 ? "To return" : "To pay"}</p>
-                                        <p className="text-sm font-black text-gray-900 dark:text-white">{inr(Math.abs(t.balance))}</p>
+                        ) : pagedTours.map((t, i) => {
+                            const names = t.memberNames?.length ? t.memberNames : [t.staffName];
+                            const open = t.claimOpen !== false;
+                            return (
+                                <motion.div key={t._id} {...enter(i)} className="rounded-2xl border border-gray-100 dark:border-gray-700 p-3.5 bg-gray-50/50 dark:bg-gray-900/40">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <button className="text-left min-w-0" onClick={() => setTourDetail(t._id)}>
+                                            <p className="font-mono text-[11px] font-bold text-teal-600 dark:text-teal-400">{t.tourNumber}</p>
+                                            <p className="text-sm font-black text-gray-900 dark:text-white line-clamp-2">{t.title}</p>
+                                        </button>
+                                        <StatusChip status={t.status} />
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-2 text-center">
-                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Spent (approved)</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.spent)}</p></div>
-                                    <div className="rounded-xl bg-gray-50 dark:bg-gray-900/50 py-2"><p className="text-[10px] font-black uppercase text-gray-400">Pending</p><p className="text-sm font-black text-gray-900 dark:text-white">{inr(t.pending)}</p></div>
-                                </div>
-                            )}
-                            {t.advanceAmount > 0 && t.pending > 0 && !(t.approvedBudget > 0) && <p className="text-[11px] font-semibold text-amber-600">{inr(t.pending)} pending approval</p>}
-                            <BudgetBar budget={t.approvedBudget} spent={t.spent} pending={t.pending} compact />
-                            <ClaimWindowNote tour={t} isAdmin={isAdmin} compact />
-                            <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-700">
-                                <button className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setTourDetail(t._id)}>Open · {t.count} expense(s)</button>
-                                <div className="flex gap-1">
-                                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit event" aria-label="Edit event" disabled={!isAdmin && t.settled} onClick={() => setTourForm({ tour: t })}><Edit2 size={15} /></button>
-                                    <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title="Delete event" aria-label="Delete event" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={15} /></button>
-                                </div>
-                            </div>
-                        </motion.div>
-                    ))}
+                                    <div className="mt-2 space-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                        <p className="flex items-center gap-1"><Calendar size={11} className="shrink-0" /> {fmtDate(t.startDate)} – {fmtDate(t.endDate)}</p>
+                                        {(t.fromCity || t.toCities) && <p className="flex items-center gap-1 min-w-0"><MapPin size={11} className="shrink-0" /><span className="truncate">{[t.fromCity, t.toCities].filter(Boolean).join(" → ")}</span></p>}
+                                        <p className="flex items-center gap-1 min-w-0"><User size={11} className="shrink-0" /><span className="truncate">{names.slice(0, 3).join(", ")}{names.length > 3 ? ` +${names.length - 3}` : ""}</span></p>
+                                    </div>
+                                    <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <p className={labelCls + " mb-0"}>Spent</p>
+                                            <p className="font-black text-gray-900 dark:text-white">{inr(t.spent)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={labelCls + " mb-0"}>Pending</p>
+                                            <p className={`font-black ${t.pending > 0 ? "text-amber-600" : "text-gray-400"}`}>{t.pending > 0 ? inr(t.pending) : "—"}</p>
+                                        </div>
+                                    </div>
+                                    {t.approvedBudget > 0 && <div className="mt-2"><BudgetBar budget={t.approvedBudget} spent={t.spent} compact /></div>}
+                                    <div className="mt-2.5 pt-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
+                                        <label className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${open ? "border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300" : "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300"}`}>
+                                            <input type="checkbox" className="w-4 h-4 accent-teal-600" checked={open} disabled={togglingTour === t._id} onChange={() => toggleClaims(t)} />
+                                            Claims {open ? "open" : "closed"}
+                                        </label>
+                                        <div className="flex items-center gap-0.5">
+                                            <button className={`${iconBtn} text-gray-400 hover:text-indigo-600`} aria-label="View event" onClick={() => setTourDetail(t._id)}><Eye size={17} /></button>
+                                            {t.status !== "Cancelled" && <button className={`${iconBtn} text-teal-600`} aria-label="Add expense" onClick={() => setClaimForm({ defaultTour: t })}><Plus size={17} /></button>}
+                                            <button className={`${iconBtn} text-gray-400 hover:text-blue-600`} aria-label="Edit event" onClick={() => setTourForm({ tour: t })}><Edit2 size={17} /></button>
+                                            <button className={`${iconBtn} text-gray-400 hover:text-red-600`} aria-label="Delete event" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={17} /></button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+
+                    {/* larger screens: table that scrolls inside — the header row stays fixed on top */}
+                    <div className="hidden md:block max-h-[calc(100dvh-280px)] min-h-[240px] overflow-auto">
+                        <table className="w-full min-w-[1080px] text-left text-sm">
+                            <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 text-[10px] font-black uppercase tracking-wider text-gray-500 shadow-[0_1px_0_rgba(0,0,0,0.06)]">
+                                <tr>
+                                    <th className="px-4 py-3">Event</th>
+                                    <th className="px-4 py-3">Staff</th>
+                                    <th className="px-4 py-3">Dates</th>
+                                    <th className="px-4 py-3 min-w-[230px]">Budget / Spent</th>
+                                    <th className="px-4 py-3 text-right">Pending</th>
+                                    <th className="px-4 py-3">Status</th>
+                                    <th className="px-4 py-3 text-center">Claims</th>
+                                    <th className="px-4 py-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                {tours.length === 0 ? (
+                                    <tr><td colSpan="8" className="px-4 py-14 text-center">
+                                        <CalendarDays className="mx-auto text-gray-300" size={34} />
+                                        <p className="mt-2 text-xs font-bold uppercase tracking-widest text-gray-400">No events yet</p>
+                                        <button className={btnPrimary + " mx-auto mt-4"} onClick={() => setTourForm({})}><Plus size={14} /> Create Event</button>
+                                    </td></tr>
+                                ) : pagedTours.map((t, i) => {
+                                    const names = t.memberNames?.length ? t.memberNames : [t.staffName];
+                                    const open = t.claimOpen !== false;
+                                    return (
+                                        <motion.tr key={t._id} {...enter(i)} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40 align-top">
+                                            <td className="px-4 py-3 max-w-[260px]">
+                                                <button className="font-mono text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer" onClick={() => setTourDetail(t._id)}>{t.tourNumber}</button>
+                                                <p className="font-black text-gray-900 dark:text-white truncate" title={t.title}>{t.title}</p>
+                                                {(t.fromCity || t.toCities) && <p className="text-[11px] text-gray-500 flex items-center gap-1 truncate"><MapPin size={11} className="shrink-0" />{[t.fromCity, t.toCities].filter(Boolean).join(" → ")}</p>}
+                                            </td>
+                                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[200px]" title={names.join(", ")}>
+                                                <span className="line-clamp-2">{names.slice(0, 3).join(", ")}{names.length > 3 ? ` +${names.length - 3}` : ""}</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-xs whitespace-nowrap text-gray-700 dark:text-gray-300">
+                                                {fmtDate(t.startDate)}<br /><span className="text-gray-400">to</span> {fmtDate(t.endDate)}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <p className="text-xs font-bold text-gray-900 dark:text-white whitespace-nowrap">{inr(t.spent)} <span className="font-semibold text-gray-400">spent · {t.count} entr{t.count === 1 ? "y" : "ies"}</span></p>
+                                                {t.approvedBudget > 0
+                                                    ? <div className="mt-1"><BudgetBar budget={t.approvedBudget} spent={t.spent} compact /></div>
+                                                    : <p className="text-[11px] text-gray-400">No budget set</p>}
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-bold whitespace-nowrap text-amber-600">{t.pending > 0 ? inr(t.pending) : <span className="text-gray-400 font-semibold">—</span>}</td>
+                                            <td className="px-4 py-3"><StatusChip status={t.status} /></td>
+                                            <td className="px-4 py-3 text-center">
+                                                {/* tick = staff can submit claims for this event */}
+                                                <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider cursor-pointer select-none whitespace-nowrap ${open ? "border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300" : "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300"}`}
+                                                    title={open ? "Untick to close claims for this event" : "Tick to open claims for this event"}>
+                                                    <input type="checkbox" className="w-3.5 h-3.5 accent-teal-600" checked={open} disabled={togglingTour === t._id} onChange={() => toggleClaims(t)} />
+                                                    {open ? "Open" : "Closed"}
+                                                </label>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button className={`${iconBtn} text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20`} title="View event" aria-label="View event" onClick={() => setTourDetail(t._id)}><Eye size={16} /></button>
+                                                    {t.status !== "Cancelled" && (
+                                                        <button className={`${iconBtn} text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20`} title="Add expense for this event" aria-label="Add expense" onClick={() => setClaimForm({ defaultTour: t })}><Plus size={16} /></button>
+                                                    )}
+                                                    <button className={`${iconBtn} text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20`} title="Edit event" aria-label="Edit event" onClick={() => setTourForm({ tour: t })}><Edit2 size={16} /></button>
+                                                    <button className={`${iconBtn} text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20`} title={t.count > 0 ? "Has expenses — cannot delete" : "Delete event"} aria-label="Delete event" disabled={t.count > 0} onClick={() => deleteTour(t)}><Trash2 size={16} /></button>
+                                                </div>
+                                            </td>
+                                        </motion.tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    {/* fixed footer: totals + pages (phones: sticks to the bottom of the screen while scrolling the cards) */}
+                    <div className="max-md:sticky max-md:bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 sm:py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur text-xs font-bold text-gray-500">
+                        <span className="max-sm:w-full max-sm:text-center">
+                            {tours.length} event(s){tours.length > 0 && ` · showing ${(tourPageSafe - 1) * tourPageSize + 1}–${Math.min(tourPageSafe * tourPageSize, tours.length)}`}
+                            {tours.length > 0 && <span className="hidden sm:inline"> · {tours.filter(t => t.claimOpen !== false).length} open for claims</span>}
+                        </span>
+                        <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-between">
+                            <select className="px-2 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-200" value={tourPageSize}
+                                onChange={e => { setTourPageSize(Number(e.target.value)); setTourPage(1); }} aria-label="Rows per page">
+                                {[10, 25, 50].map(n => <option key={n} value={n}>{n} / page</option>)}
+                            </select>
+                            <button className={`${iconBtn} border border-gray-200 dark:border-gray-700`} disabled={tourPageSafe <= 1} onClick={() => setTourPage(tourPageSafe - 1)} aria-label="Previous page"><ChevronLeft size={14} /></button>
+                            <span>Page {tourPageSafe} of {tourPages}</span>
+                            <button className={`${iconBtn} border border-gray-200 dark:border-gray-700`} disabled={tourPageSafe >= tourPages} onClick={() => setTourPage(tourPageSafe + 1)} aria-label="Next page"><ChevronRight size={14} /></button>
+                        </div>
+                    </div>
                 </div>
             )}
             </motion.div>

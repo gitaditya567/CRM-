@@ -22,8 +22,8 @@ const FestivalBanner = () => {
 
     if (!festival) return null;
     const theme = FESTIVAL_THEMES[festival.theme] || FESTIVAL_THEMES.festive;
-    // countdown chip: the next festival while one is on, or this one when it is still coming
-    const countdown = active ? (upcoming && upcoming.festival.key !== active.key ? upcoming : null) : upcoming;
+    // countdown chip: the next festival while one is on (when one is only coming, the message already counts down)
+    const countdown = active && upcoming && upcoming.festival.key !== active.key ? upcoming : null;
     const message = active
         ? active.greetingToday
         : `${festival.name} aa rahi hai — taiyaari shuru! ${upcoming.days === 1 ? "Bas kal hai" : `Sirf ${upcoming.days} din baaki`}`;

@@ -1,10 +1,21 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // Dev only: with VITE_API_URL=/api the dev server forwards API, bill files and Socket.io to the
+  // local backend — so the app also works from a phone on the same Wi-Fi (npx vite --host).
+  const backend = loadEnv(mode, process.cwd(), '').DEV_BACKEND_URL || 'http://localhost:5000'
+  return {
+  server: {
+    proxy: {
+      '/api': { target: backend, changeOrigin: true },
+      '/uploads': { target: backend, changeOrigin: true },
+      '/socket.io': { target: backend, changeOrigin: true, ws: true },
+    }
+  },
   plugins: [
     react(),
     basicSsl(),
@@ -53,5 +64,6 @@ export default defineConfig({
       }
     },
     chunkSizeWarningLimit: 1200
+  }
   }
 })
